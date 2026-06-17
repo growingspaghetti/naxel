@@ -84,6 +84,8 @@ One or more sections, each starting with the separator line (10 × 👉 + 10 × 
 👉👉👉👉👉👉👉👉👉👉👈👈👈👈👈👈👈👈👈👈
 👉machine👈
 machine_value
+👉id👈
+#id_value
 👉schedule👈
 schedule_value
 👉time👈
@@ -97,11 +99,12 @@ prop1_value
 prop2_value
 ```
 
-The additional fields after `👉notes👈` are determined by `[system] additional_properties` in `settings.ini`. Their values may be empty. If no additional properties are configured the section ends after the notes content.
+The core fields in order are: `machine`, `id`, `schedule`, `time`, `notes`. The additional fields after `👉notes👈` are determined by `[system] additional_properties` in `settings.ini`. Their values may be empty. If no additional properties are configured the section ends after the notes content.
 
 Validation rules enforced on `push`:
 - Every section must begin with the exact separator.
 - `👉machine👈` and `👉schedule👈` values must be non-empty (after strip).
+- `👉id👈` value must be non-empty and start with `#`.
 - `👉time👈` value must be non-empty and match `dd:dd` (two digits, colon, two digits).
 - `👉notes👈` must be followed by at least one line.
 - Each configured additional property label must be present (value may be empty).
@@ -125,12 +128,12 @@ Empty template: empty string.
 ### systems
 
 ```csv
-system_name, machine_name, schedule_name, time, notes, prop1, prop2
-sys1, m1, sche3, 09:00, foobarbaz, val1, val2
-sys1, m2, sche7, 12:30, , , 
+system_name, id, machine_name, schedule_name, time, notes, prop1, prop2
+sys1, #id1, m1, sche3, 09:00, foobarbaz, val1, val2
+sys1, #id2, m2, sche7, 12:30, , , 
 ```
 
-One row per section. Multi-line notes are joined with a space. Entries still in initial state (all sections have empty machine + schedule + time + notes + additional properties) are excluded. Additional property columns appear in the order defined by `[system] additional_properties`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
+One row per section. Multi-line notes are joined with a space. Entries still in initial state (all sections have empty machine + id + schedule + time + notes + additional properties) are excluded. Additional property columns appear in the order defined by `[system] additional_properties`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules
 
@@ -150,3 +153,4 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - Downloads always hold plain `.txt` regardless of collection, so mousepad can open them directly.
 - `push` looks for the latest `.txt` in downloads (always suffix `.txt`); the repo suffix is determined by `REPO_SUFFIX[collection]`.
 - `_validate_system` is strict: it requires exactly the configured additional property labels in the document. `_parse_system_sections` is lenient: it collects whatever prop labels are present and maps them to the configured names, defaulting to `""` for any mismatch. This means old documents with different props export cleanly after a config change.
+- `id` is a core field (always present, between `machine` and `schedule`), not an additional property. It is not unique — multiple sections or systems can share the same id value.

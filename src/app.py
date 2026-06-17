@@ -114,6 +114,7 @@ _SCHEDULE_RE = re.compile(rf"^{_DATE_SEG}(,{_DATE_SEG})*\n?$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 _CORE_LABELS = frozenset({
     "\U0001f449machine\U0001f448",
+    "\U0001f449id\U0001f448",
     "\U0001f449schedule\U0001f448",
     "\U0001f449time\U0001f448",
     "\U0001f449notes\U0001f448",
@@ -131,6 +132,7 @@ def _empty_system_document(additional_props: tuple[str, ...] = ()) -> str:
     lines = [
         _SEPARATOR,
         "\U0001f449machine\U0001f448", "",
+        "\U0001f449id\U0001f448", "",
         "\U0001f449schedule\U0001f448", "",
         "\U0001f449time\U0001f448", "",
         "\U0001f449notes\U0001f448", "",
@@ -159,6 +161,7 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = ()) -> tu
         i += 1
 
         for label in ("\U0001f449machine\U0001f448",
+                      "\U0001f449id\U0001f448",
                       "\U0001f449schedule\U0001f448",
                       "\U0001f449time\U0001f448",
                       "\U0001f449notes\U0001f448"):
@@ -174,6 +177,8 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = ()) -> tu
             else:
                 if i >= n or not lines[i].strip():
                     return False, f"line {i + 1}: value after {label!r} is missing"
+                if label == "\U0001f449id\U0001f448" and not lines[i].startswith("#"):
+                    return False, f"line {i + 1}: id must start with '#' (got {lines[i]!r})"
                 if label == "\U0001f449time\U0001f448" and not _TIME_RE.match(lines[i]):
                     return False, f"line {i + 1}: time must be dd:dd (got {lines[i]!r})"
                 i += 1
@@ -348,7 +353,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = ())
             continue
         i += 1
         section: dict = {}
-        for key in ("machine", "schedule", "time", "notes"):
+        for key in ("machine", "id", "schedule", "time", "notes"):
             label = f"\U0001f449{key}\U0001f448"
             if i >= n or lines[i] != label:
                 section = {}
@@ -363,7 +368,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = ())
             else:
                 section[key] = lines[i].strip() if i < n else ""
                 i += 1
-        if len(section) == 4:
+        if len(section) == 5:
             # Collect all prop label-value pairs present in the document
             found: dict[str, str] = {}
             while i < n and lines[i] != _SEPARATOR:
@@ -386,7 +391,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = ())
 def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = ()) -> bool:
     sections = _parse_system_sections(content, additional_props)
     return bool(sections) and all(
-        not s["machine"] and not s["schedule"] and not s["time"] and not s["notes"]
+        not s["machine"] and not s["id"] and not s["schedule"] and not s["time"] and not s["notes"]
         and all(not s.get(p) for p in additional_props)
         for s in sections
     )
@@ -423,7 +428,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
 
     rows = []
     if collection == "systems":
-        rows.append(_csv_row("system_name", "machine_name", "schedule_name", "time", "notes", *additional_props))
+        rows.append(_csv_row("system_name", "id", "machine_name", "schedule_name", "time", "notes", *additional_props))
         for encoded, fname in sorted(seen.items()):
             system_name = decode_name(encoded) or encoded
             content = gzip.decompress((col_path / fname).read_bytes()).decode()
@@ -431,7 +436,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
             if all(not s["machine"] and not s["schedule"] for s in sections):
                 continue  # initial state: no meaningful data yet
             for sec in sections:
-                rows.append(_csv_row(system_name, sec["machine"], sec["schedule"], sec["time"], sec["notes"],
+                rows.append(_csv_row(system_name, sec["id"], sec["machine"], sec["schedule"], sec["time"], sec["notes"],
                                      *[sec.get(p, "") for p in additional_props]))
     elif collection == "schedules":
         rows.append(_csv_row("schedule_name", "dates"))
