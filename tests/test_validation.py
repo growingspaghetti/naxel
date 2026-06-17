@@ -1,5 +1,5 @@
 import pytest
-from app import _validate_system, _validate_schedule, validate, _parse_system_sections, _csv_field, _csv_row
+from app import _validate_system, _validate_schedule, validate, _parse_system_sections, _csv_field, _csv_row, _empty_system_document
 
 SEP = "👉" * 10 + "👈" * 10
 M = "👉machine👈"
@@ -10,11 +10,14 @@ N = "👉notes👈"
 T = "👉time👈"
 
 
-def sys_doc(*rows):
+def sys_doc(*rows, props=()):
     """Build a system document from (machine, schedule, time, notes) tuples."""
     parts = []
     for machine, schedule, time, notes in rows:
-        parts += [SEP, M, machine, S, schedule, T, time, N, notes]
+        section = [SEP, M, machine, S, schedule, T, time, N, notes]
+        for pname, pval in props:
+            section += [f"👉{pname}👈", pval]
+        parts += section
     return "\n".join(parts) + "\n"
 
 
@@ -185,3 +188,78 @@ class TestCsvHelpers:
 
     def test_row_empty_field(self):
         assert _csv_row("a", "", "c") == "a, , c"
+
+
+PROPS = ("p1", "p2")
+
+
+class TestAdditionalPropsValidation:
+    def test_valid_with_props(self):
+        doc = sys_doc(("m1", "s1", "12:00", "notes"), props=[("p1", "v1"), ("p2", "v2")])
+        ok, _ = _validate_system(doc, PROPS)
+        assert ok
+
+    def test_empty_prop_value_valid(self):
+        doc = sys_doc(("m1", "s1", "12:00", "notes"), props=[("p1", ""), ("p2", "")])
+        ok, _ = _validate_system(doc, PROPS)
+        assert ok
+
+    def test_missing_prop_label_rejected(self):
+        doc = sys_doc(("m1", "s1", "12:00", "notes"))  # no props in document
+        ok, msg = _validate_system(doc, PROPS)
+        assert not ok
+        assert "p1" in msg
+
+    def test_wrong_prop_label_rejected(self):
+        doc = sys_doc(("m1", "s1", "12:00", "notes"), props=[("wrong", "v"), ("p2", "v")])
+        ok, msg = _validate_system(doc, PROPS)
+        assert not ok
+
+    def test_notes_terminated_by_prop_label(self):
+        doc = sys_doc(("m1", "s1", "12:00", "line1"), props=[("p1", "v1"), ("p2", "")])
+        sections = _parse_system_sections(doc, PROPS)
+        assert sections[0]["notes"] == "line1"
+        assert sections[0]["p1"] == "v1"
+
+    def test_multiline_notes_terminated_before_props(self):
+        doc = sys_doc(("m1", "s1", "12:00", "line1\nline2"), props=[("p1", ""), ("p2", "")])
+        # sys_doc puts notes as single string; manually build multi-line notes doc
+        content = "\n".join([SEP, M, "m1", S, "s1", T, "12:00", N, "line1", "line2",
+                              "👉p1👈", "val", "👉p2👈", ""]) + "\n"
+        sections = _parse_system_sections(content, PROPS)
+        assert sections[0]["notes"] == "line1 line2"
+        assert sections[0]["p1"] == "val"
+
+    def test_empty_template_includes_props(self):
+        doc = _empty_system_document(PROPS)
+        assert "👉p1👈" in doc
+        assert "👉p2👈" in doc
+
+    def test_parse_empty_template_with_props(self):
+        doc = _empty_system_document(PROPS)
+        sections = _parse_system_sections(doc, PROPS)
+        assert sections[0] == {"machine": "", "schedule": "", "time": "", "notes": "", "p1": "", "p2": ""}
+
+    def test_parse_mismatch_fills_missing_with_empty(self):
+        # document has p1 and p3, config asks for p1 and p2 — p2 should be ""
+        content = "\n".join([SEP, M, "m1", S, "s1", T, "12:00", N, "notes",
+                              "👉p1👈", "val1", "👉p3👈", "val3"]) + "\n"
+        sections = _parse_system_sections(content, ("p1", "p2"))
+        assert sections[0]["p1"] == "val1"
+        assert sections[0]["p2"] == ""
+
+    def test_parse_completely_different_props_fills_all_empty(self):
+        # document has p3 and p4, config asks for p1 and p2 — both should be ""
+        content = "\n".join([SEP, M, "m1", S, "s1", T, "12:00", N, "notes",
+                              "👉p3👈", "val3", "👉p4👈", "val4"]) + "\n"
+        sections = _parse_system_sections(content, ("p1", "p2"))
+        assert sections[0]["p1"] == ""
+        assert sections[0]["p2"] == ""
+        assert len(sections) == 1  # section still included
+
+    def test_parse_notes_not_contaminated_by_unknown_props(self):
+        # document has unknown prop labels; notes must not consume them
+        content = "\n".join([SEP, M, "m1", S, "s1", T, "12:00", N, "real notes",
+                              "👉p3👈", "val"]) + "\n"
+        sections = _parse_system_sections(content, ("p1",))
+        assert sections[0]["notes"] == "real notes"

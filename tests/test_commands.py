@@ -6,7 +6,7 @@ import app
 from app import (
     encode_name,
     cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export,
-    _EMPTY_DOCUMENTS,
+    _EMPTY_DOCUMENTS, _empty_system_document,
 )
 
 SEP = "👉" * 10 + "👈" * 10
@@ -16,10 +16,16 @@ T = "👉time👈"
 N = "👉notes👈"
 
 
-def sys_doc(*rows):
+PROPS = ("p1", "p2")
+
+
+def sys_doc(*rows, props=()):
     parts = []
     for machine, schedule, time, notes in rows:
-        parts += [SEP, M, machine, S, schedule, T, time, N, notes]
+        section = [SEP, M, machine, S, schedule, T, time, N, notes]
+        for pname, pval in props:
+            section += [f"👉{pname}👈", pval]
+        parts += section
     return "\n".join(parts) + "\n"
 
 
@@ -374,3 +380,78 @@ class TestCmdExport:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad")
         assert "sys1" in (downloads / "out.csv").read_text()
+
+
+class TestAdditionalProps:
+    def test_add_creates_template_with_props(self, repo, capsys):
+        cmd_add(repo, "systems", "sys1", additional_props=PROPS)
+        enc = encode_name("sys1")
+        content = gzip.decompress((repo / "systems" / f"{enc}.0000.txt.gz").read_bytes()).decode()
+        assert "👉p1👈" in content
+        assert "👉p2👈" in content
+
+    def test_add_template_matches_empty_system_document(self, repo):
+        cmd_add(repo, "systems", "sys1", additional_props=PROPS)
+        enc = encode_name("sys1")
+        content = gzip.decompress((repo / "systems" / f"{enc}.0000.txt.gz").read_bytes()).decode()
+        assert content == _empty_system_document(PROPS)
+
+    def test_clear_writes_template_with_props(self, repo, downloads):
+        put_system(repo, "sys1", 0, sys_doc(("m1", "sc1", "12:00", "n"), props=[("p1", "v"), ("p2", "")]))
+        enc = encode_name("sys1")
+        with patch.object(app.subprocess, "Popen"):
+            cmd_clear(repo, "systems", "sys1", downloads, "mousepad", additional_props=PROPS)
+        content = (downloads / f"{enc}.0000.txt").read_text()
+        assert content == _empty_system_document(PROPS)
+
+    def test_push_accepts_doc_with_props(self, repo, downloads, capsys):
+        put_system(repo, "sys1", 0, "")
+        put_schedule(repo, "sc1", 0, "2020/01/01")
+        enc = encode_name("sys1")
+        doc = sys_doc(("m1", "sc1", "12:00", "notes"), props=[("p1", "val1"), ("p2", "")])
+        (downloads / f"{enc}.0000.txt").write_text(doc)
+        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), additional_props=PROPS)
+        assert "pushed" in capsys.readouterr().out
+
+    def test_push_rejects_doc_missing_props(self, repo, downloads, capsys):
+        put_system(repo, "sys1", 0, "")
+        put_schedule(repo, "sc1", 0, "2020/01/01")
+        enc = encode_name("sys1")
+        doc = sys_doc(("m1", "sc1", "12:00", "notes"))  # no additional props in document
+        (downloads / f"{enc}.0000.txt").write_text(doc)
+        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), additional_props=PROPS)
+        assert "rejected" in capsys.readouterr().out
+
+    def test_push_accepts_initial_state_with_props(self, repo, downloads, capsys):
+        put_system(repo, "sys1", 0, "")
+        enc = encode_name("sys1")
+        (downloads / f"{enc}.0000.txt").write_text(_empty_system_document(PROPS))
+        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), additional_props=PROPS)
+        assert "pushed" in capsys.readouterr().out
+
+    def test_export_csv_includes_prop_columns(self, repo, downloads, cache):
+        doc = sys_doc(("m1", "sc1", "12:00", "notes"), props=[("p1", "val1"), ("p2", "val2")])
+        put_system(repo, "sys1", 0, doc)
+        with patch.object(app.subprocess, "Popen"):
+            cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
+        content = (downloads / "out.csv").read_text()
+        assert "system_name, machine_name, schedule_name, time, notes, p1, p2" in content
+        assert "sys1, m1, sc1, 12:00, notes, val1, val2" in content
+
+    def test_export_csv_empty_prop_value(self, repo, downloads, cache):
+        doc = sys_doc(("m1", "sc1", "12:00", "notes"), props=[("p1", ""), ("p2", "v2")])
+        put_system(repo, "sys1", 0, doc)
+        with patch.object(app.subprocess, "Popen"):
+            cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
+        content = (downloads / "out.csv").read_text()
+        assert "sys1, m1, sc1, 12:00, notes, , v2" in content
+
+    def test_export_csv_mismatched_props_fill_empty(self, repo, downloads, cache):
+        # document was saved with p1 and p3; export configured for p1 and p2
+        doc = sys_doc(("m1", "sc1", "12:00", "notes"), props=[("p1", "val1"), ("p3", "val3")])
+        put_system(repo, "sys1", 0, doc)
+        with patch.object(app.subprocess, "Popen"):
+            cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
+        content = (downloads / "out.csv").read_text()
+        assert "system_name, machine_name, schedule_name, time, notes, p1, p2" in content
+        assert "sys1, m1, sc1, 12:00, notes, val1, " in content
