@@ -22,13 +22,14 @@ cache/              local mirror of the NAS repo, populated at startup and on ex
 
 ## settings.ini keys
 
-| Section        | Key       | Default      | Meaning                        |
-|----------------|-----------|--------------|--------------------------------|
-| `[repository]` | `root`      | `dummy-repo` | Path to the NAS repo root                              |
-| `[downloads]`  | `dir`       | `downloads`  | Where edited files are staged                          |
-| `[cache]`      | `dir`       | `cache`      | Local mirror of the NAS repo                           |
-| `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
-| `[schedule]`   | `whitelist` | *(empty)*    | Comma-separated schedule names always accepted on push |
+| Section        | Key                     | Default      | Meaning                                                  |
+|----------------|-------------------------|--------------|----------------------------------------------------------|
+| `[repository]` | `root`                  | `dummy-repo` | Path to the NAS repo root                                |
+| `[downloads]`  | `dir`                   | `downloads`  | Where edited files are staged                            |
+| `[cache]`      | `dir`                   | `cache`      | Local mirror of the NAS repo                             |
+| `[editor]`     | `command`               | `mousepad`   | Editor launched by get/clear/export                      |
+| `[schedule]`   | `whitelist`             | *(empty)*    | Comma-separated schedule names always accepted on push   |
+| `[system]`     | `additional_properties` | *(empty)*    | Comma-separated extra field names appended to each section |
 
 ## File naming convention
 
@@ -90,17 +91,24 @@ schedule_value
 👉notes👈
 notes line 1
 notes line 2
+👉prop1👈
+prop1_value
+👉prop2👈
+prop2_value
 ```
+
+The additional fields after `👉notes👈` are determined by `[system] additional_properties` in `settings.ini`. Their values may be empty. If no additional properties are configured the section ends after the notes content.
 
 Validation rules enforced on `push`:
 - Every section must begin with the exact separator.
 - `👉machine👈` and `👉schedule👈` values must be non-empty (after strip).
 - `👉time👈` value must be non-empty and match `dd:dd` (two digits, colon, two digits).
 - `👉notes👈` must be followed by at least one line.
+- Each configured additional property label must be present (value may be empty).
 - Each `👉schedule👈` value must either exist as an entry in the repo's `schedules/` collection, or appear in `[schedule] whitelist` in `settings.ini`. The schedules directory is read with a single `os.listdir` call per push.
 - **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), the push is accepted without validation — this allows saving a cleared document back to the repo.
 
-Empty template (written by `add` / `clear`): separator + all four labels with blank value lines.
+Empty template (written by `add` / `clear`): separator + all core labels + all configured additional property labels, each with a blank value line.
 
 ### schedules
 
@@ -117,12 +125,12 @@ Empty template: empty string.
 ### systems
 
 ```csv
-system_name, machine_name, schedule_name, time, notes
-sys1, m1, sche3, 09:00, foobarbaz
-sys1, m2, sche7, 12:30, 
+system_name, machine_name, schedule_name, time, notes, prop1, prop2
+sys1, m1, sche3, 09:00, foobarbaz, val1, val2
+sys1, m2, sche7, 12:30, , , 
 ```
 
-One row per section. Multi-line notes are joined with a space. Entries still in initial state (all sections have empty machine + schedule + time + notes) are excluded.
+One row per section. Multi-line notes are joined with a space. Entries still in initial state (all sections have empty machine + schedule + time + notes + additional properties) are excluded. Additional property columns appear in the order defined by `[system] additional_properties`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules
 
@@ -141,3 +149,4 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - The NAS `systems/` and `schedules/` directories contain no subdirectories, so flat `listdir` is sufficient.
 - Downloads always hold plain `.txt` regardless of collection, so mousepad can open them directly.
 - `push` looks for the latest `.txt` in downloads (always suffix `.txt`); the repo suffix is determined by `REPO_SUFFIX[collection]`.
+- `_validate_system` is strict: it requires exactly the configured additional property labels in the document. `_parse_system_sections` is lenient: it collects whatever prop labels are present and maps them to the configured names, defaulting to `""` for any mismatch. This means old documents with different props export cleanly after a config change.
