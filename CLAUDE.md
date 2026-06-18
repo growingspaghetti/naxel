@@ -17,6 +17,7 @@ dummy-repo/                       local NAS substitute for development
   additional_properties.json      JSON array of extra field names for system sections
   systems/                        .txt.gz files named by base32-encoded system name + version
   schedules/                      .txt files named by base32-encoded schedule name + version
+  contacts/                       .txt files named by base32-encoded contact name + version
 downloads/                        files staged for editing (always plain .txt)
 cache/                            local mirror of the NAS repo, populated at startup and on export
 ```
@@ -30,6 +31,7 @@ cache/                            local mirror of the NAS repo, populated at sta
 | `[cache]`      | `dir`       | `cache`      | Local mirror of the NAS repo                           |
 | `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
 | `[schedule]`   | `whitelist` | *(empty)*    | Comma-separated schedule names always accepted on push |
+| `[contact]`    | `whitelist` | *(empty)*    | Comma-separated contact names always accepted on push  |
 
 ## additional_properties.json
 
@@ -41,7 +43,7 @@ Every file in the repo is named `{base32(name)}.{version}.{ext}` where:
 
 - `base32(name)` — Python `base64.b32encode`, `=` padding stripped (uppercase letters + digits 2–7, safe for all filesystems)
 - `version` — zero-padded 4-digit integer (`0000`–`9999`)
-- `ext` — `.txt.gz` for systems, `.txt` for schedules
+- `ext` — `.txt.gz` for systems, `.txt` for schedules and contacts
 
 `ls`, `cat`, `get`, `clear`, and `push` all resolve to the **highest version** file for a given name (lexicographic sort of `os.listdir`, no per-file stat calls).
 
@@ -55,7 +57,7 @@ Every file in the repo is named `{base32(name)}.{version}.{ext}` where:
 - **systems** files are gzip-compressed in the repo (`.txt.gz`).  
   `get` decompresses to plain `.txt` in downloads. `push` re-compresses before writing to the repo.  
   `clear` writes the plain-text empty template to downloads (no compression).
-- **schedules** files are stored as plain `.txt` throughout.
+- **schedules** and **contacts** files are stored as plain `.txt` throughout.
 
 ## Cache
 
@@ -72,12 +74,12 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `cat <collection> <name>`      | Print latest version content to stdout (decompresses systems) |
 | `get <collection> <name>`      | Copy latest version to downloads as `.txt`, open with editor |
 | `clear <collection> <name>`    | Write empty document template to downloads (same filename as `get`), open with editor |
-| `len <collection> <name>`      | Print the count of non-empty records in the latest version (sections for systems, dates for schedules) |
+| `len <collection> <name>`      | Print the count of non-empty records in the latest version (sections for systems, entries for schedules/contacts) |
 | `push <collection> <name>`     | Validate latest `.txt` in downloads, write as next version in repo |
 | `export <collection> <file>`   | Sync cache, build CSV from latest versions, save to downloads, open with editor |
 | `exit`                         | Quit |
 
-Collections: `systems`, `schedules`.
+Collections: `systems`, `schedules`, `contacts`.
 
 ## Document formats
 
@@ -87,8 +89,8 @@ Systems files in the repo are stored as a JSON array of section objects, compres
 
 ```json
 [
-  {"machine": "m1", "id": "#id1", "schedule": "sche1", "time": "09:00", "notes": "line1\nline2", "prop1": "val1"},
-  {"machine": "m2", "id": "#id2", "schedule": "sche2", "time": "12:00", "notes": "notes", "prop1": ""}
+  {"machine": "m1", "id": "#id1", "schedule": "sche1", "contact": "cont1", "time": "09:00", "notes": "line1\nline2", "prop1": "val1"},
+  {"machine": "m2", "id": "#id2", "schedule": "sche2", "contact": "cont2", "time": "12:00", "notes": "notes", "prop1": ""}
 ]
 ```
 
@@ -108,6 +110,8 @@ machine_value
 #id_value
 👉schedule👈
 schedule_value
+👉contact👈
+contact_value
 👉time👈
 12:00
 👉notes👈
@@ -119,16 +123,17 @@ prop1_value
 prop2_value
 ```
 
-The core fields in order are: `machine`, `id`, `schedule`, `time`, `notes`. The additional fields after `👉notes👈` are determined by `[system] additional_properties` in `settings.ini`. Their values may be empty. If no additional properties are configured the section ends after the notes content.
+The core fields in order are: `machine`, `id`, `schedule`, `contact`, `time`, `notes`. The additional fields after `👉notes👈` are determined by `[system] additional_properties` in `settings.ini`. Their values may be empty. If no additional properties are configured the section ends after the notes content.
 
 Validation rules enforced on `push` (applied to the 👉👈 text before conversion):
 - Every section must begin with the exact separator.
-- `👉machine👈` and `👉schedule👈` values must be non-empty (after strip).
+- `👉machine👈`, `👉schedule👈`, and `👉contact👈` values must be non-empty (after strip).
 - `👉id👈` value must be non-empty and start with `#`.
 - `👉time👈` value must be non-empty and match `dd:dd` (two digits, colon, two digits).
 - `👉notes👈` must be followed by at least one line.
 - Each configured additional property label must be present (value may be empty).
 - Each `👉schedule👈` value must either exist as an entry in the repo's `schedules/` collection, or appear in `[schedule] whitelist` in `settings.ini`. The schedules directory is read with a single `os.listdir` call per push.
+- Each `👉contact👈` value must either exist as an entry in the repo's `contacts/` collection, or appear in `[contact] whitelist` in `settings.ini`. The contacts directory is read with a single `os.listdir` call per push.
 - **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), the push is accepted without validation — this allows saving a cleared document back to the repo.
 
 Empty template (written by `clear`): separator + all core labels + all configured additional property labels, each with a blank value line.
@@ -143,14 +148,24 @@ One line (optional trailing newline) of `yyyy/mm/dd` dates separated by commas:
 
 Empty template: empty string.
 
+### contacts
+
+One line (optional trailing newline) of phone/contact strings matching `[0-9\-\+]+`, separated by commas:
+
+```
+03-1234-5678,09012345678,+81-0100-0331
+```
+
+Empty template: empty string.
+
 ## CSV export format
 
 ### systems
 
 ```csv
-system_name, id, machine_name, schedule_name, time, notes, prop1, prop2
-sys1, #id1, m1, sche3, 09:00, foobarbaz, val1, val2
-sys1, #id2, m2, sche7, 12:30, , , 
+system_name, id, machine_name, schedule_name, contact_name, time, notes, prop1, prop2
+sys1, #id1, m1, sche3, cont1, 09:00, foobarbaz, val1, val2
+sys1, #id2, m2, sche7, cont2, 12:30, , , 
 ```
 
 One row per section. Multi-line notes are joined with a space. Documents where every section has an empty `machine` and `schedule` are excluded from the CSV. Additional property columns appear in the order defined by `[system] additional_properties`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
@@ -164,6 +179,15 @@ sche1, 1234/11/12 1234/11/12 1234/12/12
 
 Comma-separated dates from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
 
+### contacts
+
+```csv
+contact_name, dates
+cont1, 03-1234-5678 09012345678 +81-0100-0331
+```
+
+Comma-separated contact strings from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
+
 Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 
 ## Key implementation decisions
@@ -173,5 +197,6 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - Downloads always hold plain `.txt` regardless of collection, so mousepad can open them directly.
 - `push` looks for the latest `.txt` in downloads (always suffix `.txt`); the repo suffix is determined by `REPO_SUFFIX[collection]`.
 - Systems are stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
-- `_validate_system` is strict: it requires exactly the configured additional property labels in the document. `_parse_system_sections` is lenient and used only for schedule-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
+- `_validate_system` is strict: it requires exactly the configured additional property labels in the document. `_parse_system_sections` is lenient and used only for schedule/contact-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - `id` is a core field (always present, between `machine` and `schedule`), not an additional property. It is not unique — multiple sections or systems can share the same id value.
+- `contact` is a core field (always present, between `schedule` and `time`). Its value must exist in the `contacts/` collection or be in `[contact] whitelist`. The contacts directory is scanned once per push, after the schedule check.
