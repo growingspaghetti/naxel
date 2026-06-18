@@ -72,6 +72,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `cat <collection> <name>`      | Print latest version content to stdout (decompresses systems) |
 | `get <collection> <name>`      | Copy latest version to downloads as `.txt`, open with editor |
 | `clear <collection> <name>`    | Write empty document template to downloads (same filename as `get`), open with editor |
+| `len <collection> <name>`      | Print the count of non-empty records in the latest version (sections for systems, dates for schedules) |
 | `push <collection> <name>`     | Validate latest `.txt` in downloads, write as next version in repo |
 | `export <collection> <file>`   | Sync cache, build CSV from latest versions, save to downloads, open with editor |
 | `exit`                         | Quit |

@@ -327,6 +327,19 @@ def cmd_add(repo_root: Path, collection: str, name: str,
     print(f"created: {name}")
 
 
+def cmd_len(repo_root: Path, collection: str, name: str):
+    filepath = find_latest_file(repo_root, collection, name)
+    if filepath is None:
+        print(f"error: not found: {name}")
+        return
+    if collection == "systems":
+        sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
+        print(sum(1 for s in sections if s.get("machine") or s.get("schedule")))
+    elif collection == "schedules":
+        content = filepath.read_text().strip()
+        print(len(content.split(",")) if content else 0)
+
+
 def cmd_cat(repo_root: Path, collection: str, name: str,
             additional_props: tuple[str, ...] = ()):
     filepath = find_latest_file(repo_root, collection, name)
@@ -546,6 +559,7 @@ USAGE = (
     "  cat <collection> <name>\n"
     "  get <collection> <name>\n"
     "  clear <collection> <name>\n"
+    "  len <collection> <name>\n"
     "  push <collection> <name>\n"
     "  export <collection> <file.csv>\n"
     "  exit\n"
@@ -562,7 +576,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     if cmd == "exit":
         return False
 
-    if cmd in ("ls", "add", "cat", "get", "clear", "push", "export"):
+    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export"):
         if len(parts) < 2:
             print("error: missing collection")
             return True
@@ -600,6 +614,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: clear <collection> <name>")
         else:
             cmd_clear(repo_root, collection, parts[2], downloads_dir, editor, additional_props)
+
+    elif cmd == "len":
+        if len(parts) != 3:
+            print("usage: len <collection> <name>")
+        else:
+            cmd_len(repo_root, collection, parts[2])
 
     elif cmd == "push":
         if len(parts) != 3:
