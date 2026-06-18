@@ -4,6 +4,7 @@ import gzip
 import json
 import os
 import re
+import readline  # noqa: F401 — enables up/down arrow history in input()
 import subprocess
 import sys
 from pathlib import Path
