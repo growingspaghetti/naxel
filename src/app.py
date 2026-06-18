@@ -581,7 +581,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
             dates = " ".join(content.split(","))
             rows.append(_csv_row(schedule_name, dates))
     elif collection == "contacts":
-        rows.append(_csv_row("contact_name", "dates"))
+        rows.append(_csv_row("contact_name", "numbers"))
         for encoded, fname in sorted(seen.items()):
             contact_name = decode_name(encoded) or encoded
             content = (col_path / fname).read_text().strip()

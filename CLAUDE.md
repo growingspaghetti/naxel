@@ -182,7 +182,7 @@ Comma-separated dates from the file are converted to space-separated in the CSV.
 ### contacts
 
 ```csv
-contact_name, dates
+contact_name, numbers
 cont1, 03-1234-5678 09012345678 +81-0100-0331
 ```
 
