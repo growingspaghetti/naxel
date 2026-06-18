@@ -11,13 +11,15 @@ add systems sys3 # create a file with the system name in /systems/ encoding base
 cat systems sys4 # print contents finding the maching file by name
 get systems sys3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
 clear systems sys3 # like `get` command this opens the editor but with the empty system document.
+len systems sys3 # prints "%d" that is the length of the non-empty records contained in this system document.
 push systems sys3 # reads the contents after finding the file in downloads, then write it in the file in the repository.
 
 ls schedules # list schedule names in /systems/ decoding base32
 add schedules sc1 # create a file with the system name in /schedules/ encoding base32
 cat schedules sc4 # print contents finding the maching file by name
 get schedules sc3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
-clear schedule sys3 # like `get` command this opens the editor but with the empty schedule document.
+clear schedule sc3 # like `get` command this opens the editor but with the empty schedule document.
+len schedule sc3 # prints "%d" that is how many dates contained in this schedule document.
 push schedules sc3 # reads the contents after finding the file in downloads, then write it in the file in the repository
 
 export systems foo.csv # export data in systems to the csv and open with the editor.

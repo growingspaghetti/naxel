@@ -38,9 +38,16 @@ def get_schedule_whitelist(config) -> set[str]:
     return {s.strip() for s in raw.split(",") if s.strip()}
 
 
-def get_system_additional_properties(config) -> tuple[str, ...]:
-    raw = config.get("system", "additional_properties", fallback="")
-    return tuple(s.strip() for s in raw.split(",") if s.strip())
+def load_additional_properties(repo_root: Path) -> tuple[str, ...]:
+    path = repo_root / "additional_properties.json"
+    try:
+        data = json.loads(path.read_text())
+        return tuple(str(s) for s in data if s)
+    except FileNotFoundError:
+        return ()
+    except Exception as e:
+        print(f"warning: could not read additional_properties.json: {e}")
+        return ()
 
 
 def sync_cache(repo_root: Path, cache_dir: Path):
@@ -620,7 +627,7 @@ def main():
     cache_dir = get_cache_dir(config)
     editor = get_editor(config)
     schedule_whitelist = get_schedule_whitelist(config)
-    additional_props = get_system_additional_properties(config)
+    additional_props = load_additional_properties(repo_root)
 
     print(f"repo-manipulator  repository={repo_root}")
     sync_cache(repo_root, cache_dir)

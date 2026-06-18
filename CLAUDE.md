@@ -11,25 +11,29 @@ Reads `settings.ini` from the project root (one level above `src/`).
 ## Project layout
 
 ```
-src/app.py          single-file Python application (REPL)
-settings.ini        configuration
-dummy-repo/         local NAS substitute for development
-  systems/          .txt.gz files named by base32-encoded system name + version
-  schedules/        .txt files named by base32-encoded schedule name + version
-downloads/          files staged for editing (always plain .txt)
-cache/              local mirror of the NAS repo, populated at startup and on export
+src/app.py                        single-file Python application (REPL)
+settings.ini                      configuration
+dummy-repo/                       local NAS substitute for development
+  additional_properties.json      JSON array of extra field names for system sections
+  systems/                        .txt.gz files named by base32-encoded system name + version
+  schedules/                      .txt files named by base32-encoded schedule name + version
+downloads/                        files staged for editing (always plain .txt)
+cache/                            local mirror of the NAS repo, populated at startup and on export
 ```
 
 ## settings.ini keys
 
-| Section        | Key                     | Default      | Meaning                                                  |
-|----------------|-------------------------|--------------|----------------------------------------------------------|
-| `[repository]` | `root`                  | `dummy-repo` | Path to the NAS repo root                                |
-| `[downloads]`  | `dir`                   | `downloads`  | Where edited files are staged                            |
-| `[cache]`      | `dir`                   | `cache`      | Local mirror of the NAS repo                             |
-| `[editor]`     | `command`               | `mousepad`   | Editor launched by get/clear/export                      |
-| `[schedule]`   | `whitelist`             | *(empty)*    | Comma-separated schedule names always accepted on push   |
-| `[system]`     | `additional_properties` | *(empty)*    | Comma-separated extra field names appended to each section |
+| Section        | Key         | Default      | Meaning                                                |
+|----------------|-------------|--------------|--------------------------------------------------------|
+| `[repository]` | `root`      | `dummy-repo` | Path to the NAS repo root                              |
+| `[downloads]`  | `dir`       | `downloads`  | Where edited files are staged                          |
+| `[cache]`      | `dir`       | `cache`      | Local mirror of the NAS repo                           |
+| `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
+| `[schedule]`   | `whitelist` | *(empty)*    | Comma-separated schedule names always accepted on push |
+
+## additional_properties.json
+
+Located at `{repo_root}/additional_properties.json`. A flat JSON array of strings naming the extra fields appended to each system section, e.g. `["prop1", "prop2"]`. If the file is absent, no additional properties are used.
 
 ## File naming convention
 
