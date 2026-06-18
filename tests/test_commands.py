@@ -1,12 +1,13 @@
 import gzip
+import json
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import app
 from app import (
     encode_name,
-    cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export,
-    _EMPTY_DOCUMENTS, _empty_system_document,
+    cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len,
+    _EMPTY_DOCUMENTS, _empty_system_document, _empty_system_json, _text_to_system_json,
 )
 
 SEP = "👉" * 10 + "👈" * 10
@@ -30,10 +31,13 @@ def sys_doc(*rows, props=()):
     return "\n".join(parts) + "\n"
 
 
-def put_system(repo, name, version, content):
+def put_system(repo, name, version, content, additional_props=()):
     enc = encode_name(name)
     path = repo / "systems" / f"{enc}.{version:04d}.txt.gz"
-    path.write_bytes(gzip.compress(content.encode()))
+    if content:
+        path.write_bytes(gzip.compress(_text_to_system_json(content, additional_props).encode()))
+    else:
+        path.write_bytes(gzip.compress(b""))
     return path
 
 
@@ -71,7 +75,7 @@ class TestCmdAdd:
         enc = encode_name("sys1")
         path = repo / "systems" / f"{enc}.0000.txt.gz"
         assert path.exists()
-        assert gzip.decompress(path.read_bytes()).decode() == _EMPTY_DOCUMENTS["systems"]
+        assert gzip.decompress(path.read_bytes()).decode() == _empty_system_json()
         assert "created: sys1" in capsys.readouterr().out
 
     def test_schedules_creates_txt(self, repo, capsys):
@@ -229,7 +233,7 @@ class TestCmdPush:
         (downloads / f"{enc}.0000.txt").write_text(content)
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set())
         gz = repo / "systems" / f"{enc}.0001.txt.gz"
-        assert gzip.decompress(gz.read_bytes()).decode() == content
+        assert gzip.decompress(gz.read_bytes()).decode() == _text_to_system_json(content)
 
     def test_system_invalid_format_rejected(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
@@ -395,15 +399,15 @@ class TestAdditionalProps:
     def test_add_creates_template_with_props(self, repo, capsys):
         cmd_add(repo, "systems", "sys1", additional_props=PROPS)
         enc = encode_name("sys1")
-        content = gzip.decompress((repo / "systems" / f"{enc}.0000.txt.gz").read_bytes()).decode()
-        assert "👉p1👈" in content
-        assert "👉p2👈" in content
+        data = json.loads(gzip.decompress((repo / "systems" / f"{enc}.0000.txt.gz").read_bytes()).decode())
+        assert "p1" in data[0]
+        assert "p2" in data[0]
 
-    def test_add_template_matches_empty_system_document(self, repo):
+    def test_add_template_matches_empty_system_json(self, repo):
         cmd_add(repo, "systems", "sys1", additional_props=PROPS)
         enc = encode_name("sys1")
         content = gzip.decompress((repo / "systems" / f"{enc}.0000.txt.gz").read_bytes()).decode()
-        assert content == _empty_system_document(PROPS)
+        assert content == _empty_system_json(PROPS)
 
     def test_clear_writes_template_with_props(self, repo, downloads):
         put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "sc1", "12:00", "n"), props=[("p1", "v"), ("p2", "")]))
@@ -440,7 +444,7 @@ class TestAdditionalProps:
 
     def test_export_csv_includes_prop_columns(self, repo, downloads, cache):
         doc = sys_doc(("m1", "#id1", "sc1", "12:00", "notes"), props=[("p1", "val1"), ("p2", "val2")])
-        put_system(repo, "sys1", 0, doc)
+        put_system(repo, "sys1", 0, doc, additional_props=PROPS)
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
         content = (downloads / "out.csv").read_text()
@@ -449,18 +453,51 @@ class TestAdditionalProps:
 
     def test_export_csv_empty_prop_value(self, repo, downloads, cache):
         doc = sys_doc(("m1", "#id1", "sc1", "12:00", "notes"), props=[("p1", ""), ("p2", "v2")])
-        put_system(repo, "sys1", 0, doc)
+        put_system(repo, "sys1", 0, doc, additional_props=PROPS)
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
         content = (downloads / "out.csv").read_text()
         assert "sys1, #id1, m1, sc1, 12:00, notes, , v2" in content
 
     def test_export_csv_mismatched_props_fill_empty(self, repo, downloads, cache):
-        # document was saved with p1 and p3; export configured for p1 and p2
+        # document was saved with p1 and p3; export configured for p1 and p2 — p2 must be empty
         doc = sys_doc(("m1", "#id1", "sc1", "12:00", "notes"), props=[("p1", "val1"), ("p3", "val3")])
-        put_system(repo, "sys1", 0, doc)
+        put_system(repo, "sys1", 0, doc, additional_props=("p1", "p3"))
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
         content = (downloads / "out.csv").read_text()
         assert "system_name, id, machine_name, schedule_name, time, notes, p1, p2" in content
         assert "sys1, #id1, m1, sc1, 12:00, notes, val1, " in content
+
+
+class TestCmdLen:
+    def test_systems_counts_non_empty_sections(self, repo, capsys):
+        put_system(repo, "sys1", 0, sys_doc(
+            ("m1", "#id1", "sc1", "08:00", "n1"),
+            ("m2", "#id2", "sc2", "09:00", "n2"),
+        ))
+        cmd_len(repo, "systems", "sys1")
+        assert capsys.readouterr().out.strip() == "2"
+
+    def test_systems_initial_state_is_zero(self, repo, capsys):
+        put_system(repo, "sys1", 0, _EMPTY_DOCUMENTS["systems"])
+        cmd_len(repo, "systems", "sys1")
+        assert capsys.readouterr().out.strip() == "0"
+
+    def test_systems_not_found_prints_error(self, repo, capsys):
+        cmd_len(repo, "systems", "ghost")
+        assert "error" in capsys.readouterr().out
+
+    def test_schedules_counts_dates(self, repo, capsys):
+        put_schedule(repo, "sc1", 0, "2020/01/01,2020/06/15,2021/03/10")
+        cmd_len(repo, "schedules", "sc1")
+        assert capsys.readouterr().out.strip() == "3"
+
+    def test_schedules_empty_content_is_zero(self, repo, capsys):
+        put_schedule(repo, "sc1", 0, "")
+        cmd_len(repo, "schedules", "sc1")
+        assert capsys.readouterr().out.strip() == "0"
+
+    def test_schedules_not_found_prints_error(self, repo, capsys):
+        cmd_len(repo, "schedules", "ghost")
+        assert "error" in capsys.readouterr().out

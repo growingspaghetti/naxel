@@ -1,5 +1,12 @@
+import json
 import pytest
-from app import _validate_system, _validate_schedule, validate, _parse_system_sections, _csv_field, _csv_row, _empty_system_document
+from pathlib import Path
+from app import (
+    _validate_system, _validate_schedule, validate, _parse_system_sections,
+    _csv_field, _csv_row, _empty_system_document,
+    _text_to_system_json, _system_sections_to_text, _empty_system_json,
+    load_additional_properties,
+)
 
 SEP = "👉" * 10 + "👈" * 10
 M = "👉machine👈"
@@ -275,3 +282,97 @@ class TestAdditionalPropsValidation:
                               "👉p3👈", "val"]) + "\n"
         sections = _parse_system_sections(content, ("p1",))
         assert sections[0]["notes"] == "real notes"
+
+
+class TestTextToSystemJson:
+    def test_basic_section(self):
+        content = sys_doc(("m1", "#id1", "s1", "12:00", "notes"))
+        data = json.loads(_text_to_system_json(content))
+        assert data == [{"machine": "m1", "id": "#id1", "schedule": "s1", "time": "12:00", "notes": "notes"}]
+
+    def test_multiline_notes_preserved_with_newlines(self):
+        content = "\n".join([SEP, M, "m1", I, "#id1", S, "s1", T, "12:00", N, "line1", "line2"]) + "\n"
+        data = json.loads(_text_to_system_json(content))
+        assert data[0]["notes"] == "line1\nline2"
+
+    def test_additional_props_included(self):
+        content = sys_doc(("m1", "#id1", "s1", "12:00", "n"), props=[("p1", "v1"), ("p2", "")])
+        data = json.loads(_text_to_system_json(content, ("p1", "p2")))
+        assert data[0]["p1"] == "v1"
+        assert data[0]["p2"] == ""
+
+    def test_multiple_sections(self):
+        content = sys_doc(("m1", "#id1", "s1", "08:00", "n1"), ("m2", "#id2", "s2", "09:00", "n2"))
+        data = json.loads(_text_to_system_json(content))
+        assert len(data) == 2
+        assert data[1]["machine"] == "m2"
+
+    def test_empty_content_returns_empty_array(self):
+        data = json.loads(_text_to_system_json(""))
+        assert data == []
+
+    def test_round_trip(self):
+        content = sys_doc(("m1", "#id1", "s1", "12:00", "notes"), props=[("p1", "val")])
+        props = ("p1",)
+        result = _system_sections_to_text(json.loads(_text_to_system_json(content, props)), props)
+        assert result == content
+
+
+class TestSystemSectionsToText:
+    def test_basic_conversion(self):
+        sections = [{"machine": "m1", "id": "#id1", "schedule": "s1", "time": "12:00", "notes": "notes"}]
+        text = _system_sections_to_text(sections)
+        assert SEP in text
+        assert "m1" in text
+        assert "#id1" in text
+
+    def test_multiline_notes_expanded(self):
+        sections = [{"machine": "m1", "id": "#id1", "schedule": "s1", "time": "12:00", "notes": "line1\nline2"}]
+        text = _system_sections_to_text(sections)
+        lines = text.splitlines()
+        notes_idx = lines.index(N)
+        assert lines[notes_idx + 1] == "line1"
+        assert lines[notes_idx + 2] == "line2"
+
+    def test_missing_additional_prop_appended_empty(self):
+        sections = [{"machine": "m1", "id": "#id1", "schedule": "s1", "time": "12:00", "notes": "n"}]
+        text = _system_sections_to_text(sections, ("p1", "p2"))
+        assert "👉p1👈" in text
+        assert "👉p2👈" in text
+
+    def test_empty_sections_returns_empty_string(self):
+        assert _system_sections_to_text([]) == "\n"
+
+
+class TestEmptySystemJson:
+    def test_returns_valid_json_array(self):
+        data = json.loads(_empty_system_json())
+        assert isinstance(data, list)
+        assert len(data) == 1
+
+    def test_all_core_fields_blank(self):
+        data = json.loads(_empty_system_json())
+        sec = data[0]
+        assert sec["machine"] == ""
+        assert sec["id"] == ""
+        assert sec["schedule"] == ""
+        assert sec["time"] == ""
+        assert sec["notes"] == ""
+
+    def test_additional_props_included_blank(self):
+        data = json.loads(_empty_system_json(("p1", "p2")))
+        assert data[0]["p1"] == ""
+        assert data[0]["p2"] == ""
+
+
+class TestLoadAdditionalProperties:
+    def test_reads_json_array(self, tmp_path):
+        (tmp_path / "additional_properties.json").write_text('["p1", "p2"]')
+        assert load_additional_properties(tmp_path) == ("p1", "p2")
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert load_additional_properties(tmp_path) == ()
+
+    def test_empty_array_returns_empty(self, tmp_path):
+        (tmp_path / "additional_properties.json").write_text("[]")
+        assert load_additional_properties(tmp_path) == ()
