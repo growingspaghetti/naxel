@@ -76,7 +76,22 @@ Collections: `systems`, `schedules`.
 
 ## Document formats
 
-### systems
+### systems — repo storage (JSON)
+
+Systems files in the repo are stored as a JSON array of section objects, compressed with gzip. All values are strings.
+
+```json
+[
+  {"machine": "m1", "id": "#id1", "schedule": "sche1", "time": "09:00", "notes": "line1\nline2", "prop1": "val1"},
+  {"machine": "m2", "id": "#id2", "schedule": "sche2", "time": "12:00", "notes": "notes", "prop1": ""}
+]
+```
+
+The empty template written by `add` is a single-element array with all blank string values.
+
+### systems — user-facing text (👉👈 format)
+
+`get`, `cat`, and `clear` present the 👉👈 separator format. `push` accepts it and converts back to JSON before writing to the repo.
 
 One or more sections, each starting with the separator line (10 × 👉 + 10 × 👈):
 
@@ -101,7 +116,7 @@ prop2_value
 
 The core fields in order are: `machine`, `id`, `schedule`, `time`, `notes`. The additional fields after `👉notes👈` are determined by `[system] additional_properties` in `settings.ini`. Their values may be empty. If no additional properties are configured the section ends after the notes content.
 
-Validation rules enforced on `push`:
+Validation rules enforced on `push` (applied to the 👉👈 text before conversion):
 - Every section must begin with the exact separator.
 - `👉machine👈` and `👉schedule👈` values must be non-empty (after strip).
 - `👉id👈` value must be non-empty and start with `#`.
@@ -111,7 +126,7 @@ Validation rules enforced on `push`:
 - Each `👉schedule👈` value must either exist as an entry in the repo's `schedules/` collection, or appear in `[schedule] whitelist` in `settings.ini`. The schedules directory is read with a single `os.listdir` call per push.
 - **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), the push is accepted without validation — this allows saving a cleared document back to the repo.
 
-Empty template (written by `add` / `clear`): separator + all core labels + all configured additional property labels, each with a blank value line.
+Empty template (written by `clear`): separator + all core labels + all configured additional property labels, each with a blank value line.
 
 ### schedules
 
@@ -133,7 +148,7 @@ sys1, #id1, m1, sche3, 09:00, foobarbaz, val1, val2
 sys1, #id2, m2, sche7, 12:30, , , 
 ```
 
-One row per section. Multi-line notes are joined with a space. Entries still in initial state (all sections have empty machine + id + schedule + time + notes + additional properties) are excluded. Additional property columns appear in the order defined by `[system] additional_properties`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
+One row per section. Multi-line notes are joined with a space. Documents where every section has an empty `machine` and `schedule` are excluded from the CSV. Additional property columns appear in the order defined by `[system] additional_properties`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules
 
@@ -152,5 +167,6 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - The NAS `systems/` and `schedules/` directories contain no subdirectories, so flat `listdir` is sufficient.
 - Downloads always hold plain `.txt` regardless of collection, so mousepad can open them directly.
 - `push` looks for the latest `.txt` in downloads (always suffix `.txt`); the repo suffix is determined by `REPO_SUFFIX[collection]`.
-- `_validate_system` is strict: it requires exactly the configured additional property labels in the document. `_parse_system_sections` is lenient: it collects whatever prop labels are present and maps them to the configured names, defaulting to `""` for any mismatch. This means old documents with different props export cleanly after a config change.
+- Systems are stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
+- `_validate_system` is strict: it requires exactly the configured additional property labels in the document. `_parse_system_sections` is lenient and used only for schedule-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - `id` is a core field (always present, between `machine` and `schedule`), not an additional property. It is not unique — multiple sections or systems can share the same id value.

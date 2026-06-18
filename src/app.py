@@ -1,6 +1,7 @@
 import base64
 import configparser
 import gzip
+import json
 import os
 import re
 import subprocess
@@ -148,6 +149,72 @@ _EMPTY_DOCUMENTS = {
 }
 
 
+def _empty_system_json(additional_props: tuple[str, ...] = ()) -> str:
+    section: dict[str, str] = {"machine": "", "id": "", "schedule": "", "time": "", "notes": ""}
+    for p in additional_props:
+        section[p] = ""
+    return json.dumps([section], ensure_ascii=False, indent=2) + "\n"
+
+
+def _system_sections_to_text(sections: list[dict], additional_props: tuple[str, ...] = ()) -> str:
+    """Convert parsed JSON sections to the human-readable 👉👈 text format."""
+    lines = []
+    for sec in sections:
+        lines.append(_SEPARATOR)
+        for key in ("machine", "id", "schedule", "time"):
+            lines.append(f"\U0001f449{key}\U0001f448")
+            lines.append(sec.get(key, ""))
+        lines.append("\U0001f449notes\U0001f448")
+        lines.append(sec.get("notes", ""))  # may contain embedded newlines
+        for p in additional_props:
+            lines.append(f"\U0001f449{p}\U0001f448")
+            lines.append(sec.get(p, ""))
+    return "\n".join(lines) + "\n"
+
+
+def _text_to_system_json(content: str, additional_props: tuple[str, ...] = ()) -> str:
+    """Convert 👉👈 separator text (from downloads) to a JSON string for repo storage."""
+    lines = content.splitlines()
+    n, i, sections = len(lines), 0, []
+    while i < n:
+        if lines[i] != _SEPARATOR:
+            i += 1
+            continue
+        i += 1
+        section: dict[str, str] = {}
+        for key in ("machine", "id", "schedule", "time", "notes"):
+            label = f"\U0001f449{key}\U0001f448"
+            if i >= n or lines[i] != label:
+                section = {}
+                break
+            i += 1
+            if key == "notes":
+                note_lines = []
+                while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
+                    note_lines.append(lines[i])
+                    i += 1
+                section["notes"] = "\n".join(note_lines)
+            else:
+                section[key] = lines[i].strip() if i < n else ""
+                i += 1
+        if len(section) == 5:
+            found: dict[str, str] = {}
+            while i < n and lines[i] != _SEPARATOR:
+                line = lines[i]
+                if _is_prop_label(line):
+                    prop_name = line[1:-1]
+                    i += 1
+                    found[prop_name] = lines[i].strip() if i < n else ""
+                    if i < n:
+                        i += 1
+                else:
+                    i += 1
+            for p in additional_props:
+                section[p] = found.get(p, "")
+            sections.append(section)
+    return json.dumps(sections, ensure_ascii=False, indent=2) + "\n"
+
+
 def _validate_system(content: str, additional_props: tuple[str, ...] = ()) -> tuple[bool, str]:
     lines = content.splitlines()
     n = len(lines)
@@ -246,20 +313,23 @@ def cmd_add(repo_root: Path, collection: str, name: str,
     if dest.exists():
         print(f"error: already exists: {name}")
         return
-    template = _empty_system_document(additional_props) if collection == "systems" else _EMPTY_DOCUMENTS.get(collection, "")
     if suffix == ".txt.gz":
-        dest.write_bytes(gzip.compress(template.encode()))
+        dest.write_bytes(gzip.compress(_empty_system_json(additional_props).encode()))
     else:
-        dest.write_text(template)
+        dest.write_text(_EMPTY_DOCUMENTS.get(collection, ""))
     print(f"created: {name}")
 
 
-def cmd_cat(repo_root: Path, collection: str, name: str):
+def cmd_cat(repo_root: Path, collection: str, name: str,
+            additional_props: tuple[str, ...] = ()):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
         return
-    if filepath.name.endswith(".gz"):
+    if collection == "systems" and filepath.name.endswith(".gz"):
+        sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
+        print(_system_sections_to_text(sections, additional_props), end="")
+    elif filepath.name.endswith(".gz"):
         print(gzip.decompress(filepath.read_bytes()).decode(), end="")
     else:
         print(filepath.read_text(), end="")
@@ -281,17 +351,22 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
 
 
 def cmd_get(repo_root: Path, collection: str, name: str,
-            downloads_dir: Path, editor: str):
+            downloads_dir: Path, editor: str,
+            additional_props: tuple[str, ...] = ()):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
         return
     downloads_dir.mkdir(parents=True, exist_ok=True)
-    if filepath.name.endswith(".gz"):
-        dl_name = filepath.name[:-3]  # strip .gz so user edits plain text
-        content = gzip.decompress(filepath.read_bytes()).decode()
+    if collection == "systems" and filepath.name.endswith(".gz"):
+        dl_name = filepath.name[:-3]
+        sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         dest = downloads_dir / dl_name
-        dest.write_text(content)
+        dest.write_text(_system_sections_to_text(sections, additional_props))
+    elif filepath.name.endswith(".gz"):
+        dl_name = filepath.name[:-3]
+        dest = downloads_dir / dl_name
+        dest.write_text(gzip.decompress(filepath.read_bytes()).decode())
     else:
         dest = downloads_dir / filepath.name
         dest.write_text(filepath.read_text())
@@ -338,7 +413,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
     new_version = current_version + 1
     dest = col_path / f"{encoded}.{new_version:04d}{suffix}"
     if suffix == ".txt.gz":
-        dest.write_bytes(gzip.compress(content.encode()))
+        dest.write_bytes(gzip.compress(_text_to_system_json(content, additional_props).encode()))
     else:
         dest.write_text(content)
     print(f"pushed: {name} (version {new_version:04d})")
@@ -431,12 +506,12 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
         rows.append(_csv_row("system_name", "id", "machine_name", "schedule_name", "time", "notes", *additional_props))
         for encoded, fname in sorted(seen.items()):
             system_name = decode_name(encoded) or encoded
-            content = gzip.decompress((col_path / fname).read_bytes()).decode()
-            sections = _parse_system_sections(content, additional_props)
-            if all(not s["machine"] and not s["schedule"] for s in sections):
+            sections = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
+            if all(not s.get("machine") and not s.get("schedule") for s in sections):
                 continue  # initial state: no meaningful data yet
             for sec in sections:
-                rows.append(_csv_row(system_name, sec["id"], sec["machine"], sec["schedule"], sec["time"], sec["notes"],
+                notes_str = " ".join(sec.get("notes", "").splitlines()).strip()
+                rows.append(_csv_row(system_name, sec.get("id", ""), sec.get("machine", ""), sec.get("schedule", ""), sec.get("time", ""), notes_str,
                                      *[sec.get(p, "") for p in additional_props]))
     elif collection == "schedules":
         rows.append(_csv_row("schedule_name", "dates"))
@@ -505,13 +580,13 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         if len(parts) != 3:
             print("usage: cat <collection> <name>")
         else:
-            cmd_cat(repo_root, collection, parts[2])
+            cmd_cat(repo_root, collection, parts[2], additional_props)
 
     elif cmd == "get":
         if len(parts) != 3:
             print("usage: get <collection> <name>")
         else:
-            cmd_get(repo_root, collection, parts[2], downloads_dir, editor)
+            cmd_get(repo_root, collection, parts[2], downloads_dir, editor, additional_props)
 
     elif cmd == "clear":
         if len(parts) != 3:

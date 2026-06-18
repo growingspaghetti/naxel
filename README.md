@@ -56,6 +56,8 @@ repetition of this section.
 👉👉👉👉👉👉👉👉👉👉👈👈👈👈👈👈👈👈👈👈
 👉machine👈
 m1
+👉id👈
+#id1
 👉schedule👈
 sche1
 👉time👈
@@ -76,6 +78,8 @@ here
 👉👉👉👉👉👉👉👉👉👉👈👈👈👈👈👈👈👈👈👈
 👉machine👈
 m1
+👉id👈
+#id12
 👉schedule👈
 sche1
 👉time👈
@@ -93,6 +97,8 @@ here
 👉👉👉👉👉👉👉👉👉👉👈👈👈👈👈👈👈👈👈👈
 👉machine👈
 m2
+👉id👈
+#1222
 👉schedule👈
 sche8
 👉time👈
@@ -111,6 +117,8 @@ optional
 ```
 👉👉👉👉👉👉👉👉👉👉👈👈👈👈👈👈👈👈👈👈
 👉machine👈
+
+👉id👈
 
 👉schedule👈
 
@@ -146,10 +154,10 @@ one line or one line + \n. repetition of yyyy/mm/dd with commas.
 saved to `downloads`.
 ## systems
 ```csv
-system_name, machine_name, schedule_name, notes
-sys1, m1, sche3, foobarbaz
-sys1, m2, sche7, 
-sys2, m4, sche7, hoge
+system_name, id, machine_name, schedule_name, notes
+sys1, #id2, m1, sche3, foobarbaz
+sys1, #1, m2, sche7, 
+sys2, #id2, m4, sche7, hoge
 ```
 ## schedules
 ```csv
