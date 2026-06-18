@@ -39,6 +39,11 @@ def get_schedule_whitelist(config) -> set[str]:
     return {s.strip() for s in raw.split(",") if s.strip()}
 
 
+def get_contact_whitelist(config) -> set[str]:
+    raw = config.get("contact", "whitelist", fallback="")
+    return {s.strip() for s in raw.split(",") if s.strip()}
+
+
 def load_additional_properties(repo_root: Path) -> tuple[str, ...]:
     path = repo_root / "additional_properties.json"
     try:
@@ -68,11 +73,12 @@ def sync_cache(repo_root: Path, cache_dir: Path):
         print(f"cache: synced {copied} file(s)")
 
 
-COLLECTIONS = {"systems", "schedules"}
+COLLECTIONS = {"systems", "schedules", "contacts"}
 
 REPO_SUFFIX = {
     "systems": ".txt.gz",
     "schedules": ".txt",
+    "contacts": ".txt",
 }
 
 
@@ -120,11 +126,14 @@ def find_latest_file(repo_root: Path, collection: str, name: str) -> Path | None
 _SEPARATOR = "\U0001f449" * 10 + "\U0001f448" * 10
 _DATE_SEG = r"\d{4}/\d{2}/\d{2}"
 _SCHEDULE_RE = re.compile(rf"^{_DATE_SEG}(,{_DATE_SEG})*\n?$")
+_CONTACT_SEG = r"[0-9\-\+]+"
+_CONTACT_RE = re.compile(rf"^{_CONTACT_SEG}(,{_CONTACT_SEG})*\n?$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 _CORE_LABELS = frozenset({
     "\U0001f449machine\U0001f448",
     "\U0001f449id\U0001f448",
     "\U0001f449schedule\U0001f448",
+    "\U0001f449contact\U0001f448",
     "\U0001f449time\U0001f448",
     "\U0001f449notes\U0001f448",
 })
@@ -143,6 +152,7 @@ def _empty_system_document(additional_props: tuple[str, ...] = ()) -> str:
         "\U0001f449machine\U0001f448", "",
         "\U0001f449id\U0001f448", "",
         "\U0001f449schedule\U0001f448", "",
+        "\U0001f449contact\U0001f448", "",
         "\U0001f449time\U0001f448", "",
         "\U0001f449notes\U0001f448", "",
     ]
@@ -154,11 +164,12 @@ def _empty_system_document(additional_props: tuple[str, ...] = ()) -> str:
 _EMPTY_DOCUMENTS = {
     "systems": _empty_system_document(),
     "schedules": "",
+    "contacts": "",
 }
 
 
 def _empty_system_json(additional_props: tuple[str, ...] = ()) -> str:
-    section: dict[str, str] = {"machine": "", "id": "", "schedule": "", "time": "", "notes": ""}
+    section: dict[str, str] = {"machine": "", "id": "", "schedule": "", "contact": "", "time": "", "notes": ""}
     for p in additional_props:
         section[p] = ""
     return json.dumps([section], ensure_ascii=False, indent=2) + "\n"
@@ -169,7 +180,7 @@ def _system_sections_to_text(sections: list[dict], additional_props: tuple[str, 
     lines = []
     for sec in sections:
         lines.append(_SEPARATOR)
-        for key in ("machine", "id", "schedule", "time"):
+        for key in ("machine", "id", "schedule", "contact", "time"):
             lines.append(f"\U0001f449{key}\U0001f448")
             lines.append(sec.get(key, ""))
         lines.append("\U0001f449notes\U0001f448")
@@ -190,7 +201,7 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = ()) -
             continue
         i += 1
         section: dict[str, str] = {}
-        for key in ("machine", "id", "schedule", "time", "notes"):
+        for key in ("machine", "id", "schedule", "contact", "time", "notes"):
             label = f"\U0001f449{key}\U0001f448"
             if i >= n or lines[i] != label:
                 section = {}
@@ -205,7 +216,7 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = ()) -
             else:
                 section[key] = lines[i].strip() if i < n else ""
                 i += 1
-        if len(section) == 5:
+        if len(section) == 6:
             found: dict[str, str] = {}
             while i < n and lines[i] != _SEPARATOR:
                 line = lines[i]
@@ -238,6 +249,7 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = ()) -> tu
         for label in ("\U0001f449machine\U0001f448",
                       "\U0001f449id\U0001f448",
                       "\U0001f449schedule\U0001f448",
+                      "\U0001f449contact\U0001f448",
                       "\U0001f449time\U0001f448",
                       "\U0001f449notes\U0001f448"):
             if i >= n or lines[i] != label:
@@ -280,11 +292,19 @@ def _validate_schedule(content: str) -> tuple[bool, str]:
     return False, "expected: yyyy/mm/dd,yyyy/mm/dd,... (one line)"
 
 
+def _validate_contact(content: str) -> tuple[bool, str]:
+    if _CONTACT_RE.match(content):
+        return True, ""
+    return False, "expected: digits/dashes/plus signs separated by commas (one line)"
+
+
 def validate(collection: str, content: str, additional_props: tuple[str, ...] = ()) -> tuple[bool, str]:
     if collection == "systems":
         return _validate_system(content, additional_props)
     if collection == "schedules":
         return _validate_schedule(content)
+    if collection == "contacts":
+        return _validate_contact(content)
     return True, ""
 
 
@@ -336,7 +356,7 @@ def cmd_len(repo_root: Path, collection: str, name: str):
     if collection == "systems":
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         print(sum(1 for s in sections if s.get("machine") or s.get("schedule")))
-    elif collection == "schedules":
+    elif collection in ("schedules", "contacts"):
         content = filepath.read_text().strip()
         print(len(content.split(",")) if content else 0)
 
@@ -396,7 +416,8 @@ def cmd_get(repo_root: Path, collection: str, name: str,
 
 
 def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
-             schedule_whitelist: set[str], additional_props: tuple[str, ...] = ()):
+             schedule_whitelist: set[str], contact_whitelist: set[str],
+             additional_props: tuple[str, ...] = ()):
     encoded = encode_name(name)
     src = latest_in_dir(downloads_dir, encoded, ".txt")
     if src is None:
@@ -424,6 +445,21 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
                 if sched not in schedule_whitelist and encode_name(sched) not in existing:
                     print(f"rejected: schedule {sched!r} not found in repository or whitelist")
                     return
+            cont_suffix = REPO_SUFFIX["contacts"]
+            cont_dir = collection_path(repo_root, "contacts")
+            try:
+                existing_contacts = {
+                    f[: -len(cont_suffix)].split(".")[0]
+                    for f in os.listdir(cont_dir)
+                    if f.endswith(cont_suffix)
+                }
+            except FileNotFoundError:
+                existing_contacts = set()
+            for sec in _parse_system_sections(content, additional_props):
+                cont = sec["contact"]
+                if cont not in contact_whitelist and encode_name(cont) not in existing_contacts:
+                    print(f"rejected: contact {cont!r} not found in repository or whitelist")
+                    return
     col_path = collection_path(repo_root, collection)
     suffix = REPO_SUFFIX.get(collection, ".txt")
     latest = latest_in_dir(col_path, encoded, suffix)
@@ -449,7 +485,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = ())
             continue
         i += 1
         section: dict = {}
-        for key in ("machine", "id", "schedule", "time", "notes"):
+        for key in ("machine", "id", "schedule", "contact", "time", "notes"):
             label = f"\U0001f449{key}\U0001f448"
             if i >= n or lines[i] != label:
                 section = {}
@@ -464,7 +500,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = ())
             else:
                 section[key] = lines[i].strip() if i < n else ""
                 i += 1
-        if len(section) == 5:
+        if len(section) == 6:
             # Collect all prop label-value pairs present in the document
             found: dict[str, str] = {}
             while i < n and lines[i] != _SEPARATOR:
@@ -487,7 +523,8 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = ())
 def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = ()) -> bool:
     sections = _parse_system_sections(content, additional_props)
     return bool(sections) and all(
-        not s["machine"] and not s["id"] and not s["schedule"] and not s["time"] and not s["notes"]
+        not s["machine"] and not s["id"] and not s["schedule"] and not s["contact"]
+        and not s["time"] and not s["notes"]
         and all(not s.get(p) for p in additional_props)
         for s in sections
     )
@@ -524,7 +561,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
 
     rows = []
     if collection == "systems":
-        rows.append(_csv_row("system_name", "id", "machine_name", "schedule_name", "time", "notes", *additional_props))
+        rows.append(_csv_row("system_name", "id", "machine_name", "schedule_name", "contact_name", "time", "notes", *additional_props))
         for encoded, fname in sorted(seen.items()):
             system_name = decode_name(encoded) or encoded
             sections = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
@@ -532,7 +569,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                 continue  # initial state: no meaningful data yet
             for sec in sections:
                 notes_str = " ".join(sec.get("notes", "").splitlines()).strip()
-                rows.append(_csv_row(system_name, sec.get("id", ""), sec.get("machine", ""), sec.get("schedule", ""), sec.get("time", ""), notes_str,
+                rows.append(_csv_row(system_name, sec.get("id", ""), sec.get("machine", ""), sec.get("schedule", ""), sec.get("contact", ""), sec.get("time", ""), notes_str,
                                      *[sec.get(p, "") for p in additional_props]))
     elif collection == "schedules":
         rows.append(_csv_row("schedule_name", "dates"))
@@ -543,6 +580,15 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                 continue  # initial state: empty document
             dates = " ".join(content.split(","))
             rows.append(_csv_row(schedule_name, dates))
+    elif collection == "contacts":
+        rows.append(_csv_row("contact_name", "dates"))
+        for encoded, fname in sorted(seen.items()):
+            contact_name = decode_name(encoded) or encoded
+            content = (col_path / fname).read_text().strip()
+            if not content:
+                continue  # initial state: empty document
+            entries = " ".join(content.split(","))
+            rows.append(_csv_row(contact_name, entries))
 
     downloads_dir.mkdir(parents=True, exist_ok=True)
     dest = downloads_dir / filename
@@ -564,13 +610,13 @@ USAGE = (
     "  push <collection> <name>\n"
     "  export <collection> <file.csv>\n"
     "  exit\n"
-    "collections: systems, schedules"
+    "collections: systems, schedules, contacts"
 )
 
 
 def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
              cache_dir: Path, editor: str, schedule_whitelist: set[str],
-             additional_props: tuple[str, ...] = ()) -> bool:
+             contact_whitelist: set[str], additional_props: tuple[str, ...] = ()) -> bool:
     """Return False to exit."""
     cmd = parts[0]
 
@@ -626,7 +672,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         if len(parts) != 3:
             print("usage: push <collection> <name>")
         else:
-            cmd_push(repo_root, collection, parts[2], downloads_dir, schedule_whitelist, additional_props)
+            cmd_push(repo_root, collection, parts[2], downloads_dir, schedule_whitelist, contact_whitelist, additional_props)
 
     elif cmd == "export":
         if len(parts) != 3:
@@ -648,6 +694,7 @@ def main():
     cache_dir = get_cache_dir(config)
     editor = get_editor(config)
     schedule_whitelist = get_schedule_whitelist(config)
+    contact_whitelist = get_contact_whitelist(config)
     additional_props = load_additional_properties(repo_root)
 
     print(f"repo-manipulator  repository={repo_root}")
@@ -668,7 +715,7 @@ def main():
             continue
 
         parts = line.split()
-        if not dispatch(parts, repo_root, downloads_dir, cache_dir, editor, schedule_whitelist, additional_props):
+        if not dispatch(parts, repo_root, downloads_dir, cache_dir, editor, schedule_whitelist, contact_whitelist, additional_props):
             break
 
 
