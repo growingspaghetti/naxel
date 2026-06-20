@@ -349,6 +349,44 @@ class TestAdditionalPropsValidation:
         sections = _parse_system_sections(content, ("p1",))
         assert sections[0]["notes"] == "real notes"
 
+    def test_not_empty_type_rejects_empty_value(self):
+        doc = sys_doc(("m1", "id1", "s1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "v")])
+        ok, msg = _validate_system(doc, ("schedule", "contact") + PROPS,
+                                   prop_validation_types={"p1": "NOT_EMPTY"})
+        assert not ok
+        assert "p1" in msg
+
+    def test_not_empty_type_accepts_non_empty_value(self):
+        doc = sys_doc(("m1", "id1", "s1", "cont1", "12:00", "notes"), props=[("p1", "val"), ("p2", "")])
+        ok, _ = _validate_system(doc, ("schedule", "contact") + PROPS,
+                                 prop_validation_types={"p1": "NOT_EMPTY"})
+        assert ok
+
+    def test_none_type_accepts_empty_value(self):
+        doc = sys_doc(("m1", "id1", "s1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "")])
+        ok, _ = _validate_system(doc, ("schedule", "contact") + PROPS,
+                                 prop_validation_types={"p1": "NONE", "p2": "NONE"})
+        assert ok
+
+    def test_hh_mm_type_accepts_valid_time(self):
+        doc = sys_doc(("m1", "id1", "s1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "08:30")])
+        ok, _ = _validate_system(doc, ("schedule", "contact") + PROPS,
+                                 prop_validation_types={"p2": "HH:MM"})
+        assert ok
+
+    def test_hh_mm_type_rejects_invalid_value(self):
+        doc = sys_doc(("m1", "id1", "s1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "bad")])
+        ok, msg = _validate_system(doc, ("schedule", "contact") + PROPS,
+                                   prop_validation_types={"p2": "HH:MM"})
+        assert not ok
+        assert "HH:MM" in msg
+
+    def test_hh_mm_type_rejects_empty_value(self):
+        doc = sys_doc(("m1", "id1", "s1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "")])
+        ok, _ = _validate_system(doc, ("schedule", "contact") + PROPS,
+                                 prop_validation_types={"p2": "HH:MM"})
+        assert not ok
+
 
 class TestTextToSystemJson:
     def test_basic_section(self):
@@ -431,9 +469,19 @@ class TestEmptySystemJson:
 
 
 class TestLoadAdditionalProperties:
-    def test_reads_json_array(self, tmp_path):
+    def test_reads_string_format(self, tmp_path):
         (tmp_path / "additional_properties.json").write_text('["p1", "p2"]')
-        assert load_additional_properties(tmp_path) == ("p1", "p2")
+        assert load_additional_properties(tmp_path) == (("p1", "NONE"), ("p2", "NONE"))
+
+    def test_reads_object_format(self, tmp_path):
+        (tmp_path / "additional_properties.json").write_text(
+            '[{"property_name":"p1","validation_type":"NOT_EMPTY"},{"property_name":"p2","validation_type":"HH:MM"}]'
+        )
+        assert load_additional_properties(tmp_path) == (("p1", "NOT_EMPTY"), ("p2", "HH:MM"))
+
+    def test_missing_validation_type_defaults_to_none(self, tmp_path):
+        (tmp_path / "additional_properties.json").write_text('[{"property_name":"p1"}]')
+        assert load_additional_properties(tmp_path) == (("p1", "NONE"),)
 
     def test_missing_file_returns_empty(self, tmp_path):
         assert load_additional_properties(tmp_path) == ()

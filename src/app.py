@@ -41,11 +41,20 @@ def get_property_order(config) -> tuple[str, ...]:
     return tuple(s.strip() for s in raw.split(",") if s.strip())
 
 
-def load_additional_properties(repo_root: Path) -> tuple[str, ...]:
+def load_additional_properties(repo_root: Path) -> tuple[tuple[str, str], ...]:
     path = repo_root / "additional_properties.json"
     try:
         data = json.loads(path.read_text())
-        return tuple(str(s) for s in data if s)
+        result = []
+        for item in data:
+            if isinstance(item, dict):
+                name = str(item.get("property_name", "")).strip()
+                vtype = str(item.get("validation_type", "NONE")).strip()
+                if name:
+                    result.append((name, vtype))
+            elif isinstance(item, str) and item.strip():
+                result.append((item.strip(), "NONE"))
+        return tuple(result)
     except FileNotFoundError:
         return ()
     except Exception as e:
@@ -274,7 +283,8 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *
 
 def _validate_system(content: str, additional_props: tuple[str, ...] = (),
                      mandatory_prop_names: frozenset[str] = frozenset(), *,
-                     field_order: tuple[str, ...] | None = None) -> tuple[bool, str]:
+                     field_order: tuple[str, ...] | None = None,
+                     prop_validation_types: dict[str, str] = {}) -> tuple[bool, str]:
     lines = content.splitlines()
     n = len(lines)
     i = 0
@@ -324,8 +334,15 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
                 # Extra prop
                 if i >= n:
                     return False, f"line {i + 1}: missing value line for {key!r}"
-                if key in mandatory_prop_names and not lines[i].strip():
-                    return False, f"line {i + 1}: value for {key!r} is required"
+                if key in mandatory_prop_names:
+                    if not lines[i].strip():
+                        return False, f"line {i + 1}: value for {key!r} is required"
+                else:
+                    vtype = prop_validation_types.get(key, "NONE")
+                    if vtype == "NOT_EMPTY" and not lines[i].strip():
+                        return False, f"line {i + 1}: value for {key!r} is required"
+                    elif vtype == "HH:MM" and not _TIME_RE.match(lines[i]):
+                        return False, f"line {i + 1}: value for {key!r} must be HH:MM (got {lines[i]!r})"
                 i += 1
 
         section_count += 1
@@ -355,10 +372,12 @@ def _validate_email(content: str) -> tuple[bool, str]:
 
 def validate(collection: str, content: str, additional_props: tuple[str, ...] = (),
              mandatory_prop_names: frozenset[str] = frozenset(), *,
-             field_order: tuple[str, ...] | None = None) -> tuple[bool, str]:
+             field_order: tuple[str, ...] | None = None,
+             prop_validation_types: dict[str, str] = {}) -> tuple[bool, str]:
     if collection == "systems":
         return _validate_system(content, additional_props, mandatory_prop_names,
-                                field_order=field_order)
+                                field_order=field_order,
+                                prop_validation_types=prop_validation_types)
     ctype = COLLECTION_TYPE.get(collection, "")
     if ctype == "DATE":
         return _validate_schedule(content)
@@ -580,7 +599,8 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
 def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
              additional_props: tuple[str, ...] = (),
              mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
-             field_order: tuple[str, ...] | None = None):
+             field_order: tuple[str, ...] | None = None,
+             prop_validation_types: dict[str, str] = {}):
     encoded = encode_name(name)
     src = latest_in_dir(downloads_dir / collection, encoded, ".txt")
     if src is None:
@@ -594,7 +614,8 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
             if pname not in _DEFAULT_CORE_SET
         )
         ok, reason = validate(collection, content, additional_props, mandatory_prop_names,
-                              field_order=field_order)
+                              field_order=field_order,
+                              prop_validation_types=prop_validation_types)
         if not ok:
             print(f"rejected: {reason}")
             return
@@ -837,7 +858,8 @@ def usage_string() -> str:
 def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
              cache_dir: Path, editor: str, additional_props: tuple[str, ...] = (),
              mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
-             field_order: tuple[str, ...] | None = None) -> bool:
+             field_order: tuple[str, ...] | None = None,
+             prop_validation_types: dict[str, str] = {}) -> bool:
     """Return False to exit."""
     cmd = parts[0]
 
@@ -905,7 +927,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: push <collection> <name>")
         else:
             cmd_push(repo_root, collection, parts[2], downloads_dir,
-                     additional_props, mandatory_ref_props, field_order=field_order)
+                     additional_props, mandatory_ref_props, field_order=field_order,
+                     prop_validation_types=prop_validation_types)
 
     elif cmd == "export":
         jtable = "--jtable" in parts
@@ -938,7 +961,11 @@ def main():
     downloads_dir = get_downloads_dir(config)
     cache_dir = get_cache_dir(config)
     editor = get_editor(config)
-    optional_props = load_additional_properties(repo_root)
+    optional_prop_pairs = load_additional_properties(repo_root)
+    optional_props = tuple(name for name, _ in optional_prop_pairs)
+    prop_validation_types: dict[str, str] = {
+        name: vtype for name, vtype in optional_prop_pairs if vtype != "NONE"
+    }
 
     dynamic_colls = load_dynamic_collections(repo_root)
     for dc in dynamic_colls:
@@ -993,7 +1020,8 @@ def main():
         parts = line.split()
         if not dispatch(parts, repo_root, downloads_dir, cache_dir, editor,
                         additional_props, mandatory_ref_props,
-                        field_order=field_order):
+                        field_order=field_order,
+                        prop_validation_types=prop_validation_types):
             break
 
 

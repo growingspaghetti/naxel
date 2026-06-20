@@ -549,6 +549,50 @@ class TestAdditionalProps:
         content = (downloads / "out.csv").read_text()
         assert "sys1, id1, m1, 12:00, notes, sc1, cont1, , v2" in content
 
+    def test_push_not_empty_type_rejects_empty_value(self, repo, downloads, capsys):
+        put_system(repo, "sys1", 0, "")
+        put_schedule(repo, "sc1", 0, "2020/01/01")
+        put_contact(repo, "cont1", 0, "03-1234-5678")
+        enc = encode_name("sys1")
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "val")])
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(doc)
+        cmd_push(repo, "systems", "sys1", downloads, SC_PROPS + PROPS, _SC_CONTACT_REFS,
+                 prop_validation_types={"p1": "NOT_EMPTY"})
+        assert "rejected" in capsys.readouterr().out
+
+    def test_push_not_empty_type_accepts_non_empty_value(self, repo, downloads, capsys):
+        put_system(repo, "sys1", 0, "")
+        put_schedule(repo, "sc1", 0, "2020/01/01")
+        put_contact(repo, "cont1", 0, "03-1234-5678")
+        enc = encode_name("sys1")
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val"), ("p2", "")])
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(doc)
+        cmd_push(repo, "systems", "sys1", downloads, SC_PROPS + PROPS, _SC_CONTACT_REFS,
+                 prop_validation_types={"p1": "NOT_EMPTY"})
+        assert "pushed" in capsys.readouterr().out
+
+    def test_push_hh_mm_type_accepts_valid_value(self, repo, downloads, capsys):
+        put_system(repo, "sys1", 0, "")
+        put_schedule(repo, "sc1", 0, "2020/01/01")
+        put_contact(repo, "cont1", 0, "03-1234-5678")
+        enc = encode_name("sys1")
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "09:30")])
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(doc)
+        cmd_push(repo, "systems", "sys1", downloads, SC_PROPS + PROPS, _SC_CONTACT_REFS,
+                 prop_validation_types={"p2": "HH:MM"})
+        assert "pushed" in capsys.readouterr().out
+
+    def test_push_hh_mm_type_rejects_invalid_value(self, repo, downloads, capsys):
+        put_system(repo, "sys1", 0, "")
+        put_schedule(repo, "sc1", 0, "2020/01/01")
+        put_contact(repo, "cont1", 0, "03-1234-5678")
+        enc = encode_name("sys1")
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "not-time")])
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(doc)
+        cmd_push(repo, "systems", "sys1", downloads, SC_PROPS + PROPS, _SC_CONTACT_REFS,
+                 prop_validation_types={"p2": "HH:MM"})
+        assert "rejected" in capsys.readouterr().out
+
     def test_export_csv_mismatched_props_fill_empty(self, repo, downloads, cache):
         # document was saved with p1 and p3; export configured for p1 and p2 — p2 must be empty
         doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val1"), ("p3", "val3")])

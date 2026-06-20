@@ -41,7 +41,22 @@ cache/                            local mirror of the NAS repo, populated at sta
 
 ## additional_properties.json
 
-Located at `{repo_root}/additional_properties.json`. A flat JSON array of strings naming the extra fields appended to each system section, e.g. `["prop1", "prop2"]`. If the file is absent, no additional properties are used.
+Located at `{repo_root}/additional_properties.json`. A JSON array of objects defining the optional (non-mandatory) fields appended to each system section:
+
+```json
+[
+  {"property_name": "prop1", "validation_type": "NONE"},
+  {"property_name": "prop2", "validation_type": "NOT_EMPTY"},
+  {"property_name": "prop3", "validation_type": "HH:MM"}
+]
+```
+
+| Field             | Meaning |
+|-------------------|---------|
+| `property_name`   | Field name appended to each system section |
+| `validation_type` | `"NONE"` — no validation (value may be empty); `"NOT_EMPTY"` — `push` rejects empty values; `"HH:MM"` — `push` rejects values that don't match `\d{2}:\d{2}`. Defaults to `"NONE"` if omitted. |
+
+A legacy flat array of strings (e.g. `["prop1", "prop2"]`) is also accepted; each string is treated as `validation_type: "NONE"`. If the file is absent, no additional properties are used.
 
 ## additional_mandatory_properties.json
 

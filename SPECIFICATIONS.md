@@ -207,13 +207,22 @@ property_order = team,notes,id
 
 ### 任意プロパティ（additional_properties.json）
 
-リポジトリルートの `additional_properties.json` に、システムの各セクションに追加するフィールド名を配列で記述します。
+リポジトリルートの `additional_properties.json` に、システムの各セクションに追加するフィールドをオブジェクトの配列で記述します。
 
 ```json
-["prop1", "prop2"]
+[
+  {"property_name": "prop1", "validation_type": "NONE"},
+  {"property_name": "prop2", "validation_type": "NOT_EMPTY"},
+  {"property_name": "prop3", "validation_type": "HH:MM"}
+]
 ```
 
-値は空でも登録できます。
+| フィールド | 説明 |
+|---|---|
+| `property_name` | フィールド名 |
+| `validation_type` | `push` 時の入力検証: `"NONE"` — 検証なし（値が空でも可）; `"NOT_EMPTY"` — 空値を拒否; `"HH:MM"` — `\d{2}:\d{2}` 形式でない値を拒否。省略時は `"NONE"` として扱われる |
+
+後方互換として文字列の配列（例：`["prop1", "prop2"]`）も受け付けます。各文字列は `"NONE"` として扱われます。
 
 ### 必須プロパティ・動的コレクション（additional_mandatory_properties.json）
 
