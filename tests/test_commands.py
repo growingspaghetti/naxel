@@ -103,7 +103,7 @@ class TestCmdAdd:
         assert "already exists" in capsys.readouterr().out
 
     def test_already_exists_does_not_overwrite(self, repo):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "notes")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "notes")))
         cmd_add(repo, "systems", "sys1")
         enc = encode_name("sys1")
         content = gzip.decompress((repo / "systems" / f"{enc}.0000.txt.gz").read_bytes()).decode()
@@ -138,7 +138,7 @@ class TestCmdLs:
 
 class TestCmdCat:
     def test_system_decompresses(self, repo, capsys):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "some notes")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "some notes")))
         cmd_cat(repo, "systems", "sys1")
         assert "m1" in capsys.readouterr().out
 
@@ -148,8 +148,8 @@ class TestCmdCat:
         assert "2020/01/01" in capsys.readouterr().out
 
     def test_reads_latest_version(self, repo, capsys):
-        put_system(repo, "sys1", 0, sys_doc(("old", "#id1", "s1", "cont1", "12:00", "n")))
-        put_system(repo, "sys1", 1, sys_doc(("new", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("old", "id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("new", "id1", "s1", "cont1", "12:00", "n")))
         cmd_cat(repo, "systems", "sys1")
         out = capsys.readouterr().out
         assert "new" in out
@@ -162,7 +162,7 @@ class TestCmdCat:
 
 class TestCmdGet:
     def test_system_decompresses_to_txt(self, repo, downloads):
-        content = sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "notes"))
+        content = sys_doc(("m1", "id1", "s1", "cont1", "12:00", "notes"))
         put_system(repo, "sys1", 2, content)
         enc = encode_name("sys1")
         with patch.object(app.subprocess, "Popen"):
@@ -179,15 +179,15 @@ class TestCmdGet:
         assert (downloads / "schedules" / f"{enc}.0000.txt").read_text() == "2020/01/01"
 
     def test_gets_latest_version(self, repo, downloads):
-        put_system(repo, "sys1", 0, sys_doc(("old", "#id1", "s1", "cont1", "12:00", "n")))
-        put_system(repo, "sys1", 3, sys_doc(("new", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("old", "id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 3, sys_doc(("new", "id1", "s1", "cont1", "12:00", "n")))
         enc = encode_name("sys1")
         with patch.object(app.subprocess, "Popen"):
             cmd_get(repo, "systems", "sys1", downloads, "mousepad")
         assert "new" in (downloads / "systems" / f"{enc}.0003.txt").read_text()
 
     def test_opens_editor(self, repo, downloads):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n")))
         with patch.object(app.subprocess, "Popen") as mock_popen:
             cmd_get(repo, "systems", "sys1", downloads, "mousepad")
         mock_popen.assert_called_once()
@@ -200,7 +200,7 @@ class TestCmdGet:
 
 class TestCmdClear:
     def test_system_writes_empty_template(self, repo, downloads):
-        put_system(repo, "sys1", 1, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n")))
         enc = encode_name("sys1")
         with patch.object(app.subprocess, "Popen"):
             cmd_clear(repo, "systems", "sys1", downloads, "mousepad")
@@ -233,7 +233,7 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "notes")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         assert (repo / "systems" / f"{enc}.0001.txt.gz").exists()
         assert "version 0001" in capsys.readouterr().out
@@ -243,7 +243,7 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
-        content = sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "notes"))
+        content = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"))
         (downloads / "systems" / f"{enc}.0000.txt").write_text(content)
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         gz = repo / "systems" / f"{enc}.0001.txt.gz"
@@ -257,11 +257,11 @@ class TestCmdPush:
         assert "rejected" in capsys.readouterr().out
         assert not (repo / "systems" / f"{enc}.0001.txt.gz").exists()
 
-    def test_system_id_without_hash_rejected(self, repo, downloads, capsys):
+    def test_system_id_with_hash_rejected(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
         put_schedule(repo, "sc1", 0, "2020/01/01")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "no-hash", "sc1", "cont1", "12:00", "notes")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#hash-id", "sc1", "cont1", "12:00", "notes")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         assert "rejected" in capsys.readouterr().out
         assert not (repo / "systems" / f"{enc}.0001.txt.gz").exists()
@@ -270,7 +270,7 @@ class TestCmdPush:
         put_system(repo, "sys1", 0, "")
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#id1", "ghost_sched", "cont1", "12:00", "notes")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "ghost_sched", "cont1", "12:00", "notes")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         assert "rejected" in capsys.readouterr().out
         assert not (repo / "systems" / f"{enc}.0001.txt.gz").exists()
@@ -279,7 +279,7 @@ class TestCmdPush:
         put_system(repo, "sys1", 0, "")
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#id1", "everyday", "cont1", "12:00", "notes")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "everyday", "cont1", "12:00", "notes")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist={"everyday"}, contact_whitelist=set())
         assert "pushed" in capsys.readouterr().out
 
@@ -288,7 +288,7 @@ class TestCmdPush:
         put_schedule(repo, "real_sched", 0, "2020/01/01")
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#id1", "real_sched", "cont1", "12:00", "notes")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "real_sched", "cont1", "12:00", "notes")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         assert "pushed" in capsys.readouterr().out
 
@@ -296,7 +296,7 @@ class TestCmdPush:
         put_system(repo, "sys1", 0, "")
         put_schedule(repo, "sc1", 0, "2020/01/01")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#id1", "sc1", "ghost_cont", "12:00", "notes")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "ghost_cont", "12:00", "notes")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         assert "rejected" in capsys.readouterr().out
         assert not (repo / "systems" / f"{enc}.0001.txt.gz").exists()
@@ -305,7 +305,7 @@ class TestCmdPush:
         put_system(repo, "sys1", 0, "")
         put_schedule(repo, "sc1", 0, "2020/01/01")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#id1", "sc1", "on-call", "12:00", "notes")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "on-call", "12:00", "notes")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist={"on-call"})
         assert "pushed" in capsys.readouterr().out
 
@@ -314,7 +314,7 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         put_contact(repo, "real_cont", 0, "09-9999-9999")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#id1", "sc1", "real_cont", "12:00", "notes")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "real_cont", "12:00", "notes")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         assert "pushed" in capsys.readouterr().out
 
@@ -360,7 +360,7 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("ghost")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "n")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "n")))
         cmd_push(repo, "systems", "ghost", downloads, schedule_whitelist=set(), contact_whitelist=set())
         assert "error" in capsys.readouterr().out
 
@@ -369,8 +369,8 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("old", "#id1", "sc1", "cont1", "12:00", "n")))
-        (downloads / "systems" / f"{enc}.0003.txt").write_text(sys_doc(("new", "#id1", "sc1", "cont1", "12:00", "n")))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("old", "id1", "sc1", "cont1", "12:00", "n")))
+        (downloads / "systems" / f"{enc}.0003.txt").write_text(sys_doc(("new", "id1", "sc1", "cont1", "12:00", "n")))
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         gz = repo / "systems" / f"{enc}.0001.txt.gz"
         assert "new" in gzip.decompress(gz.read_bytes()).decode()
@@ -378,30 +378,30 @@ class TestCmdPush:
 
 class TestCmdExport:
     def test_systems_csv_content(self, repo, downloads, cache):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "some notes")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "some notes")))
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad")
         content = (downloads / "out.csv").read_text()
         assert "system_name, id, machine_name, schedule_name, contact_name, time, notes" in content
-        assert "sys1, #id1, m1, sc1, cont1, 12:00, some notes" in content
+        assert "sys1, id1, m1, sc1, cont1, 12:00, some notes" in content
 
     def test_systems_multiple_sections_expand_to_rows(self, repo, downloads, cache):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "sc1", "cont1", "08:00", "n1"), ("m2", "#id2", "sc2", "cont1", "09:00", "n2")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "sc1", "cont1", "08:00", "n1"), ("m2", "id2", "sc2", "cont1", "09:00", "n2")))
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad")
         lines = (downloads / "out.csv").read_text().strip().splitlines()
         assert len(lines) == 3  # header + 2 data rows
 
     def test_systems_multiline_notes_joined(self, repo, downloads, cache):
-        content = "\n".join([SEP, M, "m1", I, "#id1", S, "sc1", C, "cont1", T, "12:00", N, "line1", "line2"]) + "\n"
+        content = "\n".join([SEP, M, "m1", I, "id1", S, "sc1", C, "cont1", T, "12:00", N, "line1", "line2"]) + "\n"
         put_system(repo, "sys1", 0, content)
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad")
         assert "line1 line2" in (downloads / "out.csv").read_text()
 
     def test_systems_uses_latest_version(self, repo, downloads, cache):
-        put_system(repo, "sys1", 0, sys_doc(("old", "#id1", "sc1", "cont1", "12:00", "n")))
-        put_system(repo, "sys1", 1, sys_doc(("new", "#id1", "sc1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("old", "id1", "sc1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("new", "id1", "sc1", "cont1", "12:00", "n")))
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad")
         content = (downloads / "out.csv").read_text()
@@ -410,7 +410,7 @@ class TestCmdExport:
 
     def test_systems_excludes_initial_state(self, repo, downloads, cache):
         put_system(repo, "empty_sys", 0, _EMPTY_DOCUMENTS["systems"])
-        put_system(repo, "real_sys", 0, sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "n")))
+        put_system(repo, "real_sys", 0, sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "n")))
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad")
         content = (downloads / "out.csv").read_text()
@@ -443,7 +443,7 @@ class TestCmdExport:
         assert "out.csv" in called_args[-1]
 
     def test_syncs_cache_before_reading(self, repo, downloads, cache):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "n")))
         assert not (cache / "systems").exists()
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad")
@@ -465,7 +465,7 @@ class TestAdditionalProps:
         assert content == _empty_system_json(PROPS)
 
     def test_clear_writes_template_with_props(self, repo, downloads):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "n"), props=[("p1", "v"), ("p2", "")]))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "n"), props=[("p1", "v"), ("p2", "")]))
         enc = encode_name("sys1")
         with patch.object(app.subprocess, "Popen"):
             cmd_clear(repo, "systems", "sys1", downloads, "mousepad", additional_props=PROPS)
@@ -477,7 +477,7 @@ class TestAdditionalProps:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
-        doc = sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val1"), ("p2", "")])
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val1"), ("p2", "")])
         (downloads / "systems" / f"{enc}.0000.txt").write_text(doc)
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set(), additional_props=PROPS)
         assert "pushed" in capsys.readouterr().out
@@ -486,7 +486,7 @@ class TestAdditionalProps:
         put_system(repo, "sys1", 0, "")
         put_schedule(repo, "sc1", 0, "2020/01/01")
         enc = encode_name("sys1")
-        doc = sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "notes"))  # no additional props in document
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"))  # no additional props in document
         (downloads / "systems" / f"{enc}.0000.txt").write_text(doc)
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set(), additional_props=PROPS)
         assert "rejected" in capsys.readouterr().out
@@ -499,38 +499,38 @@ class TestAdditionalProps:
         assert "pushed" in capsys.readouterr().out
 
     def test_export_csv_includes_prop_columns(self, repo, downloads, cache):
-        doc = sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val1"), ("p2", "val2")])
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val1"), ("p2", "val2")])
         put_system(repo, "sys1", 0, doc, additional_props=PROPS)
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
         content = (downloads / "out.csv").read_text()
         assert "system_name, id, machine_name, schedule_name, contact_name, time, notes, p1, p2" in content
-        assert "sys1, #id1, m1, sc1, cont1, 12:00, notes, val1, val2" in content
+        assert "sys1, id1, m1, sc1, cont1, 12:00, notes, val1, val2" in content
 
     def test_export_csv_empty_prop_value(self, repo, downloads, cache):
-        doc = sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "v2")])
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", ""), ("p2", "v2")])
         put_system(repo, "sys1", 0, doc, additional_props=PROPS)
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
         content = (downloads / "out.csv").read_text()
-        assert "sys1, #id1, m1, sc1, cont1, 12:00, notes, , v2" in content
+        assert "sys1, id1, m1, sc1, cont1, 12:00, notes, , v2" in content
 
     def test_export_csv_mismatched_props_fill_empty(self, repo, downloads, cache):
         # document was saved with p1 and p3; export configured for p1 and p2 — p2 must be empty
-        doc = sys_doc(("m1", "#id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val1"), ("p3", "val3")])
+        doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val1"), ("p3", "val3")])
         put_system(repo, "sys1", 0, doc, additional_props=("p1", "p3"))
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=PROPS)
         content = (downloads / "out.csv").read_text()
         assert "system_name, id, machine_name, schedule_name, contact_name, time, notes, p1, p2" in content
-        assert "sys1, #id1, m1, sc1, cont1, 12:00, notes, val1, " in content
+        assert "sys1, id1, m1, sc1, cont1, 12:00, notes, val1, " in content
 
 
 class TestCmdLen:
     def test_systems_counts_non_empty_sections(self, repo, capsys):
         put_system(repo, "sys1", 0, sys_doc(
-            ("m1", "#id1", "sc1", "cont1", "08:00", "n1"),
-            ("m2", "#id2", "sc2", "cont1", "09:00", "n2"),
+            ("m1", "id1", "sc1", "cont1", "08:00", "n1"),
+            ("m2", "id2", "sc2", "cont1", "09:00", "n2"),
         ))
         cmd_len(repo, "systems", "sys1")
         assert capsys.readouterr().out.strip() == "2"
@@ -563,9 +563,9 @@ class TestCmdDiff:
     # ── systems ───────────────────────────────────────────────────────────────
 
     def test_systems_added_section(self, repo, capsys):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
-        put_system(repo, "sys1", 1, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n"),
-                                            ("m2", "#id2", "s2", "cont2", "13:00", "n2")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n"),
+                                            ("m2", "id2", "s2", "cont2", "13:00", "n2")))
         cmd_diff(repo, "systems", "sys1")
         result = json.loads(capsys.readouterr().out)
         assert result["deleted"] == []
@@ -573,9 +573,9 @@ class TestCmdDiff:
         assert result["added"][0]["machine"] == "m2"
 
     def test_systems_deleted_section(self, repo, capsys):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n"),
-                                            ("m2", "#id2", "s2", "cont2", "13:00", "n2")))
-        put_system(repo, "sys1", 1, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n"),
+                                            ("m2", "id2", "s2", "cont2", "13:00", "n2")))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n")))
         cmd_diff(repo, "systems", "sys1")
         result = json.loads(capsys.readouterr().out)
         assert len(result["deleted"]) == 1
@@ -583,8 +583,8 @@ class TestCmdDiff:
         assert result["added"] == []
 
     def test_systems_modified_section(self, repo, capsys):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
-        put_system(repo, "sys1", 1, sys_doc(("m1-changed", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("m1-changed", "id1", "s1", "cont1", "12:00", "n")))
         cmd_diff(repo, "systems", "sys1")
         result = json.loads(capsys.readouterr().out)
         assert len(result["deleted"]) == 1
@@ -593,8 +593,8 @@ class TestCmdDiff:
         assert result["added"][0]["machine"] == "m1-changed"
 
     def test_systems_no_change(self, repo, capsys):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
-        put_system(repo, "sys1", 1, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n")))
         cmd_diff(repo, "systems", "sys1")
         result = json.loads(capsys.readouterr().out)
         assert result == {"deleted": [], "added": []}
@@ -604,7 +604,7 @@ class TestCmdDiff:
         assert "error" in capsys.readouterr().out
 
     def test_systems_only_one_version_prints_error(self, repo, capsys):
-        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 0, sys_doc(("m1", "id1", "s1", "cont1", "12:00", "n")))
         cmd_diff(repo, "systems", "sys1")
         assert "error" in capsys.readouterr().out
 

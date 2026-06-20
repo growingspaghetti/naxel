@@ -325,8 +325,8 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
             elif key == "id":
                 if i >= n or not lines[i].strip():
                     return False, f"line {i + 1}: value after {label!r} is missing"
-                if not lines[i].startswith("#"):
-                    return False, f"line {i + 1}: id must start with '#' (got {lines[i]!r})"
+                if lines[i].startswith("#"):
+                    return False, f"line {i + 1}: id must not start with '#' (got {lines[i]!r})"
                 i += 1
             elif key == "time":
                 if i >= n or not lines[i].strip():

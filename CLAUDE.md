@@ -140,8 +140,8 @@ Systems files in the repo are stored as a JSON array of section objects, compres
 
 ```json
 [
-  {"machine": "m1", "id": "#id1", "schedule": "sche1", "contact": "cont1", "time": "09:00", "notes": "line1\nline2", "prop1": "val1"},
-  {"machine": "m2", "id": "#id2", "schedule": "sche2", "contact": "cont2", "time": "12:00", "notes": "notes", "prop1": ""}
+  {"machine": "m1", "id": "id1", "schedule": "sche1", "contact": "cont1", "time": "09:00", "notes": "line1\nline2", "prop1": "val1"},
+  {"machine": "m2", "id": "id2", "schedule": "sche2", "contact": "cont2", "time": "12:00", "notes": "notes", "prop1": ""}
 ]
 ```
 
@@ -158,7 +158,7 @@ One or more sections, each starting with the separator line (20 × 🏔):
 👉machine👈
 machine_value
 👉id👈
-#id_value
+id_value
 👉schedule👈
 schedule_value
 👉contact👈
@@ -179,7 +179,7 @@ By default the core fields appear in this order: `machine`, `id`, `schedule`, `c
 Validation rules enforced on `push` (applied to the 👉👈 text before conversion):
 - Every section must begin with the exact separator.
 - `👉machine👈`, `👉schedule👈`, and `👉contact👈` values must be non-empty (after strip).
-- `👉id👈` value must be non-empty and start with `#`.
+- `👉id👈` value must be non-empty and must **not** start with `#`.
 - `👉time👈` value must be non-empty and match `dd:dd` (two digits, colon, two digits).
 - `👉notes👈` must be followed by at least one line.
 - Each optional additional property label (`additional_properties.json`) must be present (value may be empty).
@@ -216,8 +216,8 @@ Empty template: empty string.
 
 ```csv
 system_name, id, machine_name, schedule_name, contact_name, time, notes, prop1, prop2
-sys1, #id1, m1, sche3, cont1, 09:00, foobarbaz, val1, val2
-sys1, #id2, m2, sche7, cont2, 12:30, , , 
+sys1, id1, m1, sche3, cont1, 09:00, foobarbaz, val1, val2
+sys1, id2, m2, sche7, cont2, 12:30, , , 
 ```
 
 One row per section. Multi-line notes are joined with a space. Documents where every section has an empty `machine` and `schedule` are excluded from the CSV. Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[system] property_order`; `machine`, `schedule`, and `contact` are renamed to `machine_name`, `schedule_name`, and `contact_name` in the header. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
