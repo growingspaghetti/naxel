@@ -39,6 +39,7 @@ cache/                            local mirror of the NAS repo, populated at sta
 | `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
 | `[schedule]`   | `whitelist` | *(empty)*    | Comma-separated schedule names always accepted on push |
 | `[contact]`    | `whitelist` | *(empty)*    | Comma-separated contact names always accepted on push  |
+| `[system]`     | `property_order` | *(empty)* | Comma-separated extra property names; listed names appear first in system documents (others follow in their default order). Core fields and unknown names are ignored. |
 
 ## additional_properties.json
 
