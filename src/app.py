@@ -309,15 +309,12 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
                 return False, f"line {i + 1}: expected {label!r}"
             i += 1
             if key == "notes":
-                notes_start = i
                 if use_any_label:
                     while i < n and lines[i] != _SEPARATOR and not _is_any_label(lines[i]):
                         i += 1
                 else:
                     while i < n and lines[i] != _SEPARATOR and lines[i] not in prop_labels:
                         i += 1
-                if i == notes_start:
-                    return False, f"section {section_count + 1}: notes is empty"
             elif key in ("machine", "schedule", "contact"):
                 if i >= n or not lines[i].strip():
                     return False, f"line {i + 1}: value after {label!r} is missing"

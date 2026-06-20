@@ -181,7 +181,7 @@ Validation rules enforced on `push` (applied to the 👉👈 text before convers
 - `👉machine👈`, `👉schedule👈`, and `👉contact👈` values must be non-empty (after strip).
 - `👉id👈` value must be non-empty and must **not** start with `#`.
 - `👉time👈` value must be non-empty and match `dd:dd` (two digits, colon, two digits).
-- `👉notes👈` must be followed by at least one line.
+- `👉notes👈` label must be present (value may be empty).
 - Each optional additional property label (`additional_properties.json`) must be present (value may be empty).
 - Each mandatory additional property label (`additional_mandatory_properties.json` `property_name`) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection. One `os.listdir` call per distinct collection per push.
 - Each `👉schedule👈` value must either exist as an entry in the repo's `schedules/` collection, or appear in `[schedule] whitelist` in `settings.ini`. The schedules directory is read with a single `os.listdir` call per push.

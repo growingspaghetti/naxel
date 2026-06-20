@@ -88,11 +88,10 @@ class TestValidateSystem:
         ok, _ = _validate_system(content)
         assert not ok
 
-    def test_empty_notes_rejected(self):
+    def test_empty_notes_accepted(self):
         content = "\n".join([SEP, M, "m1", I, "id1", S, "s1", C, "cont1", T, "12:00", N]) + "\n"
-        ok, msg = _validate_system(content)
-        assert not ok
-        assert "notes is empty" in msg
+        ok, _ = _validate_system(content)
+        assert ok
 
     def test_invalid_time_format_rejected(self):
         content = "\n".join([SEP, M, "m1", I, "id1", S, "s1", C, "cont1", T, "9:00", N, "notes"]) + "\n"
@@ -115,9 +114,9 @@ class TestValidateSystem:
         assert not ok
 
     def test_error_includes_line_number(self):
-        content = "\n".join([SEP, M, "m1", I, "id1", S, "s1", C, "cont1", T, "12:00", N]) + "\n"
+        content = "\n".join([SEP, M, "", I, "id1", S, "s1", C, "cont1", T, "12:00", N, "notes"]) + "\n"
         _, msg = _validate_system(content)
-        assert "section 1" in msg or "line" in msg
+        assert "line" in msg
 
 
 class TestValidateSchedule:
