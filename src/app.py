@@ -362,10 +362,21 @@ def cmd_len(repo_root: Path, collection: str, name: str):
 
 
 def cmd_cat(repo_root: Path, collection: str, name: str,
-            additional_props: tuple[str, ...] = ()):
+            additional_props: tuple[str, ...] = (),
+            downloads_dir: Path | None = None, jtable: bool = False):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
+        return
+    if jtable:
+        sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
+        dl_name = filepath.name[:-3]  # strip .gz
+        dest = downloads_dir / dl_name
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        dest.write_text(_system_sections_to_text(sections, additional_props))
+        print(f"saved: {dest}")
+        subprocess.Popen([sys.executable, str(Path(__file__).parent / "gui.py"),
+                          str(dest), "--systems", "--readonly"])
         return
     if collection == "systems" and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
@@ -393,7 +404,7 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
 
 def cmd_get(repo_root: Path, collection: str, name: str,
             downloads_dir: Path, editor: str,
-            additional_props: tuple[str, ...] = ()):
+            additional_props: tuple[str, ...] = (), jtable: bool = False):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
@@ -412,7 +423,11 @@ def cmd_get(repo_root: Path, collection: str, name: str,
         dest = downloads_dir / filepath.name
         dest.write_text(filepath.read_text())
     print(f"saved: {dest}")
-    subprocess.Popen([editor, str(dest)])
+    if jtable:
+        subprocess.Popen([sys.executable, str(Path(__file__).parent / "gui.py"),
+                          str(dest), "--systems"])
+    else:
+        subprocess.Popen([editor, str(dest)])
 
 
 def cmd_diff(repo_root: Path, collection: str, name: str):
@@ -657,8 +672,8 @@ USAGE = (
     "commands:\n"
     "  ls <collection>\n"
     "  add <collection> <name>\n"
-    "  cat <collection> <name>\n"
-    "  get <collection> <name>\n"
+    "  cat systems <name> [--jtable]\n"
+    "  get systems <name> [--jtable]\n"
     "  clear <collection> <name>\n"
     "  len <collection> <name>\n"
     "  push <collection> <name>\n"
@@ -700,16 +715,25 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             cmd_add(repo_root, collection, parts[2], additional_props)
 
     elif cmd == "cat":
-        if len(parts) != 3:
-            print("usage: cat <collection> <name>")
+        jtable = "--jtable" in parts
+        cat_parts = [p for p in parts if p != "--jtable"]
+        if len(cat_parts) != 3:
+            print("usage: cat <collection> <name> [--jtable]")
+        elif jtable and collection != "systems":
+            print("error: --jtable is only supported for systems")
         else:
-            cmd_cat(repo_root, collection, parts[2], additional_props)
+            cmd_cat(repo_root, collection, cat_parts[2], additional_props,
+                    downloads_dir=downloads_dir, jtable=jtable)
 
     elif cmd == "get":
-        if len(parts) != 3:
-            print("usage: get <collection> <name>")
+        jtable = "--jtable" in parts
+        get_parts = [p for p in parts if p != "--jtable"]
+        if len(get_parts) != 3:
+            print("usage: get <collection> <name> [--jtable]")
+        elif jtable and collection != "systems":
+            print("error: --jtable is only supported for systems")
         else:
-            cmd_get(repo_root, collection, parts[2], downloads_dir, editor, additional_props)
+            cmd_get(repo_root, collection, get_parts[2], downloads_dir, editor, additional_props, jtable=jtable)
 
     elif cmd == "clear":
         if len(parts) != 3:

@@ -4,16 +4,79 @@ import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 
+_SEP = "👉" * 10 + "👈" * 10
+
+
+def _is_label(line: str) -> bool:
+    return line.startswith("👉") and line.endswith("👈") and line != _SEP
+
+
+def _parse_sections(text: str) -> list[dict]:
+    """Parse 👉👈 text into a list of ordered dicts."""
+    lines = text.splitlines()
+    n, i, sections = len(lines), 0, []
+    while i < n:
+        if lines[i] != _SEP:
+            i += 1
+            continue
+        i += 1
+        section: dict[str, str] = {}
+        while i < n and lines[i] != _SEP:
+            line = lines[i]
+            if _is_label(line):
+                key = line[1:-1]
+                i += 1
+                if key == "notes":
+                    note_lines: list[str] = []
+                    while i < n and lines[i] != _SEP and not _is_label(lines[i]):
+                        note_lines.append(lines[i])
+                        i += 1
+                    section[key] = "\n".join(note_lines)
+                else:
+                    section[key] = lines[i] if i < n else ""
+                    if i < n:
+                        i += 1
+            else:
+                i += 1
+        if section:
+            sections.append(section)
+    return sections
+
+
+def _sections_to_text(sections: list[dict]) -> str:
+    """Serialize ordered dicts back to 👉👈 format."""
+    parts: list[str] = []
+    for sec in sections:
+        parts.append(_SEP)
+        for key, val in sec.items():
+            parts.append(f"👉{key}👈")
+            parts.append(val)
+    return "\n".join(parts) + "\n"
+
 
 class JTable:
-    def __init__(self, csv_path):
-        self._path = Path(csv_path)
+    def __init__(self, path: str | Path, mode: str = "csv", readonly: bool = False):
+        """
+        mode     : "csv" for CSV files (export --jtable), "systems" for 👉👈 text files
+        readonly : when True, hide Save button and disable cell editing (cat --jtable)
+        """
+        self._path = Path(path)
+        self._mode = mode
+        self._readonly = readonly
+        self._columns: list[str] = []
+        self._original: dict[str, dict] = {}   # item_id → original section dict
+
         self._root = tk.Tk()
         self._root.title(self._path.name)
         self._root.geometry("960x540")
         self._build()
 
     def _build(self):
+        if self._mode == "systems" and not self._readonly:
+            btn_frame = tk.Frame(self._root)
+            btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 4))
+            tk.Button(btn_frame, text="Save", command=self._save).pack(side=tk.RIGHT)
+
         frame = tk.Frame(self._root)
         frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
@@ -34,28 +97,48 @@ class JTable:
 
         self._tree.tag_configure("odd", background="#f5f5f5")
 
-        self._load_csv()
+        if self._mode == "systems" and not self._readonly:
+            self._tree.bind("<Double-1>", self._on_double_click)
+
+        if self._mode == "systems":
+            self._load_systems()
+        else:
+            self._load_csv()
 
     def _load_csv(self):
         with self._path.open(newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
-
         if not rows:
             return
-
         headers = [h.strip() for h in rows[0]]
+        self._columns = headers
         self._tree["columns"] = headers
         self._tree["show"] = "headings"
-
         for col in headers:
             self._tree.heading(col, text=col, anchor="w",
                                command=lambda c=col: self._sort(c, False))
             self._tree.column(col, width=140, minwidth=50, anchor="w", stretch=True)
-
         for i, row in enumerate(rows[1:]):
             values = [v.strip() for v in row]
             tag = "odd" if i % 2 else ""
             self._tree.insert("", tk.END, values=values, tags=(tag,))
+
+    def _load_systems(self):
+        sections = _parse_sections(self._path.read_text(encoding="utf-8"))
+        if not sections:
+            return
+        self._columns = list(sections[0].keys())
+        self._tree["columns"] = self._columns
+        self._tree["show"] = "headings"
+        for col in self._columns:
+            self._tree.heading(col, text=col, anchor="w",
+                               command=lambda c=col: self._sort(c, False))
+            self._tree.column(col, width=140, minwidth=50, anchor="w", stretch=True)
+        for i, sec in enumerate(sections):
+            display = [v.replace("\n", " ") for v in sec.values()]
+            tag = "odd" if i % 2 else ""
+            iid = self._tree.insert("", tk.END, values=display, tags=(tag,))
+            self._original[iid] = sec
 
     def _sort(self, col: str, reverse: bool):
         items = [(self._tree.set(k, col), k) for k in self._tree.get_children("")]
@@ -66,12 +149,65 @@ class JTable:
             self._tree.item(k, tags=(tag,))
         self._tree.heading(col, command=lambda: self._sort(col, not reverse))
 
+    def _on_double_click(self, event):
+        region = self._tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        col_id = self._tree.identify_column(event.x)
+        row_id = self._tree.identify_row(event.y)
+        if not row_id:
+            return
+        bbox = self._tree.bbox(row_id, col_id)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        col_name = self._tree["columns"][int(col_id[1:]) - 1]
+        current = self._tree.set(row_id, col_name)
+
+        entry = ttk.Entry(self._tree)
+        entry.place(x=x, y=y, width=w, height=h)
+        entry.insert(0, current)
+        entry.select_range(0, tk.END)
+        entry.focus()
+
+        def confirm(event=None):
+            self._tree.set(row_id, col_name, entry.get())
+            entry.destroy()
+
+        entry.bind("<Return>", confirm)
+        entry.bind("<Tab>", confirm)
+        entry.bind("<FocusOut>", confirm)
+        entry.bind("<Escape>", lambda e: entry.destroy())
+
+    def _save(self):
+        new_sections: list[dict] = []
+        for item in self._tree.get_children(""):
+            values = self._tree.item(item)["values"]
+            original = self._original.get(item, {})
+            section: dict[str, str] = {}
+            for j, col in enumerate(self._columns):
+                display_val = str(values[j]) if j < len(values) else ""
+                orig_val = original.get(col, "")
+                # Restore original multiline notes when the cell wasn't edited
+                if col == "notes" and display_val == orig_val.replace("\n", " "):
+                    section[col] = orig_val
+                else:
+                    section[col] = display_val
+            new_sections.append(section)
+        self._path.write_text(_sections_to_text(new_sections), encoding="utf-8")
+        print(f"saved: {self._path}", flush=True)
+
     def run(self):
         self._root.mainloop()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"usage: {sys.argv[0]} <csv_file>")
+    args = sys.argv[1:]
+    readonly = "--readonly" in args
+    systems = "--systems" in args
+    positional = [a for a in args if not a.startswith("--")]
+    if len(positional) != 1:
+        print(f"usage: {sys.argv[0]} <file> [--systems] [--readonly]")
         sys.exit(1)
-    JTable(sys.argv[1]).run()
+    mode = "systems" if systems else "csv"
+    JTable(positional[0], mode=mode, readonly=readonly).run()
