@@ -150,12 +150,10 @@ _EMAIL_SEG = r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
 _EMAIL_RE = re.compile(rf"^{_EMAIL_SEG}(,{_EMAIL_SEG})*\n?$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 _CORE_LABELS = frozenset({
-    "\U0001f449machine\U0001f448",
-    "\U0001f449time\U0001f448",
     "\U0001f449notes\U0001f448",
 })
 
-_DEFAULT_CORE = ("machine", "time", "notes")
+_DEFAULT_CORE = ("notes",)
 _DEFAULT_CORE_SET = frozenset(_DEFAULT_CORE)
 
 # CSV column name overrides for core fields
@@ -245,22 +243,18 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *
             if len(section) == len(field_order):
                 sections.append(section)
         else:
-            for key in ("machine", "time", "notes"):
+            for key in ("notes",):
                 label = f"\U0001f449{key}\U0001f448"
                 if i >= n or lines[i] != label:
                     section = {}
                     break
                 i += 1
-                if key == "notes":
-                    note_lines = []
-                    while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
-                        note_lines.append(lines[i])
-                        i += 1
-                    section["notes"] = "\n".join(note_lines)
-                else:
-                    section[key] = lines[i].strip() if i < n else ""
+                note_lines = []
+                while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
+                    note_lines.append(lines[i])
                     i += 1
-            if len(section) == 3:
+                section["notes"] = "\n".join(note_lines)
+            if len(section) == 1:
                 found: dict[str, str] = {}
                 while i < n and lines[i] != _SEPARATOR:
                     line = lines[i]
@@ -311,16 +305,6 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
                 else:
                     while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
                         i += 1
-            elif key == "machine":
-                if i >= n or not lines[i].strip():
-                    return False, f"line {i + 1}: value after {label!r} is missing"
-                i += 1
-            elif key == "time":
-                if i >= n or not lines[i].strip():
-                    return False, f"line {i + 1}: value after {label!r} is missing"
-                if not _TIME_RE.match(lines[i]):
-                    return False, f"line {i + 1}: time must be dd:dd (got {lines[i]!r})"
-                i += 1
             else:
                 # Extra prop
                 if i >= n:
@@ -432,7 +416,7 @@ def cmd_len(repo_root: Path, collection: str, name: str):
         return
     if collection == "systems":
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
-        print(sum(1 for s in sections if s.get("machine")))
+        print(sum(1 for s in sections if any(v for v in s.values())))
     else:
         content = filepath.read_text().strip()
         print(len(content.split(",")) if content else 0)
@@ -682,22 +666,18 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (),
             if len(section) == len(field_order):
                 sections.append(section)
         else:
-            for key in ("machine", "time", "notes"):
+            for key in ("notes",):
                 label = f"\U0001f449{key}\U0001f448"
                 if i >= n or lines[i] != label:
                     section = {}
                     break
                 i += 1
-                if key == "notes":
-                    note_lines = []
-                    while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
-                        note_lines.append(lines[i])
-                        i += 1
-                    section["notes"] = " ".join(note_lines).strip()
-                else:
-                    section[key] = lines[i].strip() if i < n else ""
+                note_lines = []
+                while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
+                    note_lines.append(lines[i])
                     i += 1
-            if len(section) == 3:
+                section["notes"] = " ".join(note_lines).strip()
+            if len(section) == 1:
                 # Collect all prop label-value pairs present in the document
                 found: dict[str, str] = {}
                 while i < n and lines[i] != _SEPARATOR:
@@ -727,7 +707,7 @@ def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = (
         if field_order is not None else additional_props
     )
     return bool(sections) and all(
-        not s["machine"] and not s["time"] and not s["notes"]
+        not s.get("notes")
         and all(not s.get(p) for p in extra_to_check)
         for s in sections
     )
@@ -769,12 +749,12 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
             csv_col_names = [_CSV_FIELD_NAME.get(f, f) for f in field_order]
             rows.append(_csv_row("system_name", *csv_col_names))
         else:
-            rows.append(_csv_row("system_name", "machine_name", "time", "notes",
+            rows.append(_csv_row("system_name", "notes",
                                   *[_CSV_FIELD_NAME.get(p, p) for p in additional_props]))
         for encoded, fname in sorted(seen.items()):
             system_name = decode_name(encoded) or encoded
             sections = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
-            if all(not s.get("machine") for s in sections):
+            if all(not any(v for v in s.values()) for s in sections):
                 continue  # initial state: no meaningful data yet
             for sec in sections:
                 if field_order is not None:
@@ -787,10 +767,8 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                     rows.append(_csv_row(system_name, *vals))
                 else:
                     notes_str = " ".join(sec.get("notes", "").splitlines()).strip()
-                    rows.append(_csv_row(
-                        system_name, sec.get("machine", ""),
-                        sec.get("time", ""), notes_str,
-                        *[sec.get(p, "") for p in additional_props]))
+                    rows.append(_csv_row(system_name, notes_str,
+                                         *[sec.get(p, "") for p in additional_props]))
     elif collection == "schedules":
         rows.append(_csv_row("schedule_name", "dates"))
         for encoded, fname in sorted(seen.items()):

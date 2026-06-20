@@ -79,13 +79,13 @@ push systems <名前>           # 検証して登録
 
 ```
 🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
+👉notes👈
+ノート1行目
+ノート2行目
 👉machine👈
 machine_value
 👉time👈
 12:00
-👉notes👈
-ノート1行目
-ノート2行目
 👉id👈
 id_value
 👉schedule👈
@@ -96,7 +96,7 @@ contact_value
 prop1_value
 ```
 
-コアフィールド（`machine`, `time`, `notes`）は常に先頭に表示されます。`id`・`schedule`・`contact` などは `additional_properties.json` または `additional_mandatory_properties.json` で定義された場合にコアフィールドの後に続きます。フィールドの表示順は `settings.ini` の `[system] property_order` で制御できます（後述）。
+コアフィールドは `notes` のみです。`machine`・`time`・`id`・`schedule`・`contact` などは `additional_properties.json` または `additional_mandatory_properties.json` で定義された追加プロパティとして、`notes` の後に続きます。フィールドの表示順は `settings.ini` の `[system] property_order` で制御できます（後述）。
 
 #### push 時の検証ルール
 
@@ -104,10 +104,8 @@ prop1_value
 
 | フィールド | 検証内容 |
 |---|---|
-| `machine` | 空でないこと |
-| `time` | 空でないこと、かつ `dd:dd`（数字2桁・コロン・数字2桁）の形式であること |
 | `notes` | ラベルが存在すること（値は空でも可） |
-| 追加プロパティ（任意） | ラベルが存在すること。`validation_type` に応じた入力検証が行われる（`NONE` — 制約なし; `NOT_EMPTY` — 空値を拒否; `HH:MM` — `\d{2}:\d{2}` 形式でない値を拒否; `RE:<pattern>` — 正規表現にマッチしない値を拒否） |
+| 追加プロパティ（任意） | ラベルが存在すること。`validation_type` に応じた入力検証が行われる（`NONE` — 制約なし; `NOT_EMPTY` — 空値を拒否; `HH:MM` — `\d{2}:\d{2}` 形式でない値を拒否; `RE:<pattern>` — 正規表現にマッチしない値を拒否）。`machine`・`time` もここで定義（`NOT_EMPTY`・`HH:MM`） |
 | 追加プロパティ（必須） | ラベルが存在し、値が空でないこと、かつ対応するコレクションに存在すること（`schedule`・`contact` も `additional_mandatory_properties.json` で定義した場合はここに含まれる） |
 
 **例外：** すべてのセクションの全フィールドが空（`add` / `clear` 直後の状態）、またはファイル内容が空白のみの場合は検証をスキップして空テンプレートとして登録されます。
@@ -137,9 +135,9 @@ prop1_value
 ### systems
 
 ```csv
-system_name, machine_name, time, notes, id, schedule, contact, prop1, prop2
-sys1, m1, 09:00, ノート内容, id1, sche1, cont1, val1, val2
-sys1, m2, 12:30, , id2, sche2, cont2, ,
+system_name, notes, machine_name, time, id, schedule, contact, prop1, prop2
+sys1, ノート内容, m1, 09:00, id1, sche1, cont1, val1, val2
+sys1, , m2, 12:30, id2, sche2, cont2, ,
 ```
 
 - セクションごとに1行出力されます。
@@ -244,7 +242,7 @@ property_order = team,notes,id
 | `whitelist` | コレクションへの存在チェックをスキップして受け入れる値のリスト（省略または空配列 `[]` でホワイトリストなし） |
 
 - 定義したコレクションはツール起動時に自動で利用可能になります。
-- `property_name` が `machine`・`time`・`notes` 以外の場合、全システムドキュメントの必須項目として追加されます。`schedule` や `contact` もここで定義することで必須フィールドになります。
+- `property_name` が `notes` 以外の場合、全システムドキュメントの必須項目として追加されます。`schedule` や `contact` もここで定義することで必須フィールドになります。
 - `push` 時、各 `property_name` の値が空でないこと、かつ対応する `collection_name` コレクションに登録されていること（または `whitelist` に含まれること）が検証されます。
 - `schedule` や `contact` を記載することで、これらのコレクション参照チェックを含む全検証を動的コレクション設定で管理できます。
 - 動的コレクションは組み込みの `schedules` / `contacts` と同様に操作できます。
