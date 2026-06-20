@@ -141,13 +141,11 @@ _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 _CORE_LABELS = frozenset({
     "\U0001f449machine\U0001f448",
     "\U0001f449id\U0001f448",
-    "\U0001f449schedule\U0001f448",
-    "\U0001f449contact\U0001f448",
     "\U0001f449time\U0001f448",
     "\U0001f449notes\U0001f448",
 })
 
-_DEFAULT_CORE = ("machine", "id", "schedule", "contact", "time", "notes")
+_DEFAULT_CORE = ("machine", "id", "time", "notes")
 _DEFAULT_CORE_SET = frozenset(_DEFAULT_CORE)
 
 # CSV column name overrides for core fields
@@ -239,7 +237,7 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *
             if len(section) == len(field_order):
                 sections.append(section)
         else:
-            for key in ("machine", "id", "schedule", "contact", "time", "notes"):
+            for key in ("machine", "id", "time", "notes"):
                 label = f"\U0001f449{key}\U0001f448"
                 if i >= n or lines[i] != label:
                     section = {}
@@ -254,7 +252,7 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *
                 else:
                     section[key] = lines[i].strip() if i < n else ""
                     i += 1
-            if len(section) == 6:
+            if len(section) == 4:
                 found: dict[str, str] = {}
                 while i < n and lines[i] != _SEPARATOR:
                     line = lines[i]
@@ -286,7 +284,6 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
     else:
         order = _DEFAULT_CORE + additional_props
         use_any_label = False
-        prop_labels = {f"\U0001f449{p}\U0001f448" for p in additional_props}
 
     while i < n:
         if lines[i] != _SEPARATOR:
@@ -303,9 +300,9 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
                     while i < n and lines[i] != _SEPARATOR and not _is_any_label(lines[i]):
                         i += 1
                 else:
-                    while i < n and lines[i] != _SEPARATOR and lines[i] not in prop_labels:
+                    while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
                         i += 1
-            elif key in ("machine", "schedule", "contact"):
+            elif key == "machine":
                 if i >= n or not lines[i].strip():
                     return False, f"line {i + 1}: value after {label!r} is missing"
                 i += 1
@@ -410,7 +407,7 @@ def cmd_len(repo_root: Path, collection: str, name: str):
         return
     if collection == "systems":
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
-        print(sum(1 for s in sections if s.get("machine") or s.get("schedule")))
+        print(sum(1 for s in sections if s.get("machine")))
     else:
         content = filepath.read_text().strip()
         print(len(content.split(",")) if content else 0)
@@ -658,7 +655,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (),
             if len(section) == len(field_order):
                 sections.append(section)
         else:
-            for key in ("machine", "id", "schedule", "contact", "time", "notes"):
+            for key in ("machine", "id", "time", "notes"):
                 label = f"\U0001f449{key}\U0001f448"
                 if i >= n or lines[i] != label:
                     section = {}
@@ -673,7 +670,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (),
                 else:
                     section[key] = lines[i].strip() if i < n else ""
                     i += 1
-            if len(section) == 6:
+            if len(section) == 4:
                 # Collect all prop label-value pairs present in the document
                 found: dict[str, str] = {}
                 while i < n and lines[i] != _SEPARATOR:
@@ -703,8 +700,7 @@ def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = (
         if field_order is not None else additional_props
     )
     return bool(sections) and all(
-        not s["machine"] and not s["id"] and not s["schedule"] and not s["contact"]
-        and not s["time"] and not s["notes"]
+        not s["machine"] and not s["id"] and not s["time"] and not s["notes"]
         and all(not s.get(p) for p in extra_to_check)
         for s in sections
     )
@@ -746,12 +742,12 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
             csv_col_names = [_CSV_FIELD_NAME.get(f, f) for f in field_order]
             rows.append(_csv_row("system_name", *csv_col_names))
         else:
-            rows.append(_csv_row("system_name", "id", "machine_name", "schedule_name",
-                                  "contact_name", "time", "notes", *additional_props))
+            rows.append(_csv_row("system_name", "id", "machine_name", "time", "notes",
+                                  *[_CSV_FIELD_NAME.get(p, p) for p in additional_props]))
         for encoded, fname in sorted(seen.items()):
             system_name = decode_name(encoded) or encoded
             sections = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
-            if all(not s.get("machine") and not s.get("schedule") for s in sections):
+            if all(not s.get("machine") for s in sections):
                 continue  # initial state: no meaningful data yet
             for sec in sections:
                 if field_order is not None:
@@ -766,7 +762,6 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                     notes_str = " ".join(sec.get("notes", "").splitlines()).strip()
                     rows.append(_csv_row(
                         system_name, sec.get("id", ""), sec.get("machine", ""),
-                        sec.get("schedule", ""), sec.get("contact", ""),
                         sec.get("time", ""), notes_str,
                         *[sec.get(p, "") for p in additional_props]))
     elif collection == "schedules":
