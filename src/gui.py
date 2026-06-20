@@ -1,7 +1,6 @@
 import csv
 import sys
 import tkinter as tk
-from tkinter import font as tkfont
 from tkinter import ttk
 from pathlib import Path
 
@@ -65,11 +64,11 @@ class JTable:
         self._mode = mode
         self._readonly = readonly
         self._columns: list[str] = []
+        self._original: dict[str, dict] = {}   # item_id → original section dict
 
         self._root = tk.Tk()
         self._root.title(self._path.name)
         self._root.geometry("960x540")
-        self._linespace = tkfont.Font(font="TkDefaultFont").metrics("linespace")
         self._build()
 
     def _build(self):
@@ -139,18 +138,10 @@ class JTable:
                                command=lambda c=col: self._sort(c, False))
             self._tree.column(col, width=140, minwidth=50, anchor="w", stretch=True)
         for i, sec in enumerate(sections):
+            display = [v.replace("\n", " ") for v in sec.values()]
             tag = "odd" if i % 2 else ""
-            self._tree.insert("", tk.END, values=list(sec.values()), tags=(tag,))
-        self._update_rowheight()
-
-    def _update_rowheight(self):
-        """Set global row height to fit the row with the most lines across all cells."""
-        max_lines = 1
-        for item in self._tree.get_children(""):
-            for col in self._columns:
-                val = str(self._tree.set(item, col))
-                max_lines = max(max_lines, val.count("\n") + 1)
-        ttk.Style(self._root).configure("Treeview", rowheight=max_lines * self._linespace + 4)
+            iid = self._tree.insert("", tk.END, values=display, tags=(tag,))
+            self._original[iid] = sec
 
     def _sort(self, col: str, reverse: bool):
         items = [(self._tree.set(k, col), k) for k in self._tree.get_children("")]
@@ -178,14 +169,13 @@ class JTable:
 
         entry = ttk.Entry(self._tree)
         entry.place(x=x, y=y, width=w, height=h)
-        entry.insert(0, current.replace("\n", " "))
+        entry.insert(0, current)
         entry.select_range(0, tk.END)
         entry.focus()
 
         def confirm(event=None):
             self._tree.set(row_id, col_name, entry.get())
             entry.destroy()
-            self._update_rowheight()
 
         entry.bind("<Return>", confirm)
         entry.bind("<Tab>", confirm)
@@ -202,8 +192,8 @@ class JTable:
         selected = self._tree.selection()
         idx = self._tree.index(selected[0]) + 1 if selected else tk.END
         iid = self._tree.insert("", idx, values=empty)
+        self._original[iid] = {col: "" for col in self._columns}
         self._restripe()
-        self._update_rowheight()
         self._tree.selection_set(iid)
         self._tree.see(iid)
 
@@ -214,8 +204,8 @@ class JTable:
         src = selected[0]
         iid = self._tree.insert("", self._tree.index(src) + 1,
                                 values=self._tree.item(src)["values"])
+        self._original[iid] = self._original.get(src, {}).copy()
         self._restripe()
-        self._update_rowheight()
         self._tree.selection_set(iid)
         self._tree.see(iid)
 
@@ -223,15 +213,24 @@ class JTable:
         selected = self._tree.selection()
         if not selected:
             return
+        self._original.pop(selected[0], None)
         self._tree.delete(selected[0])
         self._restripe()
-        self._update_rowheight()
 
     def _save(self):
         new_sections: list[dict] = []
         for item in self._tree.get_children(""):
             values = self._tree.item(item)["values"]
-            section = dict(zip(self._columns, [str(v) for v in values]))
+            original = self._original.get(item, {})
+            section: dict[str, str] = {}
+            for j, col in enumerate(self._columns):
+                display_val = str(values[j]) if j < len(values) else ""
+                orig_val = original.get(col, "")
+                # Restore original multiline notes when the cell wasn't edited
+                if col == "notes" and display_val == orig_val.replace("\n", " "):
+                    section[col] = orig_val
+                else:
+                    section[col] = display_val
             new_sections.append(section)
         self._path.write_text(_sections_to_text(new_sections), encoding="utf-8")
         print(f"saved: {self._path}", flush=True)
