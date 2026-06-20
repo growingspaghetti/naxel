@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from gui import JTable
+
 SCRIPT_DIR = Path(__file__).parent.parent
 
 
@@ -362,10 +364,20 @@ def cmd_len(repo_root: Path, collection: str, name: str):
 
 
 def cmd_cat(repo_root: Path, collection: str, name: str,
-            additional_props: tuple[str, ...] = ()):
+            additional_props: tuple[str, ...] = (),
+            downloads_dir: Path | None = None, jtable: bool = False):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
+        return
+    if jtable:
+        sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
+        dl_name = filepath.name[:-3]  # strip .gz
+        dest = downloads_dir / dl_name
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        dest.write_text(_system_sections_to_text(sections, additional_props))
+        print(f"saved: {dest}")
+        JTable(dest, mode="systems", readonly=True).run()
         return
     if collection == "systems" and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
@@ -393,7 +405,7 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
 
 def cmd_get(repo_root: Path, collection: str, name: str,
             downloads_dir: Path, editor: str,
-            additional_props: tuple[str, ...] = ()):
+            additional_props: tuple[str, ...] = (), jtable: bool = False):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
@@ -412,10 +424,13 @@ def cmd_get(repo_root: Path, collection: str, name: str,
         dest = downloads_dir / filepath.name
         dest.write_text(filepath.read_text())
     print(f"saved: {dest}")
-    subprocess.Popen([editor, str(dest)])
+    if jtable:
+        JTable(dest, mode="systems").run()
+    else:
+        subprocess.Popen([editor, str(dest)])
 
 
-def cmd_diff(repo_root: Path, collection: str, name: str):
+def cmd_diff(repo_root: Path, collection: str, name: str, jtable: bool = False):
     suffix = REPO_SUFFIX.get(collection, ".txt")
     col_path = collection_path(repo_root, collection)
     encoded = encode_name(name)
@@ -451,6 +466,17 @@ def cmd_diff(repo_root: Path, collection: str, name: str):
         curr_keys = {_key(s) for s in curr_sections}
         deleted = [s for s in prev_sections if _key(s) not in curr_keys]
         added = [s for s in curr_sections if _key(s) not in prev_keys]
+        if jtable:
+            sample = prev_sections[0] if prev_sections else (curr_sections[0] if curr_sections else {})
+            JTable(
+                diff_data={
+                    "columns": list(sample.keys()),
+                    "deleted": [list(s.values()) for s in deleted],
+                    "added":   [list(s.values()) for s in added],
+                },
+                title=f"diff systems {name}",
+            ).run()
+            return
     else:
         def _parse_entries(path: Path) -> list[str]:
             content = path.read_text().strip()
@@ -462,6 +488,17 @@ def cmd_diff(repo_root: Path, collection: str, name: str):
         curr_set = set(curr_entries)
         deleted = [e for e in prev_entries if e not in curr_set]
         added = [e for e in curr_entries if e not in prev_set]
+        if jtable:
+            col_name = "date" if collection == "schedules" else "number"
+            JTable(
+                diff_data={
+                    "columns": [col_name],
+                    "deleted": [[e] for e in deleted],
+                    "added":   [[e] for e in added],
+                },
+                title=f"diff {collection} {name}",
+            ).run()
+            return
 
     print(json.dumps({"deleted": deleted, "added": added}, ensure_ascii=False, indent=2))
 
@@ -521,7 +558,8 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
     new_version = current_version + 1
     dest = col_path / f"{encoded}.{new_version:04d}{suffix}"
     if suffix == ".txt.gz":
-        dest.write_bytes(gzip.compress(_text_to_system_json(content, additional_props).encode()))
+        body = _empty_system_json(additional_props) if not content.strip() else _text_to_system_json(content, additional_props)
+        dest.write_bytes(gzip.compress(body.encode()))
     else:
         dest.write_text(content)
     print(f"pushed: {name} (version {new_version:04d})")
@@ -572,6 +610,8 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = ())
 
 
 def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = ()) -> bool:
+    if not content.strip():
+        return True  # all rows deleted via GUI → treat as cleared
     sections = _parse_system_sections(content, additional_props)
     return bool(sections) and all(
         not s["machine"] and not s["id"] and not s["schedule"] and not s["contact"]
@@ -593,7 +633,7 @@ def _csv_row(*fields: str) -> str:
 
 def cmd_export(repo_root: Path, collection: str, filename: str,
                downloads_dir: Path, cache_dir: Path, editor: str,
-               additional_props: tuple[str, ...] = ()):
+               additional_props: tuple[str, ...] = (), jtable: bool = False):
     sync_cache(repo_root, cache_dir)
     col_path = cache_dir / collection
     if not col_path.is_dir():
@@ -645,7 +685,10 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
     dest = downloads_dir / filename
     dest.write_text("\n".join(rows) + "\n")
     print(f"exported: {dest}")
-    subprocess.Popen([editor, str(dest)])
+    if jtable:
+        JTable(dest).run()
+    else:
+        subprocess.Popen([editor, str(dest)])
 
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
@@ -654,13 +697,13 @@ USAGE = (
     "commands:\n"
     "  ls <collection>\n"
     "  add <collection> <name>\n"
-    "  cat <collection> <name>\n"
-    "  get <collection> <name>\n"
+    "  cat systems <name> [--jtable]\n"
+    "  get systems <name> [--jtable]\n"
     "  clear <collection> <name>\n"
     "  len <collection> <name>\n"
     "  push <collection> <name>\n"
-    "  export <collection> <file.csv>\n"
-    "  diff <collection> <name>\n"
+    "  export <collection> <file.csv> [--jtable]\n"
+    "  diff <collection> <name> [--jtable]\n"
     "  exit\n"
     "collections: systems, schedules, contacts"
 )
@@ -697,16 +740,25 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             cmd_add(repo_root, collection, parts[2], additional_props)
 
     elif cmd == "cat":
-        if len(parts) != 3:
-            print("usage: cat <collection> <name>")
+        jtable = "--jtable" in parts
+        cat_parts = [p for p in parts if p != "--jtable"]
+        if len(cat_parts) != 3:
+            print("usage: cat <collection> <name> [--jtable]")
+        elif jtable and collection != "systems":
+            print("error: --jtable is only supported for systems")
         else:
-            cmd_cat(repo_root, collection, parts[2], additional_props)
+            cmd_cat(repo_root, collection, cat_parts[2], additional_props,
+                    downloads_dir=downloads_dir, jtable=jtable)
 
     elif cmd == "get":
-        if len(parts) != 3:
-            print("usage: get <collection> <name>")
+        jtable = "--jtable" in parts
+        get_parts = [p for p in parts if p != "--jtable"]
+        if len(get_parts) != 3:
+            print("usage: get <collection> <name> [--jtable]")
+        elif jtable and collection != "systems":
+            print("error: --jtable is only supported for systems")
         else:
-            cmd_get(repo_root, collection, parts[2], downloads_dir, editor, additional_props)
+            cmd_get(repo_root, collection, get_parts[2], downloads_dir, editor, additional_props, jtable=jtable)
 
     elif cmd == "clear":
         if len(parts) != 3:
@@ -727,16 +779,20 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             cmd_push(repo_root, collection, parts[2], downloads_dir, schedule_whitelist, contact_whitelist, additional_props)
 
     elif cmd == "export":
-        if len(parts) != 3:
-            print("usage: export <collection> <file.csv>")
+        jtable = "--jtable" in parts
+        export_parts = [p for p in parts if p != "--jtable"]
+        if len(export_parts) != 3:
+            print("usage: export <collection> <file.csv> [--jtable]")
         else:
-            cmd_export(repo_root, collection, parts[2], downloads_dir, cache_dir, editor, additional_props)
+            cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir, editor, additional_props, jtable=jtable)
 
     elif cmd == "diff":
-        if len(parts) != 3:
-            print("usage: diff <collection> <name>")
+        jtable = "--jtable" in parts
+        diff_parts = [p for p in parts if p != "--jtable"]
+        if len(diff_parts) != 3:
+            print("usage: diff <collection> <name> [--jtable]")
         else:
-            cmd_diff(repo_root, collection, parts[2])
+            cmd_diff(repo_root, collection, diff_parts[2], jtable=jtable)
 
     else:
         print(f"unknown command: {cmd!r}")

@@ -12,6 +12,7 @@ Reads `settings.ini` from the project root (one level above `src/`).
 
 ```
 src/app.py                        single-file Python application (REPL)
+src/gui.py                        JTable GUI class (tkinter), imported directly by app.py
 settings.ini                      configuration
 dummy-repo/                       local NAS substitute for development
   additional_properties.json      JSON array of extra field names for system sections
@@ -67,19 +68,26 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 
 ## Commands
 
-| Command                        | Description |
-|--------------------------------|-------------|
-| `ls <collection>`              | Print decoded names (one per line, latest-version files only, deduped) |
-| `add <collection> <name>`      | Create `{encoded}.0000{ext}` with the empty document template |
-| `cat <collection> <name>`      | Print latest version content to stdout (decompresses systems) |
-| `get <collection> <name>`      | Copy latest version to downloads as `.txt`, open with editor |
-| `clear <collection> <name>`    | Write empty document template to downloads (same filename as `get`), open with editor |
-| `len <collection> <name>`      | Print the count of non-empty records in the latest version (sections for systems, entries for schedules/contacts) |
-| `push <collection> <name>`     | Validate latest `.txt` in downloads, write as next version in repo |
-| `export <collection> <file>`   | Sync cache, build CSV from latest versions, save to downloads, open with editor |
-| `exit`                         | Quit |
+| Command                                  | Description |
+|------------------------------------------|-------------|
+| `ls <collection>`                        | Print decoded names (one per line, latest-version files only, deduped) |
+| `add <collection> <name>`                | Create `{encoded}.0000{ext}` with the empty document template |
+| `cat <collection> <name>`               | Print latest version content to stdout (decompresses systems) |
+| `cat systems <name> --jtable`            | Save to downloads, open read-only JTable window |
+| `get <collection> <name>`               | Copy latest version to downloads as `.txt`, open with editor |
+| `get systems <name> --jtable`            | Save to downloads, open editable JTable window with Save / Add Row / Duplicate Row / Delete Row buttons |
+| `clear <collection> <name>`             | Write empty document template to downloads (same filename as `get`), open with editor |
+| `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for systems, entries for schedules/contacts) |
+| `push <collection> <name>`              | Validate latest `.txt` in downloads, write as next version in repo |
+| `export <collection> <file>`            | Sync cache, build CSV from latest versions, save to downloads, open with editor |
+| `export <collection> <file> --jtable`   | Same as `export` but opens the CSV in a JTable window instead of the editor |
+| `diff <collection> <name>`              | Compare latest and previous repo versions; print JSON with `"deleted"` and `"added"` arrays |
+| `diff <collection> <name> --jtable`     | Same comparison but opens a JTable window: deleted rows in red with `−`, added rows in green with `+` |
+| `exit`                                   | Quit |
 
 Collections: `systems`, `schedules`, `contacts`.
+
+`--jtable` on `cat`/`get` is only supported for `systems`.
 
 ## Document formats
 
@@ -134,7 +142,7 @@ Validation rules enforced on `push` (applied to the 👉👈 text before convers
 - Each configured additional property label must be present (value may be empty).
 - Each `👉schedule👈` value must either exist as an entry in the repo's `schedules/` collection, or appear in `[schedule] whitelist` in `settings.ini`. The schedules directory is read with a single `os.listdir` call per push.
 - Each `👉contact👈` value must either exist as an entry in the repo's `contacts/` collection, or appear in `[contact] whitelist` in `settings.ini`. The contacts directory is read with a single `os.listdir` call per push.
-- **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), the push is accepted without validation — this allows saving a cleared document back to the repo.
+- **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), **or if the file content is empty/whitespace** (e.g. all rows deleted via the JTable GUI), the push is accepted without validation and the empty template (`_empty_system_json`) is written to the repo.
 
 Empty template (written by `clear`): separator + all core labels + all configured additional property labels, each with a blank value line.
 
@@ -200,3 +208,23 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - `_validate_system` is strict: it requires exactly the configured additional property labels in the document. `_parse_system_sections` is lenient and used only for schedule/contact-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - `id` is a core field (always present, between `machine` and `schedule`), not an additional property. It is not unique — multiple sections or systems can share the same id value.
 - `contact` is a core field (always present, between `schedule` and `time`). Its value must exist in the `contacts/` collection or be in `[contact] whitelist`. The contacts directory is scanned once per push, after the schedule check.
+
+## JTable GUI (`src/gui.py`)
+
+`JTable` is a tkinter `ttk.Treeview`-based table widget imported directly by `app.py` (no subprocess). Constructor:
+
+```python
+JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None).run()
+```
+
+| Parameter   | Values / meaning |
+|-------------|-----------------|
+| `path`      | File to display (CSV or 👉👈 `.txt`) |
+| `mode`      | `"csv"` — parse as CSV (export); `"systems"` — parse 👉👈 format |
+| `readonly`  | `True` suppresses Save/row-edit buttons (`cat --jtable`) |
+| `diff_data` | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
+| `title`     | Window title (defaults to filename or `"diff"`) |
+
+**Systems editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Multiline notes are displayed collapsed (newlines → spaces); the original newlines are restored on Save if the cell was not edited.
+
+**Diff mode** (`diff_data` provided): read-only, deleted rows shown in red with `−`, added rows in green with `+`. Data columns are sortable.

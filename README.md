@@ -9,10 +9,13 @@ You can exit app using `exit` command.
 ls systems # list system names in /systems/ decoding base32
 add systems sys3 # create a file with the system name in /systems/ encoding base32
 cat systems sys4 # print contents finding the maching file by name
+cat systems sys3 --jtable # show the contents finding the maching file by name, and open it with jtable gui.
 get systems sys3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
+get systems sys3 --jtable # get the contents finding the maching file by name, save it in downloaads, then open it with jtable gui.
 clear systems sys3 # like `get` command this opens the editor but with the empty system document.
 len systems sys3 # prints "%d" that is the length of the non-empty records contained in this system document.
 diff systems sys3 # compares the objects in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
+diff systems sys3 --jtable # compares the objects in the latest version in the repository with those of the previous one and shows difference in jtable gui.
 push systems sys3 # reads the contents after finding the file in downloads, then write it in the file in the repository.
 
 ls schedules # list schedule names in /schedules/ decoding base32
@@ -22,6 +25,7 @@ get schedules sc3 # get the contents finding the maching file by name, save it i
 clear schedules sc3 # like `get` command this opens the editor but with the empty schedule document.
 len schedules sc3 # prints "%d" that is how many dates contained in this schedule document.
 diff schedules sys3 # compares the dates in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
+diff schedules sys3 --jtable # compares the dates in the latest version in the repository with those of the previous one and shows difference in jtable gui.
 push schedules sc3 # reads the contents after finding the file in downloads, then write it in the file in the repository
 
 ls contacts # list contact names in /contacts/ decoding base32
@@ -31,11 +35,16 @@ get contacts cont3 # get the contents finding the maching file by name, save it 
 clear contacts c3 # like `get` command this opens the editor but with the empty contact document.
 len contacts c3 # prints "%d" that is how many contacts contained in this contact document.
 diff contacts c3 # compares the phone numbers in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
+diff contacts c3 --jtable # compares the phone numbers in the latest version in the repository with those of the previous one and shows difference in jtable gui.
 push contact c3 # reads the contents after finding the file in downloads, then write it in the file in the repository
 
 export systems foo.csv # export data in systems to the csv and open with the editor.
 export schedules bar.csv # export data in schedules to the csv and open with the editor.
 export contacts baz.csv # export data in contacts to the csv and open with the editor.
+
+export systems foo.csv --jtable # export data in systems to the csv and open it with jtable gui.
+export schedules bar.csv --jtable # export data in schedules to the csv and open it with jtable gui.
+export contacts baz.csv --jtable # export data in contacts to the csv and open it with jtable gui.
 
 exit # terminates this application
 ```
