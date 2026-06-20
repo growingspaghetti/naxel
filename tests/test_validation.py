@@ -469,10 +469,6 @@ class TestEmptySystemJson:
 
 
 class TestLoadAdditionalProperties:
-    def test_reads_string_format(self, tmp_path):
-        (tmp_path / "additional_properties.json").write_text('["p1", "p2"]')
-        assert load_additional_properties(tmp_path) == (("p1", "NONE"), ("p2", "NONE"))
-
     def test_reads_object_format(self, tmp_path):
         (tmp_path / "additional_properties.json").write_text(
             '[{"property_name":"p1","validation_type":"NOT_EMPTY"},{"property_name":"p2","validation_type":"HH:MM"}]'
@@ -482,6 +478,10 @@ class TestLoadAdditionalProperties:
     def test_missing_validation_type_defaults_to_none(self, tmp_path):
         (tmp_path / "additional_properties.json").write_text('[{"property_name":"p1"}]')
         assert load_additional_properties(tmp_path) == (("p1", "NONE"),)
+
+    def test_non_object_entries_are_skipped(self, tmp_path):
+        (tmp_path / "additional_properties.json").write_text('["p1", {"property_name":"p2","validation_type":"NONE"}]')
+        assert load_additional_properties(tmp_path) == (("p2", "NONE"),)
 
     def test_missing_file_returns_empty(self, tmp_path):
         assert load_additional_properties(tmp_path) == ()

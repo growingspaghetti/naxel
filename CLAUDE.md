@@ -56,7 +56,7 @@ Located at `{repo_root}/additional_properties.json`. A JSON array of objects def
 | `property_name`   | Field name appended to each system section |
 | `validation_type` | `"NONE"` — no validation (value may be empty); `"NOT_EMPTY"` — `push` rejects empty values; `"HH:MM"` — `push` rejects values that don't match `\d{2}:\d{2}`. Defaults to `"NONE"` if omitted. |
 
-A legacy flat array of strings (e.g. `["prop1", "prop2"]`) is also accepted; each string is treated as `validation_type: "NONE"`. If the file is absent, no additional properties are used.
+If the file is absent, no additional properties are used. Non-object entries in the array are silently ignored.
 
 ## additional_mandatory_properties.json
 

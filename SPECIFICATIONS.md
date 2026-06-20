@@ -222,7 +222,7 @@ property_order = team,notes,id
 | `property_name` | フィールド名 |
 | `validation_type` | `push` 時の入力検証: `"NONE"` — 検証なし（値が空でも可）; `"NOT_EMPTY"` — 空値を拒否; `"HH:MM"` — `\d{2}:\d{2}` 形式でない値を拒否。省略時は `"NONE"` として扱われる |
 
-後方互換として文字列の配列（例：`["prop1", "prop2"]`）も受け付けます。各文字列は `"NONE"` として扱われます。
+オブジェクト以外のエントリは無視されます。
 
 ### 必須プロパティ・動的コレクション（additional_mandatory_properties.json）
 

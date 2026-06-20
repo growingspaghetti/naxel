@@ -52,8 +52,6 @@ def load_additional_properties(repo_root: Path) -> tuple[tuple[str, str], ...]:
                 vtype = str(item.get("validation_type", "NONE")).strip()
                 if name:
                     result.append((name, vtype))
-            elif isinstance(item, str) and item.strip():
-                result.append((item.strip(), "NONE"))
         return tuple(result)
     except FileNotFoundError:
         return ()
