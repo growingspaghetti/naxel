@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 import app
 from app import (
     encode_name,
-    cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len,
+    cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len, cmd_diff,
     _EMPTY_DOCUMENTS, _empty_system_document, _empty_system_json, _text_to_system_json,
 )
 
@@ -543,4 +543,122 @@ class TestCmdLen:
 
     def test_schedules_not_found_prints_error(self, repo, capsys):
         cmd_len(repo, "schedules", "ghost")
+        assert "error" in capsys.readouterr().out
+
+
+class TestCmdDiff:
+    # ── systems ───────────────────────────────────────────────────────────────
+
+    def test_systems_added_section(self, repo, capsys):
+        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n"),
+                                            ("m2", "#id2", "s2", "cont2", "13:00", "n2")))
+        cmd_diff(repo, "systems", "sys1")
+        result = json.loads(capsys.readouterr().out)
+        assert result["deleted"] == []
+        assert len(result["added"]) == 1
+        assert result["added"][0]["machine"] == "m2"
+
+    def test_systems_deleted_section(self, repo, capsys):
+        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n"),
+                                            ("m2", "#id2", "s2", "cont2", "13:00", "n2")))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        cmd_diff(repo, "systems", "sys1")
+        result = json.loads(capsys.readouterr().out)
+        assert len(result["deleted"]) == 1
+        assert result["deleted"][0]["machine"] == "m2"
+        assert result["added"] == []
+
+    def test_systems_modified_section(self, repo, capsys):
+        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("m1-changed", "#id1", "s1", "cont1", "12:00", "n")))
+        cmd_diff(repo, "systems", "sys1")
+        result = json.loads(capsys.readouterr().out)
+        assert len(result["deleted"]) == 1
+        assert result["deleted"][0]["machine"] == "m1"
+        assert len(result["added"]) == 1
+        assert result["added"][0]["machine"] == "m1-changed"
+
+    def test_systems_no_change(self, repo, capsys):
+        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        cmd_diff(repo, "systems", "sys1")
+        result = json.loads(capsys.readouterr().out)
+        assert result == {"deleted": [], "added": []}
+
+    def test_systems_not_found_prints_error(self, repo, capsys):
+        cmd_diff(repo, "systems", "ghost")
+        assert "error" in capsys.readouterr().out
+
+    def test_systems_only_one_version_prints_error(self, repo, capsys):
+        put_system(repo, "sys1", 0, sys_doc(("m1", "#id1", "s1", "cont1", "12:00", "n")))
+        cmd_diff(repo, "systems", "sys1")
+        assert "error" in capsys.readouterr().out
+
+    # ── schedules ─────────────────────────────────────────────────────────────
+
+    def test_schedules_added_date(self, repo, capsys):
+        put_schedule(repo, "sc1", 0, "2024/01/01,2024/06/15")
+        put_schedule(repo, "sc1", 1, "2024/01/01,2024/06/15,2025/03/20")
+        cmd_diff(repo, "schedules", "sc1")
+        result = json.loads(capsys.readouterr().out)
+        assert result["deleted"] == []
+        assert result["added"] == ["2025/03/20"]
+
+    def test_schedules_deleted_date(self, repo, capsys):
+        put_schedule(repo, "sc1", 0, "2024/01/01,2024/06/15")
+        put_schedule(repo, "sc1", 1, "2024/06/15")
+        cmd_diff(repo, "schedules", "sc1")
+        result = json.loads(capsys.readouterr().out)
+        assert result["deleted"] == ["2024/01/01"]
+        assert result["added"] == []
+
+    def test_schedules_no_change(self, repo, capsys):
+        put_schedule(repo, "sc1", 0, "2024/01/01")
+        put_schedule(repo, "sc1", 1, "2024/01/01")
+        cmd_diff(repo, "schedules", "sc1")
+        result = json.loads(capsys.readouterr().out)
+        assert result == {"deleted": [], "added": []}
+
+    def test_schedules_not_found_prints_error(self, repo, capsys):
+        cmd_diff(repo, "schedules", "ghost")
+        assert "error" in capsys.readouterr().out
+
+    def test_schedules_only_one_version_prints_error(self, repo, capsys):
+        put_schedule(repo, "sc1", 0, "2024/01/01")
+        cmd_diff(repo, "schedules", "sc1")
+        assert "error" in capsys.readouterr().out
+
+    # ── contacts ──────────────────────────────────────────────────────────────
+
+    def test_contacts_added_number(self, repo, capsys):
+        put_contact(repo, "cont1", 0, "03-1234-5678,09012345678")
+        put_contact(repo, "cont1", 1, "03-1234-5678,09012345678,+81-0100-0331")
+        cmd_diff(repo, "contacts", "cont1")
+        result = json.loads(capsys.readouterr().out)
+        assert result["deleted"] == []
+        assert result["added"] == ["+81-0100-0331"]
+
+    def test_contacts_deleted_number(self, repo, capsys):
+        put_contact(repo, "cont1", 0, "03-1234-5678,09012345678")
+        put_contact(repo, "cont1", 1, "09012345678")
+        cmd_diff(repo, "contacts", "cont1")
+        result = json.loads(capsys.readouterr().out)
+        assert result["deleted"] == ["03-1234-5678"]
+        assert result["added"] == []
+
+    def test_contacts_no_change(self, repo, capsys):
+        put_contact(repo, "cont1", 0, "03-1234-5678")
+        put_contact(repo, "cont1", 1, "03-1234-5678")
+        cmd_diff(repo, "contacts", "cont1")
+        result = json.loads(capsys.readouterr().out)
+        assert result == {"deleted": [], "added": []}
+
+    def test_contacts_not_found_prints_error(self, repo, capsys):
+        cmd_diff(repo, "contacts", "ghost")
+        assert "error" in capsys.readouterr().out
+
+    def test_contacts_only_one_version_prints_error(self, repo, capsys):
+        put_contact(repo, "cont1", 0, "03-1234-5678")
+        cmd_diff(repo, "contacts", "cont1")
         assert "error" in capsys.readouterr().out
