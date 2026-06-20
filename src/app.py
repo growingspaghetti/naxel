@@ -943,11 +943,7 @@ def main():
         (cache_dir / cname).mkdir(parents=True, exist_ok=True)
 
     mandatory_ref_props = tuple(
-        (dc["property_name"], dc["collection_name"], frozenset(
-            v.strip()
-            for v in config.get(dc["property_name"], "whitelist", fallback="").split(",")
-            if v.strip()
-        ))
+        (dc["property_name"], dc["collection_name"], frozenset(dc.get("whitelist", [])))
         for dc in dynamic_colls
         if dc.get("property_name")
     )
