@@ -37,8 +37,7 @@ cache/                            local mirror of the NAS repo, populated at sta
 | `[downloads]`  | `dir`       | `downloads`  | Where edited files are staged                          |
 | `[cache]`      | `dir`       | `cache`      | Local mirror of the NAS repo                           |
 | `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
-| `[schedule]`   | `whitelist` | *(empty)*    | Comma-separated schedule names always accepted on push |
-| `[contact]`    | `whitelist` | *(empty)*    | Comma-separated contact names always accepted on push  |
+| `[{property_name}]` | `whitelist` | *(empty)* | Per mandatory-ref-prop whitelist: values listed here are accepted without checking the corresponding collection. The section name matches the `property_name` field in `additional_mandatory_properties.json` (e.g. `[schedule]`, `[contact]`, `[team]`). |
 | `[system]`     | `property_order` | *(empty)* | Comma-separated field names (core or extra) that appear first in system documents, in the listed order. Remaining fields follow in their default relative order (core fields, then extra props). Unknown names are silently ignored. |
 
 ## additional_properties.json
@@ -50,28 +49,37 @@ Located at `{repo_root}/additional_properties.json`. A flat JSON array of string
 Located at `{repo_root}/additional_mandatory_properties.json`. A JSON array of objects, each defining a **dynamic collection**:
 
 ```json
-[{"collection_name": "teams", "property_name": "team"}]
+[
+  {"collection_name": "teams",     "property_name": "team",     "type": "NOTE"},
+  {"collection_name": "schedules", "property_name": "schedule", "type": "DATE"},
+  {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER"}
+]
 ```
 
 | Field             | Meaning |
 |-------------------|---------|
 | `collection_name` | Directory name in the repo (e.g. `teams/`); also the collection name used in commands |
-| `property_name`   | The system-section field that references this collection; appears in system templates and is validated on push |
+| `property_name`   | The system-section field that references this collection; validated on push |
+| `type`            | Informational tag (currently ignored by the app; reserved for future use) |
 
 At startup the app reads this file and for each entry:
 - Adds `collection_name` to the valid collection set
 - Registers `.txt` as its repo file suffix
 - Creates the collection directory in both the repo root and the local cache if absent
-- Appends `property_name` to the system-section field list (after any optional fields from `additional_properties.json`), making it a required field in every system document
+- If `property_name` is **not** a core field (`machine`, `id`, `schedule`, `contact`, `time`, `notes`): appends it to `additional_props`, making it a required document field
 
-Dynamic collections behave like `schedules`/`contacts`: plain `.txt` storage, no format validation on push, comma-separated values for `len`/`diff`/`export`. The `export` CSV uses `name, values` column headers. If the file is absent, no dynamic collections are loaded.
+Core fields (`schedule`, `contact`) listed here are **not** added to `additional_props` a second time — their presence and non-empty-value check is already enforced by core validation. Only the collection-existence check is added via the `mandatory_ref_props` loop.
 
-**Mandatory property behaviour in systems:**
+Dynamic collections behave like the built-in `schedules`/`contacts`: plain `.txt` storage, no format validation on push, comma-separated values for `len`/`diff`/`export`. The `export` CSV uses `name, values` column headers. If the file is absent, no dynamic collections are loaded.
 
-The `property_name` values are appended to `additional_props` at startup and are therefore included in system document templates, the 👉👈 text format, and JSON storage. On `push`, they are validated more strictly than optional properties:
+**Mandatory property behaviour in systems (non-core fields):**
+
+Non-core `property_name` values are appended to `additional_props` at startup and are therefore included in system document templates, the 👉👈 text format, and JSON storage. On `push`, they are validated more strictly than optional properties:
 - The label (`👉property_name👈`) must be present (same as optional props).
 - The value must be **non-empty**.
 - The value must exist as an entry in the corresponding `collection_name` collection (one `os.listdir` call per distinct collection per push, reusing the list across all sections).
+
+**Whitelist**: for any mandatory ref prop (core or non-core), values in `[{property_name}] whitelist` in `settings.ini` bypass the collection-existence check.
 
 ## File naming convention
 
@@ -183,9 +191,8 @@ Validation rules enforced on `push` (applied to the 👉👈 text before convers
 - `👉time👈` value must be non-empty and match `dd:dd` (two digits, colon, two digits).
 - `👉notes👈` label must be present (value may be empty).
 - Each optional additional property label (`additional_properties.json`) must be present (value may be empty).
-- Each mandatory additional property label (`additional_mandatory_properties.json` `property_name`) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection. One `os.listdir` call per distinct collection per push.
-- Each `👉schedule👈` value must either exist as an entry in the repo's `schedules/` collection, or appear in `[schedule] whitelist` in `settings.ini`. The schedules directory is read with a single `os.listdir` call per push.
-- Each `👉contact👈` value must either exist as an entry in the repo's `contacts/` collection, or appear in `[contact] whitelist` in `settings.ini`. The contacts directory is read with a single `os.listdir` call per push.
+- Each non-core mandatory property label (`additional_mandatory_properties.json` `property_name`) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection. One `os.listdir` call per distinct collection per push.
+- Each mandatory ref prop value (including core fields like `schedule` and `contact` when listed in `additional_mandatory_properties.json`) must either exist as an entry in the corresponding collection, or appear in `[{property_name}] whitelist` in `settings.ini`. The collection directory is read with a single `os.listdir` call per push per collection.
 - **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), **or if the file content is empty/whitespace** (e.g. all rows deleted via the JTable GUI), the push is accepted without validation and the empty template (`_empty_system_json`) is written to the repo.
 
 Empty template (written by `clear`): separator + all core labels + all configured additional property labels, each with a blank value line.
@@ -257,10 +264,9 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - The NAS `systems/` and `schedules/` directories contain no subdirectories, so flat `listdir` is sufficient.
 - `push` looks for the latest `.txt` in `downloads/{collection}/`; the repo suffix is determined by `REPO_SUFFIX[collection]`.
 - Systems are stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
-- `_validate_system` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_system_sections` is lenient and used only for schedule/contact/mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
+- `_validate_system` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_system_sections` is lenient and used only for mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - `id` is a core field (always present, between `machine` and `schedule`), not an additional property. It is not unique — multiple sections or systems can share the same id value.
-- `contact` is a core field (always present, between `schedule` and `time`). Its value must exist in the `contacts/` collection or be in `[contact] whitelist`. The contacts directory is scanned once per push, after the schedule check.
-- `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str,str],...]` of `(property_name, collection_name)` pairs) is threaded from `main` → `dispatch` → `cmd_push`; `additional_props` seen by all other functions contains the mandatory prop names appended after optional ones.
+- `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from `config.get(property_name, "whitelist", fallback="")` at startup. Core fields (`schedule`, `contact`) listed in `additional_mandatory_properties.json` are filtered out of `additional_props` (so they don't appear twice in documents) but are still included in `mandatory_ref_props` for the collection-existence and whitelist check. `mandatory_prop_names` (the `frozenset` passed to `_validate_system`) excludes core field names, since their non-empty check is already done in core validation.
 - `field_order` is a `tuple[str, ...]` of all system field names in the display/validation order dictated by `[system] property_order`. It is computed once in `main()` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the old `additional_props`-based behaviour is used, which keeps the existing test suite green without modification.
 
 ## JTable GUI (`src/gui.py`)

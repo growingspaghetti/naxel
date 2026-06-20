@@ -36,16 +36,6 @@ def get_editor(config):
     return config.get("editor", "command", fallback="mousepad")
 
 
-def get_schedule_whitelist(config) -> set[str]:
-    raw = config.get("schedule", "whitelist", fallback="")
-    return {s.strip() for s in raw.split(",") if s.strip()}
-
-
-def get_contact_whitelist(config) -> set[str]:
-    raw = config.get("contact", "whitelist", fallback="")
-    return {s.strip() for s in raw.split(",") if s.strip()}
-
-
 def get_property_order(config) -> tuple[str, ...]:
     raw = config.get("system", "property_order", fallback="")
     return tuple(s.strip() for s in raw.split(",") if s.strip())
@@ -580,9 +570,8 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
 
 
 def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
-             schedule_whitelist: set[str], contact_whitelist: set[str],
              additional_props: tuple[str, ...] = (),
-             mandatory_ref_props: tuple[tuple[str, str], ...] = (), *,
+             mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
              field_order: tuple[str, ...] | None = None):
     encoded = encode_name(name)
     src = latest_in_dir(downloads_dir / collection, encoded, ".txt")
@@ -592,62 +581,34 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
     content = src.read_text()
     if not (collection == "systems" and _is_initial_state_system(
             content, additional_props, field_order=field_order)):
-        mandatory_prop_names = frozenset(pname for pname, _ in mandatory_ref_props)
+        mandatory_prop_names = frozenset(
+            pname for pname, _, _ in mandatory_ref_props
+            if pname not in _DEFAULT_CORE_SET
+        )
         ok, reason = validate(collection, content, additional_props, mandatory_prop_names,
                               field_order=field_order)
         if not ok:
             print(f"rejected: {reason}")
             return
-        if collection == "systems":
-            sched_suffix = REPO_SUFFIX["schedules"]
-            sched_dir = collection_path(repo_root, "schedules")
-            try:
-                existing = {
-                    f[: -len(sched_suffix)].split(".")[0]
-                    for f in os.listdir(sched_dir)
-                    if f.endswith(sched_suffix)
-                }
-            except FileNotFoundError:
-                existing = set()
-            for sec in _parse_system_sections(content, additional_props, field_order=field_order):
-                sched = sec["schedule"]
-                if sched not in schedule_whitelist and encode_name(sched) not in existing:
-                    print(f"rejected: schedule {sched!r} not found in repository or whitelist")
-                    return
-            cont_suffix = REPO_SUFFIX["contacts"]
-            cont_dir = collection_path(repo_root, "contacts")
-            try:
-                existing_contacts = {
-                    f[: -len(cont_suffix)].split(".")[0]
-                    for f in os.listdir(cont_dir)
-                    if f.endswith(cont_suffix)
-                }
-            except FileNotFoundError:
-                existing_contacts = set()
-            for sec in _parse_system_sections(content, additional_props, field_order=field_order):
-                cont = sec["contact"]
-                if cont not in contact_whitelist and encode_name(cont) not in existing_contacts:
-                    print(f"rejected: contact {cont!r} not found in repository or whitelist")
-                    return
-            if mandatory_ref_props:
-                sections_for_ref = _parse_system_sections(content, additional_props,
-                                                           field_order=field_order)
-                for pname, cname in mandatory_ref_props:
-                    ref_suffix = REPO_SUFFIX.get(cname, ".txt")
-                    ref_dir = collection_path(repo_root, cname)
-                    try:
-                        existing_refs = {
-                            f[: -len(ref_suffix)].split(".")[0]
-                            for f in os.listdir(ref_dir)
-                            if f.endswith(ref_suffix)
-                        }
-                    except FileNotFoundError:
-                        existing_refs = set()
-                    for sec in sections_for_ref:
-                        val = sec.get(pname, "")
-                        if val and encode_name(val) not in existing_refs:
-                            print(f"rejected: {pname} {val!r} not found in {cname} collection")
-                            return
+        if collection == "systems" and mandatory_ref_props:
+            sections_for_ref = _parse_system_sections(content, additional_props,
+                                                       field_order=field_order)
+            for pname, cname, whitelist in mandatory_ref_props:
+                ref_suffix = REPO_SUFFIX.get(cname, ".txt")
+                ref_dir = collection_path(repo_root, cname)
+                try:
+                    existing_refs = {
+                        f[: -len(ref_suffix)].split(".")[0]
+                        for f in os.listdir(ref_dir)
+                        if f.endswith(ref_suffix)
+                    }
+                except FileNotFoundError:
+                    existing_refs = set()
+                for sec in sections_for_ref:
+                    val = sec.get(pname, "")
+                    if val and val not in whitelist and encode_name(val) not in existing_refs:
+                        print(f"rejected: {pname} {val!r} not found in {cname} collection")
+                        return
     col_path = collection_path(repo_root, collection)
     suffix = REPO_SUFFIX.get(collection, ".txt")
     latest = latest_in_dir(col_path, encoded, suffix)
@@ -868,9 +829,8 @@ def usage_string() -> str:
 
 
 def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
-             cache_dir: Path, editor: str, schedule_whitelist: set[str],
-             contact_whitelist: set[str], additional_props: tuple[str, ...] = (),
-             mandatory_ref_props: tuple[tuple[str, str], ...] = (), *,
+             cache_dir: Path, editor: str, additional_props: tuple[str, ...] = (),
+             mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
              field_order: tuple[str, ...] | None = None) -> bool:
     """Return False to exit."""
     cmd = parts[0]
@@ -939,7 +899,6 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: push <collection> <name>")
         else:
             cmd_push(repo_root, collection, parts[2], downloads_dir,
-                     schedule_whitelist, contact_whitelist,
                      additional_props, mandatory_ref_props, field_order=field_order)
 
     elif cmd == "export":
@@ -973,8 +932,6 @@ def main():
     downloads_dir = get_downloads_dir(config)
     cache_dir = get_cache_dir(config)
     editor = get_editor(config)
-    schedule_whitelist = get_schedule_whitelist(config)
-    contact_whitelist = get_contact_whitelist(config)
     optional_props = load_additional_properties(repo_root)
 
     dynamic_colls = load_dynamic_collections(repo_root)
@@ -986,11 +943,17 @@ def main():
         (cache_dir / cname).mkdir(parents=True, exist_ok=True)
 
     mandatory_ref_props = tuple(
-        (dc["property_name"], dc["collection_name"])
+        (dc["property_name"], dc["collection_name"], frozenset(
+            v.strip()
+            for v in config.get(dc["property_name"], "whitelist", fallback="").split(",")
+            if v.strip()
+        ))
         for dc in dynamic_colls
         if dc.get("property_name")
     )
-    all_props = optional_props + tuple(pname for pname, _ in mandatory_ref_props)
+    all_props = optional_props + tuple(
+        pname for pname, _, _ in mandatory_ref_props if pname not in _DEFAULT_CORE_SET
+    )
 
     # Compute full field order respecting property_order from settings.ini.
     # Fields listed in property_order come first (core or extra); remaining fields
@@ -1026,7 +989,6 @@ def main():
 
         parts = line.split()
         if not dispatch(parts, repo_root, downloads_dir, cache_dir, editor,
-                        schedule_whitelist, contact_whitelist,
                         additional_props, mandatory_ref_props,
                         field_order=field_order):
             break

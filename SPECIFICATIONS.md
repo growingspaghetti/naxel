@@ -106,8 +106,8 @@ prop1_value
 |---|---|
 | `machine` | 空でないこと |
 | `id` | 空でないこと、かつ `#` で始まらないこと |
-| `schedule` | 空でないこと、かつリポジトリの `schedules` コレクションまたはホワイトリストに存在すること |
-| `contact` | 空でないこと、かつリポジトリの `contacts` コレクションまたはホワイトリストに存在すること |
+| `schedule` | 空でないこと、かつリポジトリの `schedules` コレクションまたは `[schedule] whitelist` に存在すること（`additional_mandatory_properties.json` に設定している場合） |
+| `contact` | 空でないこと、かつリポジトリの `contacts` コレクションまたは `[contact] whitelist` に存在すること（`additional_mandatory_properties.json` に設定している場合） |
 | `time` | 空でないこと、かつ `dd:dd`（数字2桁・コロン・数字2桁）の形式であること |
 | `notes` | ラベルが存在すること（値は空でも可） |
 | 追加プロパティ（任意） | ラベルが存在すること（値は空でも可） |
@@ -188,8 +188,7 @@ teamA, value1 value2 value3
 | `[downloads]` | `dir` | `downloads` | 編集ファイルの保存先ディレクトリ |
 | `[cache]` | `dir` | `cache` | リポジトリのローカルキャッシュディレクトリ |
 | `[editor]` | `command` | `mousepad` | `get` / `clear` / `export` で起動するエディタ |
-| `[schedule]` | `whitelist` | （空） | `push` 時に無条件で受け入れるスケジュール名（カンマ区切り） |
-| `[contact]` | `whitelist` | （空） | `push` 時に無条件で受け入れる連絡先名（カンマ区切り） |
+| `[{property_name}]` | `whitelist` | （空） | 必須参照プロパティごとのホワイトリスト。セクション名は `additional_mandatory_properties.json` の `property_name` に対応（例：`[schedule]`、`[contact]`、`[team]`）。ここに記載した値はコレクションへの存在チェックをスキップして受け入れられる。 |
 | `[system]` | `property_order` | （空） | システムドキュメントの先頭に表示するフィールド名（カンマ区切り）。コアフィールド・追加フィールドのいずれも指定可。記載したフィールドが先頭に並び、残りはデフォルト順で続く。 |
 
 ### 設定例
@@ -230,17 +229,24 @@ property_order = team,notes,id
 リポジトリルートの `additional_mandatory_properties.json` に、動的コレクションの定義を記述します。
 
 ```json
-[{"collection_name": "teams", "property_name": "team"}]
+[
+  {"collection_name": "teams",     "property_name": "team",     "type": "NOTE"},
+  {"collection_name": "schedules", "property_name": "schedule", "type": "DATE"},
+  {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER"}
+]
 ```
 
 | フィールド | 説明 |
 |---|---|
 | `collection_name` | コレクションのディレクトリ名（コマンドでもこの名前を使用） |
-| `property_name` | システムドキュメントに追加される必須フィールド名 |
+| `property_name` | システムドキュメントのフィールド名。`push` 時に値が検証される |
+| `type` | 種別タグ（現在はツールが読み取るだけで機能には影響しない） |
 
 - 定義したコレクションはツール起動時に自動で利用可能になります。
-- `property_name` で指定したフィールドは全システムドキュメントの必須項目となり、`push` 時に値の存在と対応コレクションへの登録が検証されます。
-- 動的コレクションは `schedules` / `contacts` と同様に操作できます。
+- `property_name` が `schedule` や `contact` などのコアフィールドでない場合、全システムドキュメントの必須項目として追加されます。コアフィールドの場合は存在チェックのみ追加されます。
+- `push` 時、各 `property_name` の値が空でないこと、かつ対応する `collection_name` コレクションに登録されていること（またはホワイトリストに含まれること）が検証されます。
+- `schedule` や `contact` を記載することで、これらのコレクション参照チェックも動的コレクション設定で管理できます。
+- 動的コレクションは組み込みの `schedules` / `contacts` と同様に操作できます。
 
 ---
 
