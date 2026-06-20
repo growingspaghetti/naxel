@@ -536,7 +536,8 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
     new_version = current_version + 1
     dest = col_path / f"{encoded}.{new_version:04d}{suffix}"
     if suffix == ".txt.gz":
-        dest.write_bytes(gzip.compress(_text_to_system_json(content, additional_props).encode()))
+        body = _empty_system_json(additional_props) if not content.strip() else _text_to_system_json(content, additional_props)
+        dest.write_bytes(gzip.compress(body.encode()))
     else:
         dest.write_text(content)
     print(f"pushed: {name} (version {new_version:04d})")

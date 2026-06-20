@@ -338,13 +338,15 @@ class TestCmdPush:
         assert "pushed" in capsys.readouterr().out
         assert (repo / "systems" / f"{enc}.0001.txt.gz").exists()
 
-    def test_all_rows_deleted_accepted(self, repo, downloads, capsys):
+    def test_all_rows_deleted_pushes_empty_template(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
         enc = encode_name("sys1")
         (downloads / f"{enc}.0000.txt").write_text("\n")  # GUI saves empty string when all rows deleted
         cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
         assert "pushed" in capsys.readouterr().out
-        assert (repo / "systems" / f"{enc}.0001.txt.gz").exists()
+        pushed = repo / "systems" / f"{enc}.0001.txt.gz"
+        assert pushed.exists()
+        assert gzip.decompress(pushed.read_bytes()).decode() == _empty_system_json()
 
     def test_not_in_downloads_prints_error(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
