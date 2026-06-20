@@ -76,6 +76,9 @@ class JTable:
             btn_frame = tk.Frame(self._root)
             btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 4))
             tk.Button(btn_frame, text="Save", command=self._save).pack(side=tk.RIGHT)
+            tk.Button(btn_frame, text="Delete Row", command=self._delete_row).pack(side=tk.LEFT, padx=(0, 2))
+            tk.Button(btn_frame, text="Duplicate Row", command=self._duplicate_row).pack(side=tk.LEFT, padx=(0, 2))
+            tk.Button(btn_frame, text="Add Row", command=self._add_row).pack(side=tk.LEFT)
 
         frame = tk.Frame(self._root)
         frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
@@ -178,6 +181,41 @@ class JTable:
         entry.bind("<Tab>", confirm)
         entry.bind("<FocusOut>", confirm)
         entry.bind("<Escape>", lambda e: entry.destroy())
+
+    def _restripe(self):
+        for i, item in enumerate(self._tree.get_children("")):
+            tag = "odd" if i % 2 else ""
+            self._tree.item(item, tags=(tag,))
+
+    def _add_row(self):
+        empty = [""] * len(self._columns)
+        selected = self._tree.selection()
+        idx = self._tree.index(selected[0]) + 1 if selected else tk.END
+        iid = self._tree.insert("", idx, values=empty)
+        self._original[iid] = {col: "" for col in self._columns}
+        self._restripe()
+        self._tree.selection_set(iid)
+        self._tree.see(iid)
+
+    def _duplicate_row(self):
+        selected = self._tree.selection()
+        if not selected:
+            return
+        src = selected[0]
+        iid = self._tree.insert("", self._tree.index(src) + 1,
+                                values=self._tree.item(src)["values"])
+        self._original[iid] = self._original.get(src, {}).copy()
+        self._restripe()
+        self._tree.selection_set(iid)
+        self._tree.see(iid)
+
+    def _delete_row(self):
+        selected = self._tree.selection()
+        if not selected:
+            return
+        self._original.pop(selected[0], None)
+        self._tree.delete(selected[0])
+        self._restripe()
 
     def _save(self):
         new_sections: list[dict] = []
