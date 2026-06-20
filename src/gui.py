@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 
-_SEP = "👉" * 10 + "👈" * 10
+_SEP = "🏔" * 20
 
 
 def _is_label(line: str) -> bool:

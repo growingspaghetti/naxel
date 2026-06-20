@@ -10,7 +10,7 @@ from app import (
     _EMPTY_DOCUMENTS, _empty_system_document, _empty_system_json, _text_to_system_json,
 )
 
-SEP = "👉" * 10 + "👈" * 10
+SEP = "🏔" * 20
 M = "👉machine👈"
 I = "👉id👈"
 S = "👉schedule👈"

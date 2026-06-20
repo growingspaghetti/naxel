@@ -8,7 +8,7 @@ from app import (
     load_additional_properties,
 )
 
-SEP = "👉" * 10 + "👈" * 10
+SEP = "🏔" * 20
 M = "👉machine👈"
 I = "👉id👈"
 S = "👉schedule👈"

@@ -125,7 +125,7 @@ def find_latest_file(repo_root: Path, collection: str, name: str) -> Path | None
 
 # ── validation ────────────────────────────────────────────────────────────────
 
-_SEPARATOR = "\U0001f449" * 10 + "\U0001f448" * 10
+_SEPARATOR = "\U0001f3d4" * 20
 _DATE_SEG = r"\d{4}/\d{2}/\d{2}"
 _SCHEDULE_RE = re.compile(rf"^{_DATE_SEG}(,{_DATE_SEG})*\n?$")
 _CONTACT_SEG = r"[0-9\-\+]+"
