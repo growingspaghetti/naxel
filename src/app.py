@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from gui import JTable
+
 SCRIPT_DIR = Path(__file__).parent.parent
 
 
@@ -375,8 +377,7 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
         downloads_dir.mkdir(parents=True, exist_ok=True)
         dest.write_text(_system_sections_to_text(sections, additional_props))
         print(f"saved: {dest}")
-        subprocess.Popen([sys.executable, str(Path(__file__).parent / "gui.py"),
-                          str(dest), "--systems", "--readonly"])
+        JTable(dest, mode="systems", readonly=True).run()
         return
     if collection == "systems" and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
@@ -424,8 +425,7 @@ def cmd_get(repo_root: Path, collection: str, name: str,
         dest.write_text(filepath.read_text())
     print(f"saved: {dest}")
     if jtable:
-        subprocess.Popen([sys.executable, str(Path(__file__).parent / "gui.py"),
-                          str(dest), "--systems"])
+        JTable(dest, mode="systems").run()
     else:
         subprocess.Popen([editor, str(dest)])
 
@@ -664,7 +664,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
     dest.write_text("\n".join(rows) + "\n")
     print(f"exported: {dest}")
     if jtable:
-        subprocess.Popen([sys.executable, str(Path(__file__).parent / "gui.py"), str(dest)])
+        JTable(dest).run()
     else:
         subprocess.Popen([editor, str(dest)])
 
