@@ -16,9 +16,11 @@ src/gui.py                        JTable GUI class (tkinter), imported directly 
 settings.ini                      configuration
 dummy-repo/                       local NAS substitute for development
   additional_properties.json      JSON array of extra field names for system sections
+  additional_mandatory_properties.json  JSON array defining dynamic collections (see below)
   systems/                        .txt.gz files named by base32-encoded system name + version
   schedules/                      .txt files named by base32-encoded schedule name + version
   contacts/                       .txt files named by base32-encoded contact name + version
+  <collection>/                   .txt files for each dynamic collection
 downloads/                        files staged for editing (always plain .txt)
 cache/                            local mirror of the NAS repo, populated at startup and on export
 ```
@@ -38,13 +40,41 @@ cache/                            local mirror of the NAS repo, populated at sta
 
 Located at `{repo_root}/additional_properties.json`. A flat JSON array of strings naming the extra fields appended to each system section, e.g. `["prop1", "prop2"]`. If the file is absent, no additional properties are used.
 
+## additional_mandatory_properties.json
+
+Located at `{repo_root}/additional_mandatory_properties.json`. A JSON array of objects, each defining a **dynamic collection**:
+
+```json
+[{"collection_name": "teams", "property_name": "team"}]
+```
+
+| Field             | Meaning |
+|-------------------|---------|
+| `collection_name` | Directory name in the repo (e.g. `teams/`); also the collection name used in commands |
+| `property_name`   | The system-section field that references this collection; appears in system templates and is validated on push |
+
+At startup the app reads this file and for each entry:
+- Adds `collection_name` to the valid collection set
+- Registers `.txt` as its repo file suffix
+- Creates the collection directory in both the repo root and the local cache if absent
+- Appends `property_name` to the system-section field list (after any optional fields from `additional_properties.json`), making it a required field in every system document
+
+Dynamic collections behave like `schedules`/`contacts`: plain `.txt` storage, no format validation on push, comma-separated values for `len`/`diff`/`export`. The `export` CSV uses `name, values` column headers. If the file is absent, no dynamic collections are loaded.
+
+**Mandatory property behaviour in systems:**
+
+The `property_name` values are appended to `additional_props` at startup and are therefore included in system document templates, the 👉👈 text format, and JSON storage. On `push`, they are validated more strictly than optional properties:
+- The label (`👉property_name👈`) must be present (same as optional props).
+- The value must be **non-empty**.
+- The value must exist as an entry in the corresponding `collection_name` collection (one `os.listdir` call per distinct collection per push, reusing the list across all sections).
+
 ## File naming convention
 
 Every file in the repo is named `{base32(name)}.{version}.{ext}` where:
 
 - `base32(name)` — Python `base64.b32encode`, `=` padding stripped (uppercase letters + digits 2–7, safe for all filesystems)
 - `version` — zero-padded 4-digit integer (`0000`–`9999`)
-- `ext` — `.txt.gz` for systems, `.txt` for schedules and contacts
+- `ext` — `.txt.gz` for systems, `.txt` for schedules, contacts, and dynamic collections
 
 `ls`, `cat`, `get`, `clear`, and `push` all resolve to the **highest version** file for a given name (lexicographic sort of `os.listdir`, no per-file stat calls).
 
@@ -58,7 +88,7 @@ Every file in the repo is named `{base32(name)}.{version}.{ext}` where:
 - **systems** files are gzip-compressed in the repo (`.txt.gz`).  
   `get` decompresses to plain `.txt` in downloads. `push` re-compresses before writing to the repo.  
   `clear` writes the plain-text empty template to downloads (no compression).
-- **schedules** and **contacts** files are stored as plain `.txt` throughout.
+- **schedules**, **contacts**, and **dynamic collections** are stored as plain `.txt` throughout.
 
 ## Cache
 
@@ -77,7 +107,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `get <collection> <name>`               | Copy latest version to downloads as `.txt`, open with editor |
 | `get systems <name> --jtable`            | Save to downloads, open editable JTable window with Save / Add Row / Duplicate Row / Delete Row buttons |
 | `clear <collection> <name>`             | Write empty document template to downloads (same filename as `get`), open with editor |
-| `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for systems, entries for schedules/contacts) |
+| `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for systems, comma-separated entries for all others) |
 | `push <collection> <name>`              | Validate latest `.txt` in downloads, write as next version in repo |
 | `export <collection> <file>`            | Sync cache, build CSV from latest versions, save to downloads, open with editor |
 | `export <collection> <file> --jtable`   | Same as `export` but opens the CSV in a JTable window instead of the editor |
@@ -85,7 +115,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `diff <collection> <name> --jtable`     | Same comparison but opens a JTable window: deleted rows in red with `−`, added rows in green with `+` |
 | `exit`                                   | Quit |
 
-Collections: `systems`, `schedules`, `contacts`.
+Built-in collections: `systems`, `schedules`, `contacts`. Dynamic collections are added at startup from `additional_mandatory_properties.json`.
 
 `--jtable` on `cat`/`get` is only supported for `systems`.
 
@@ -139,7 +169,8 @@ Validation rules enforced on `push` (applied to the 👉👈 text before convers
 - `👉id👈` value must be non-empty and start with `#`.
 - `👉time👈` value must be non-empty and match `dd:dd` (two digits, colon, two digits).
 - `👉notes👈` must be followed by at least one line.
-- Each configured additional property label must be present (value may be empty).
+- Each optional additional property label (`additional_properties.json`) must be present (value may be empty).
+- Each mandatory additional property label (`additional_mandatory_properties.json` `property_name`) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection. One `os.listdir` call per distinct collection per push.
 - Each `👉schedule👈` value must either exist as an entry in the repo's `schedules/` collection, or appear in `[schedule] whitelist` in `settings.ini`. The schedules directory is read with a single `os.listdir` call per push.
 - Each `👉contact👈` value must either exist as an entry in the repo's `contacts/` collection, or appear in `[contact] whitelist` in `settings.ini`. The contacts directory is read with a single `os.listdir` call per push.
 - **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), **or if the file content is empty/whitespace** (e.g. all rows deleted via the JTable GUI), the push is accepted without validation and the empty template (`_empty_system_json`) is written to the repo.
@@ -196,6 +227,15 @@ cont1, 03-1234-5678 09012345678 +81-0100-0331
 
 Comma-separated contact strings from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
 
+### dynamic collections
+
+```csv
+name, values
+teamA, value1 value2 value3
+```
+
+Comma-separated values from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
+
 Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 
 ## Key implementation decisions
@@ -205,9 +245,10 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - Downloads always hold plain `.txt` regardless of collection, so mousepad can open them directly.
 - `push` looks for the latest `.txt` in downloads (always suffix `.txt`); the repo suffix is determined by `REPO_SUFFIX[collection]`.
 - Systems are stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
-- `_validate_system` is strict: it requires exactly the configured additional property labels in the document. `_parse_system_sections` is lenient and used only for schedule/contact-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
+- `_validate_system` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_system_sections` is lenient and used only for schedule/contact/mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - `id` is a core field (always present, between `machine` and `schedule`), not an additional property. It is not unique — multiple sections or systems can share the same id value.
 - `contact` is a core field (always present, between `schedule` and `time`). Its value must exist in the `contacts/` collection or be in `[contact] whitelist`. The contacts directory is scanned once per push, after the schedule check.
+- `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str,str],...]` of `(property_name, collection_name)` pairs) is threaded from `main` → `dispatch` → `cmd_push`; `additional_props` seen by all other functions already contains the mandatory prop names appended after optional ones.
 
 ## JTable GUI (`src/gui.py`)
 

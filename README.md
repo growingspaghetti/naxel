@@ -96,6 +96,8 @@ memo
 here
 👉contact👈
 con4
+👉mandatory-prop1👈
+
 👉props1👈
 
 👉props2👈
@@ -120,6 +122,8 @@ memo
 here
 👉contact👈
 c3
+👉mandatory-prop1👈
+japan
 👉props1👈
 
 👉props2👈
@@ -139,6 +143,8 @@ sche8
 optional
 👉contact👈
 con5
+👉mandatory-prop1👈
+canada
 👉props1👈
 
 👉props2👈
@@ -161,6 +167,8 @@ con5
 👉notes👈
 
 👉contact👈
+
+👉mandatory-prop1👈
 
 👉props1👈
 

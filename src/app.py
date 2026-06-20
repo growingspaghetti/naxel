@@ -58,6 +58,18 @@ def load_additional_properties(repo_root: Path) -> tuple[str, ...]:
         return ()
 
 
+def load_dynamic_collections(repo_root: Path) -> list[dict]:
+    path = repo_root / "additional_mandatory_properties.json"
+    try:
+        data = json.loads(path.read_text())
+        return [d for d in data if isinstance(d, dict) and d.get("collection_name")]
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        print(f"warning: could not read additional_mandatory_properties.json: {e}")
+        return []
+
+
 def sync_cache(repo_root: Path, cache_dir: Path):
     copied = 0
     for collection in sorted(COLLECTIONS):
@@ -75,9 +87,9 @@ def sync_cache(repo_root: Path, cache_dir: Path):
         print(f"cache: synced {copied} file(s)")
 
 
-COLLECTIONS = {"systems", "schedules", "contacts"}
+COLLECTIONS: set[str] = {"systems", "schedules", "contacts"}
 
-REPO_SUFFIX = {
+REPO_SUFFIX: dict[str, str] = {
     "systems": ".txt.gz",
     "schedules": ".txt",
     "contacts": ".txt",
@@ -236,7 +248,8 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = ()) -
     return json.dumps(sections, ensure_ascii=False, indent=2) + "\n"
 
 
-def _validate_system(content: str, additional_props: tuple[str, ...] = ()) -> tuple[bool, str]:
+def _validate_system(content: str, additional_props: tuple[str, ...] = (),
+                     mandatory_prop_names: frozenset[str] = frozenset()) -> tuple[bool, str]:
     lines = content.splitlines()
     n = len(lines)
     i = 0
@@ -279,7 +292,9 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = ()) -> tu
             i += 1
             if i >= n:
                 return False, f"line {i + 1}: missing value line for {prop!r}"
-            i += 1  # value can be empty
+            if prop in mandatory_prop_names and not lines[i].strip():
+                return False, f"line {i + 1}: value for {prop!r} is required"
+            i += 1  # value can be empty for optional props
 
         section_count += 1
 
@@ -300,9 +315,10 @@ def _validate_contact(content: str) -> tuple[bool, str]:
     return False, "expected: digits/dashes/plus signs separated by commas (one line)"
 
 
-def validate(collection: str, content: str, additional_props: tuple[str, ...] = ()) -> tuple[bool, str]:
+def validate(collection: str, content: str, additional_props: tuple[str, ...] = (),
+             mandatory_prop_names: frozenset[str] = frozenset()) -> tuple[bool, str]:
     if collection == "systems":
-        return _validate_system(content, additional_props)
+        return _validate_system(content, additional_props, mandatory_prop_names)
     if collection == "schedules":
         return _validate_schedule(content)
     if collection == "contacts":
@@ -358,7 +374,7 @@ def cmd_len(repo_root: Path, collection: str, name: str):
     if collection == "systems":
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         print(sum(1 for s in sections if s.get("machine") or s.get("schedule")))
-    elif collection in ("schedules", "contacts"):
+    else:
         content = filepath.read_text().strip()
         print(len(content.split(",")) if content else 0)
 
@@ -489,7 +505,7 @@ def cmd_diff(repo_root: Path, collection: str, name: str, jtable: bool = False):
         deleted = [e for e in prev_entries if e not in curr_set]
         added = [e for e in curr_entries if e not in prev_set]
         if jtable:
-            col_name = "date" if collection == "schedules" else "number"
+            col_name = "date" if collection == "schedules" else "number" if collection == "contacts" else "value"
             JTable(
                 diff_data={
                     "columns": [col_name],
@@ -505,7 +521,8 @@ def cmd_diff(repo_root: Path, collection: str, name: str, jtable: bool = False):
 
 def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
              schedule_whitelist: set[str], contact_whitelist: set[str],
-             additional_props: tuple[str, ...] = ()):
+             additional_props: tuple[str, ...] = (),
+             mandatory_ref_props: tuple[tuple[str, str], ...] = ()):
     encoded = encode_name(name)
     src = latest_in_dir(downloads_dir, encoded, ".txt")
     if src is None:
@@ -513,7 +530,8 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
         return
     content = src.read_text()
     if not (collection == "systems" and _is_initial_state_system(content, additional_props)):
-        ok, reason = validate(collection, content, additional_props)
+        mandatory_prop_names = frozenset(pname for pname, _ in mandatory_ref_props)
+        ok, reason = validate(collection, content, additional_props, mandatory_prop_names)
         if not ok:
             print(f"rejected: {reason}")
             return
@@ -548,6 +566,24 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
                 if cont not in contact_whitelist and encode_name(cont) not in existing_contacts:
                     print(f"rejected: contact {cont!r} not found in repository or whitelist")
                     return
+            if mandatory_ref_props:
+                sections_for_ref = _parse_system_sections(content, additional_props)
+                for pname, cname in mandatory_ref_props:
+                    ref_suffix = REPO_SUFFIX.get(cname, ".txt")
+                    ref_dir = collection_path(repo_root, cname)
+                    try:
+                        existing_refs = {
+                            f[: -len(ref_suffix)].split(".")[0]
+                            for f in os.listdir(ref_dir)
+                            if f.endswith(ref_suffix)
+                        }
+                    except FileNotFoundError:
+                        existing_refs = set()
+                    for sec in sections_for_ref:
+                        val = sec.get(pname, "")
+                        if val and encode_name(val) not in existing_refs:
+                            print(f"rejected: {pname} {val!r} not found in {cname} collection")
+                            return
     col_path = collection_path(repo_root, collection)
     suffix = REPO_SUFFIX.get(collection, ".txt")
     latest = latest_in_dir(col_path, encoded, suffix)
@@ -680,6 +716,15 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                 continue  # initial state: empty document
             entries = " ".join(content.split(","))
             rows.append(_csv_row(contact_name, entries))
+    else:
+        rows.append(_csv_row("name", "values"))
+        for encoded, fname in sorted(seen.items()):
+            entry_name = decode_name(encoded) or encoded
+            content = (col_path / fname).read_text().strip()
+            if not content:
+                continue
+            values = " ".join(content.split(","))
+            rows.append(_csv_row(entry_name, values))
 
     downloads_dir.mkdir(parents=True, exist_ok=True)
     dest = downloads_dir / filename
@@ -693,7 +738,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
-USAGE = (
+_USAGE_COMMANDS = (
     "commands:\n"
     "  ls <collection>\n"
     "  add <collection> <name>\n"
@@ -704,14 +749,18 @@ USAGE = (
     "  push <collection> <name>\n"
     "  export <collection> <file.csv> [--jtable]\n"
     "  diff <collection> <name> [--jtable]\n"
-    "  exit\n"
-    "collections: systems, schedules, contacts"
+    "  exit"
 )
+
+
+def usage_string() -> str:
+    return _USAGE_COMMANDS + f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
 
 
 def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
              cache_dir: Path, editor: str, schedule_whitelist: set[str],
-             contact_whitelist: set[str], additional_props: tuple[str, ...] = ()) -> bool:
+             contact_whitelist: set[str], additional_props: tuple[str, ...] = (),
+             mandatory_ref_props: tuple[tuple[str, str], ...] = ()) -> bool:
     """Return False to exit."""
     cmd = parts[0]
 
@@ -776,7 +825,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         if len(parts) != 3:
             print("usage: push <collection> <name>")
         else:
-            cmd_push(repo_root, collection, parts[2], downloads_dir, schedule_whitelist, contact_whitelist, additional_props)
+            cmd_push(repo_root, collection, parts[2], downloads_dir, schedule_whitelist, contact_whitelist, additional_props, mandatory_ref_props)
 
     elif cmd == "export":
         jtable = "--jtable" in parts
@@ -796,7 +845,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
 
     else:
         print(f"unknown command: {cmd!r}")
-        print(USAGE)
+        print(usage_string())
 
     return True
 
@@ -809,7 +858,22 @@ def main():
     editor = get_editor(config)
     schedule_whitelist = get_schedule_whitelist(config)
     contact_whitelist = get_contact_whitelist(config)
-    additional_props = load_additional_properties(repo_root)
+    optional_props = load_additional_properties(repo_root)
+
+    dynamic_colls = load_dynamic_collections(repo_root)
+    for dc in dynamic_colls:
+        cname = dc["collection_name"]
+        COLLECTIONS.add(cname)
+        REPO_SUFFIX.setdefault(cname, ".txt")
+        (repo_root / cname).mkdir(parents=True, exist_ok=True)
+        (cache_dir / cname).mkdir(parents=True, exist_ok=True)
+
+    mandatory_ref_props = tuple(
+        (dc["property_name"], dc["collection_name"])
+        for dc in dynamic_colls
+        if dc.get("property_name")
+    )
+    additional_props = optional_props + tuple(pname for pname, _ in mandatory_ref_props)
 
     print(f"repo-manipulator  repository={repo_root}")
     sync_cache(repo_root, cache_dir)
@@ -825,11 +889,11 @@ def main():
         if not line:
             continue
         if line == "help":
-            print(USAGE)
+            print(usage_string())
             continue
 
         parts = line.split()
-        if not dispatch(parts, repo_root, downloads_dir, cache_dir, editor, schedule_whitelist, contact_whitelist, additional_props):
+        if not dispatch(parts, repo_root, downloads_dir, cache_dir, editor, schedule_whitelist, contact_whitelist, additional_props, mandatory_ref_props):
             break
 
 
