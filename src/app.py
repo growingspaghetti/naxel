@@ -430,7 +430,7 @@ def cmd_get(repo_root: Path, collection: str, name: str,
         subprocess.Popen([editor, str(dest)])
 
 
-def cmd_diff(repo_root: Path, collection: str, name: str):
+def cmd_diff(repo_root: Path, collection: str, name: str, jtable: bool = False):
     suffix = REPO_SUFFIX.get(collection, ".txt")
     col_path = collection_path(repo_root, collection)
     encoded = encode_name(name)
@@ -466,6 +466,17 @@ def cmd_diff(repo_root: Path, collection: str, name: str):
         curr_keys = {_key(s) for s in curr_sections}
         deleted = [s for s in prev_sections if _key(s) not in curr_keys]
         added = [s for s in curr_sections if _key(s) not in prev_keys]
+        if jtable:
+            sample = prev_sections[0] if prev_sections else (curr_sections[0] if curr_sections else {})
+            JTable(
+                diff_data={
+                    "columns": list(sample.keys()),
+                    "deleted": [list(s.values()) for s in deleted],
+                    "added":   [list(s.values()) for s in added],
+                },
+                title=f"diff systems {name}",
+            ).run()
+            return
     else:
         def _parse_entries(path: Path) -> list[str]:
             content = path.read_text().strip()
@@ -477,6 +488,17 @@ def cmd_diff(repo_root: Path, collection: str, name: str):
         curr_set = set(curr_entries)
         deleted = [e for e in prev_entries if e not in curr_set]
         added = [e for e in curr_entries if e not in prev_set]
+        if jtable:
+            col_name = "date" if collection == "schedules" else "number"
+            JTable(
+                diff_data={
+                    "columns": [col_name],
+                    "deleted": [[e] for e in deleted],
+                    "added":   [[e] for e in added],
+                },
+                title=f"diff {collection} {name}",
+            ).run()
+            return
 
     print(json.dumps({"deleted": deleted, "added": added}, ensure_ascii=False, indent=2))
 
@@ -681,7 +703,7 @@ USAGE = (
     "  len <collection> <name>\n"
     "  push <collection> <name>\n"
     "  export <collection> <file.csv> [--jtable]\n"
-    "  diff <collection> <name>\n"
+    "  diff <collection> <name> [--jtable]\n"
     "  exit\n"
     "collections: systems, schedules, contacts"
 )
@@ -765,10 +787,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir, editor, additional_props, jtable=jtable)
 
     elif cmd == "diff":
-        if len(parts) != 3:
-            print("usage: diff <collection> <name>")
+        jtable = "--jtable" in parts
+        diff_parts = [p for p in parts if p != "--jtable"]
+        if len(diff_parts) != 3:
+            print("usage: diff <collection> <name> [--jtable]")
         else:
-            cmd_diff(repo_root, collection, parts[2])
+            cmd_diff(repo_root, collection, diff_parts[2], jtable=jtable)
 
     else:
         print(f"unknown command: {cmd!r}")

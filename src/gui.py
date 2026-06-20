@@ -55,19 +55,24 @@ def _sections_to_text(sections: list[dict]) -> str:
 
 
 class JTable:
-    def __init__(self, path: str | Path, mode: str = "csv", readonly: bool = False):
+    def __init__(self, path: str | Path | None = None, mode: str = "csv",
+                 readonly: bool = False, diff_data: dict | None = None,
+                 title: str | None = None):
         """
-        mode     : "csv" for CSV files (export --jtable), "systems" for 👉👈 text files
-        readonly : when True, hide Save button and disable cell editing (cat --jtable)
+        mode      : "csv" for CSV files, "systems" for 👉👈 text files
+        readonly  : hide Save button and disable editing (cat --jtable)
+        diff_data : {"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}
+                    when provided the table shows a read-only diff view
         """
-        self._path = Path(path)
+        self._path = Path(path) if path else None
         self._mode = mode
         self._readonly = readonly
+        self._diff_data = diff_data
         self._columns: list[str] = []
         self._original: dict[str, dict] = {}   # item_id → original section dict
 
         self._root = tk.Tk()
-        self._root.title(self._path.name)
+        self._root.title(title or (self._path.name if self._path else "diff"))
         self._root.geometry("960x540")
         self._build()
 
@@ -103,10 +108,34 @@ class JTable:
         if self._mode == "systems" and not self._readonly:
             self._tree.bind("<Double-1>", self._on_double_click)
 
-        if self._mode == "systems":
+        if self._diff_data is not None:
+            self._load_diff()
+        elif self._mode == "systems":
             self._load_systems()
         else:
             self._load_csv()
+
+    def _load_diff(self):
+        data_cols = self._diff_data["columns"]
+        all_cols = ["_diff"] + list(data_cols)
+        self._columns = all_cols
+        self._tree["columns"] = all_cols
+        self._tree["show"] = "headings"
+
+        self._tree.heading("_diff", text="")
+        self._tree.column("_diff", width=28, minwidth=28, anchor="center", stretch=False)
+        for col in data_cols:
+            self._tree.heading(col, text=col, anchor="w",
+                               command=lambda c=col: self._sort(c, False))
+            self._tree.column(col, width=140, minwidth=50, anchor="w", stretch=True)
+
+        self._tree.tag_configure("deleted", background="#ffdddd", foreground="#990000")
+        self._tree.tag_configure("added",   background="#ddffdd", foreground="#006600")
+
+        for row in self._diff_data["deleted"]:
+            self._tree.insert("", tk.END, values=["-"] + list(row), tags=("deleted",))
+        for row in self._diff_data["added"]:
+            self._tree.insert("", tk.END, values=["+"] + list(row), tags=("added",))
 
     def _load_csv(self):
         with self._path.open(newline="", encoding="utf-8") as f:
