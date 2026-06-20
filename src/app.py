@@ -587,6 +587,8 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = ())
 
 
 def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = ()) -> bool:
+    if not content.strip():
+        return True  # all rows deleted via GUI → treat as cleared
     sections = _parse_system_sections(content, additional_props)
     return bool(sections) and all(
         not s["machine"] and not s["id"] and not s["schedule"] and not s["contact"]
