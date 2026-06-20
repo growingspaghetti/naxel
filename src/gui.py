@@ -189,11 +189,14 @@ class JTable:
         row_id = self._tree.identify_row(event.y)
         if not row_id:
             return
+        col_name = self._tree["columns"][int(col_id[1:]) - 1]
+        if col_name == "notes":
+            self._open_notes_dialog(row_id)
+            return
         bbox = self._tree.bbox(row_id, col_id)
         if not bbox:
             return
         x, y, w, h = bbox
-        col_name = self._tree["columns"][int(col_id[1:]) - 1]
         current = self._tree.set(row_id, col_name)
 
         entry = ttk.Entry(self._tree)
@@ -210,6 +213,38 @@ class JTable:
         entry.bind("<Tab>", confirm)
         entry.bind("<FocusOut>", confirm)
         entry.bind("<Escape>", lambda e: entry.destroy())
+
+    def _open_notes_dialog(self, row_id: str):
+        original_notes = self._original.get(row_id, {}).get("notes", "")
+
+        dlg = tk.Toplevel(self._root)
+        dlg.title("Edit notes")
+        dlg.geometry("480x300")
+        dlg.transient(self._root)
+        dlg.wait_visibility()
+        dlg.grab_set()
+
+        btn_frame = tk.Frame(dlg)
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=4)
+
+        txt = tk.Text(dlg, wrap="word", undo=True)
+        vsb = ttk.Scrollbar(dlg, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        txt.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 0))
+        txt.insert("1.0", original_notes)
+        txt.focus()
+
+        def ok():
+            new_val = txt.get("1.0", "end-1c")
+            self._tree.set(row_id, "notes", new_val.replace("\n", " "))
+            if row_id in self._original:
+                self._original[row_id]["notes"] = new_val
+            dlg.destroy()
+
+        tk.Button(btn_frame, text="OK", width=8, command=ok).pack(side=tk.RIGHT, padx=(2, 0))
+        tk.Button(btn_frame, text="Cancel", width=8, command=dlg.destroy).pack(side=tk.RIGHT)
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
 
     def _restripe(self):
         for i, item in enumerate(self._tree.get_children("")):
