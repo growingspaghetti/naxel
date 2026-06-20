@@ -37,6 +37,10 @@ export systems foo.csv # export data in systems to the csv and open with the edi
 export schedules bar.csv # export data in schedules to the csv and open with the editor.
 export contacts baz.csv # export data in contacts to the csv and open with the editor.
 
+export systems foo.csv --jtable # export data in systems to the csv and open it with jtable gui.
+export schedules bar.csv --jtable # export data in schedules to the csv and open it with jtable gui.
+export contacts baz.csv --jtable # export data in contacts to the csv and open it with jtable gui.
+
 exit # terminates this application
 ```
 

@@ -593,7 +593,7 @@ def _csv_row(*fields: str) -> str:
 
 def cmd_export(repo_root: Path, collection: str, filename: str,
                downloads_dir: Path, cache_dir: Path, editor: str,
-               additional_props: tuple[str, ...] = ()):
+               additional_props: tuple[str, ...] = (), jtable: bool = False):
     sync_cache(repo_root, cache_dir)
     col_path = cache_dir / collection
     if not col_path.is_dir():
@@ -645,7 +645,10 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
     dest = downloads_dir / filename
     dest.write_text("\n".join(rows) + "\n")
     print(f"exported: {dest}")
-    subprocess.Popen([editor, str(dest)])
+    if jtable:
+        subprocess.Popen([sys.executable, str(Path(__file__).parent / "gui.py"), str(dest)])
+    else:
+        subprocess.Popen([editor, str(dest)])
 
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
@@ -659,7 +662,7 @@ USAGE = (
     "  clear <collection> <name>\n"
     "  len <collection> <name>\n"
     "  push <collection> <name>\n"
-    "  export <collection> <file.csv>\n"
+    "  export <collection> <file.csv> [--jtable]\n"
     "  diff <collection> <name>\n"
     "  exit\n"
     "collections: systems, schedules, contacts"
@@ -727,10 +730,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             cmd_push(repo_root, collection, parts[2], downloads_dir, schedule_whitelist, contact_whitelist, additional_props)
 
     elif cmd == "export":
-        if len(parts) != 3:
-            print("usage: export <collection> <file.csv>")
+        jtable = "--jtable" in parts
+        export_parts = [p for p in parts if p != "--jtable"]
+        if len(export_parts) != 3:
+            print("usage: export <collection> <file.csv> [--jtable]")
         else:
-            cmd_export(repo_root, collection, parts[2], downloads_dir, cache_dir, editor, additional_props)
+            cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir, editor, additional_props, jtable=jtable)
 
     elif cmd == "diff":
         if len(parts) != 3:
