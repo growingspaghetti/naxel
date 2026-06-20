@@ -21,7 +21,11 @@ dummy-repo/                       local NAS substitute for development
   schedules/                      .txt files named by base32-encoded schedule name + version
   contacts/                       .txt files named by base32-encoded contact name + version
   <collection>/                   .txt files for each dynamic collection
-downloads/                        files staged for editing (always plain .txt)
+downloads/                        files staged for editing, organised by collection
+  systems/                        plain .txt files for system entries
+  schedules/                      plain .txt files for schedule entries
+  contacts/                       plain .txt files for contact entries
+  <collection>/                   plain .txt files for each dynamic collection
 cache/                            local mirror of the NAS repo, populated at startup and on export
 ```
 
@@ -242,8 +246,8 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 
 - `os.listdir()` is used for all directory reads (not `glob` or `iterdir`) to issue a single syscall per directory — important on NAS with many files.
 - The NAS `systems/` and `schedules/` directories contain no subdirectories, so flat `listdir` is sufficient.
-- Downloads always hold plain `.txt` regardless of collection, so mousepad can open them directly.
-- `push` looks for the latest `.txt` in downloads (always suffix `.txt`); the repo suffix is determined by `REPO_SUFFIX[collection]`.
+- Downloads are organised into per-collection subdirectories (`downloads/{collection}/`) so same-name entries in different collections never collide. Files are always plain `.txt` so mousepad can open them directly.
+- `push` looks for the latest `.txt` in `downloads/{collection}/`; the repo suffix is determined by `REPO_SUFFIX[collection]`.
 - Systems are stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
 - `_validate_system` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_system_sections` is lenient and used only for schedule/contact/mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - `id` is a core field (always present, between `machine` and `schedule`), not an additional property. It is not unique — multiple sections or systems can share the same id value.

@@ -389,8 +389,9 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
     if jtable:
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         dl_name = filepath.name[:-3]  # strip .gz
-        dest = downloads_dir / dl_name
-        downloads_dir.mkdir(parents=True, exist_ok=True)
+        dl_dir = downloads_dir / collection
+        dl_dir.mkdir(parents=True, exist_ok=True)
+        dest = dl_dir / dl_name
         dest.write_text(_system_sections_to_text(sections, additional_props))
         print(f"saved: {dest}")
         JTable(dest, mode="systems", readonly=True).run()
@@ -410,9 +411,10 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
     if filepath is None:
         print(f"error: not found: {name}")
         return
-    downloads_dir.mkdir(parents=True, exist_ok=True)
+    dl_dir = downloads_dir / collection
+    dl_dir.mkdir(parents=True, exist_ok=True)
     dl_name = filepath.name[:-3] if filepath.name.endswith(".gz") else filepath.name
-    dest = downloads_dir / dl_name
+    dest = dl_dir / dl_name
     template = _empty_system_document(additional_props) if collection == "systems" else _EMPTY_DOCUMENTS.get(collection, "")
     dest.write_text(template)
     print(f"cleared: {dest}")
@@ -426,18 +428,19 @@ def cmd_get(repo_root: Path, collection: str, name: str,
     if filepath is None:
         print(f"error: not found: {name}")
         return
-    downloads_dir.mkdir(parents=True, exist_ok=True)
+    dl_dir = downloads_dir / collection
+    dl_dir.mkdir(parents=True, exist_ok=True)
     if collection == "systems" and filepath.name.endswith(".gz"):
         dl_name = filepath.name[:-3]
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
-        dest = downloads_dir / dl_name
+        dest = dl_dir / dl_name
         dest.write_text(_system_sections_to_text(sections, additional_props))
     elif filepath.name.endswith(".gz"):
         dl_name = filepath.name[:-3]
-        dest = downloads_dir / dl_name
+        dest = dl_dir / dl_name
         dest.write_text(gzip.decompress(filepath.read_bytes()).decode())
     else:
-        dest = downloads_dir / filepath.name
+        dest = dl_dir / filepath.name
         dest.write_text(filepath.read_text())
     print(f"saved: {dest}")
     if jtable:
@@ -524,7 +527,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
              additional_props: tuple[str, ...] = (),
              mandatory_ref_props: tuple[tuple[str, str], ...] = ()):
     encoded = encode_name(name)
-    src = latest_in_dir(downloads_dir, encoded, ".txt")
+    src = latest_in_dir(downloads_dir / collection, encoded, ".txt")
     if src is None:
         print(f"error: not found in downloads: {name}")
         return
