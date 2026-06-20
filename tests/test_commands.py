@@ -29,6 +29,27 @@ _SC_CONTACT_REFS = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _collection_types():
+    app.COLLECTION_TYPE.update({"schedules": "DATE", "contacts": "PHONE_NUMBER"})
+    yield
+    app.COLLECTION_TYPE.pop("schedules", None)
+    app.COLLECTION_TYPE.pop("contacts", None)
+
+
+@pytest.fixture
+def dynamic_col(repo, downloads):
+    cname = "testcol"
+    (repo / cname).mkdir()
+    (downloads / cname).mkdir()
+    app.COLLECTIONS.add(cname)
+    app.REPO_SUFFIX[cname] = ".txt"
+    yield cname
+    app.COLLECTIONS.discard(cname)
+    app.REPO_SUFFIX.pop(cname, None)
+    app.COLLECTION_TYPE.pop(cname, None)
+
+
 def sys_doc(*rows, props=()):
     parts = []
     for machine, id_, schedule, contact, time, notes in rows:
@@ -688,3 +709,45 @@ class TestCmdDiff:
         put_contact(repo, "cont1", 0, "03-1234-5678")
         cmd_diff(repo, "contacts", "cont1")
         assert "error" in capsys.readouterr().out
+
+
+class TestCollectionTypeValidation:
+    def _put(self, repo, downloads, cname, version, content):
+        enc = encode_name("entry1")
+        (repo / cname / f"{enc}.{version:04d}.txt").write_text(content)
+        (downloads / cname / f"{enc}.{version:04d}.txt").write_text(content)
+
+    def test_date_type_accepts_valid_dates(self, repo, downloads, capsys, dynamic_col):
+        app.COLLECTION_TYPE[dynamic_col] = "DATE"
+        self._put(repo, downloads, dynamic_col, 0, "2024/01/01,2024/06/15")
+        cmd_push(repo, dynamic_col, "entry1", downloads)
+        assert "pushed" in capsys.readouterr().out
+
+    def test_date_type_rejects_invalid_content(self, repo, downloads, capsys, dynamic_col):
+        app.COLLECTION_TYPE[dynamic_col] = "DATE"
+        self._put(repo, downloads, dynamic_col, 0, "not-a-date")
+        cmd_push(repo, dynamic_col, "entry1", downloads)
+        assert "rejected" in capsys.readouterr().out
+
+    def test_phone_number_type_accepts_valid_numbers(self, repo, downloads, capsys, dynamic_col):
+        app.COLLECTION_TYPE[dynamic_col] = "PHONE_NUMBER"
+        self._put(repo, downloads, dynamic_col, 0, "03-1234-5678,090-0000-0000")
+        cmd_push(repo, dynamic_col, "entry1", downloads)
+        assert "pushed" in capsys.readouterr().out
+
+    def test_phone_number_type_rejects_invalid_content(self, repo, downloads, capsys, dynamic_col):
+        app.COLLECTION_TYPE[dynamic_col] = "PHONE_NUMBER"
+        self._put(repo, downloads, dynamic_col, 0, "not-a-number")
+        cmd_push(repo, dynamic_col, "entry1", downloads)
+        assert "rejected" in capsys.readouterr().out
+
+    def test_note_type_accepts_any_content(self, repo, downloads, capsys, dynamic_col):
+        app.COLLECTION_TYPE[dynamic_col] = "NOTE"
+        self._put(repo, downloads, dynamic_col, 0, "any free-form text!")
+        cmd_push(repo, dynamic_col, "entry1", downloads)
+        assert "pushed" in capsys.readouterr().out
+
+    def test_no_type_accepts_any_content(self, repo, downloads, capsys, dynamic_col):
+        self._put(repo, downloads, dynamic_col, 0, "anything at all")
+        cmd_push(repo, dynamic_col, "entry1", downloads)
+        assert "pushed" in capsys.readouterr().out

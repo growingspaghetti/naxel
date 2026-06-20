@@ -1,12 +1,21 @@
 import json
 import pytest
 from pathlib import Path
+import app
 from app import (
     _validate_system, _validate_schedule, validate, _parse_system_sections,
     _csv_field, _csv_row, _empty_system_document,
     _text_to_system_json, _system_sections_to_text, _empty_system_json,
     load_additional_properties,
 )
+
+
+@pytest.fixture(autouse=True)
+def _collection_types():
+    app.COLLECTION_TYPE.update({"schedules": "DATE", "contacts": "PHONE_NUMBER"})
+    yield
+    app.COLLECTION_TYPE.pop("schedules", None)
+    app.COLLECTION_TYPE.pop("contacts", None)
 
 SEP = "🏔" * 20
 M = "👉machine👈"

@@ -59,7 +59,7 @@ Located at `{repo_root}/additional_mandatory_properties.json`. A JSON array of o
 |-------------------|---------|
 | `collection_name` | Directory name in the repo (e.g. `teams/`); also the collection name used in commands |
 | `property_name`   | The system-section field that references this collection; validated on push |
-| `type`            | Informational tag (currently ignored by the app; reserved for future use) |
+| `type`            | Content validation applied on `push`: `"DATE"` — comma-separated `yyyy/mm/dd` dates; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+` strings; `"NOTE"` or absent — no content validation. |
 | `whitelist`       | Optional JSON array of string values accepted without checking the collection (e.g. `["everyday", "weekends"]`). Omit or use `[]` for no whitelist. |
 
 At startup the app reads this file and for each entry:

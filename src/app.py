@@ -90,6 +90,8 @@ REPO_SUFFIX: dict[str, str] = {
     "contacts": ".txt",
 }
 
+COLLECTION_TYPE: dict[str, str] = {}
+
 
 def encode_name(name: str) -> str:
     return base64.b32encode(name.encode()).decode().rstrip("=")
@@ -349,9 +351,10 @@ def validate(collection: str, content: str, additional_props: tuple[str, ...] = 
     if collection == "systems":
         return _validate_system(content, additional_props, mandatory_prop_names,
                                 field_order=field_order)
-    if collection == "schedules":
+    ctype = COLLECTION_TYPE.get(collection, "")
+    if ctype == "DATE":
         return _validate_schedule(content)
-    if collection == "contacts":
+    if ctype == "PHONE_NUMBER":
         return _validate_contact(content)
     return True, ""
 
@@ -932,6 +935,7 @@ def main():
         cname = dc["collection_name"]
         COLLECTIONS.add(cname)
         REPO_SUFFIX.setdefault(cname, ".txt")
+        COLLECTION_TYPE[cname] = dc.get("type", "")
         (repo_root / cname).mkdir(parents=True, exist_ok=True)
         (cache_dir / cname).mkdir(parents=True, exist_ok=True)
 
