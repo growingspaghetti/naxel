@@ -415,6 +415,57 @@ def cmd_get(repo_root: Path, collection: str, name: str,
     subprocess.Popen([editor, str(dest)])
 
 
+def cmd_diff(repo_root: Path, collection: str, name: str):
+    suffix = REPO_SUFFIX.get(collection, ".txt")
+    col_path = collection_path(repo_root, collection)
+    encoded = encode_name(name)
+    prefix = encoded + "."
+    total = len(prefix) + 4 + len(suffix)
+    try:
+        entries = os.listdir(col_path)
+    except FileNotFoundError:
+        print(f"error: not found: {name}")
+        return
+    matches = sorted(
+        f for f in entries
+        if len(f) == total
+        and f.startswith(prefix)
+        and f.endswith(suffix)
+        and f[len(prefix):len(prefix) + 4].isdigit()
+    )
+    if not matches:
+        print(f"error: not found: {name}")
+        return
+    if len(matches) < 2:
+        print(f"error: only one version exists for: {name}")
+        return
+
+    if collection == "systems":
+        prev_sections = json.loads(gzip.decompress((col_path / matches[-2]).read_bytes()).decode())
+        curr_sections = json.loads(gzip.decompress((col_path / matches[-1]).read_bytes()).decode())
+
+        def _key(sec: dict) -> str:
+            return json.dumps(sec, ensure_ascii=False, sort_keys=True)
+
+        prev_keys = {_key(s) for s in prev_sections}
+        curr_keys = {_key(s) for s in curr_sections}
+        deleted = [s for s in prev_sections if _key(s) not in curr_keys]
+        added = [s for s in curr_sections if _key(s) not in prev_keys]
+    else:
+        def _parse_entries(path: Path) -> list[str]:
+            content = path.read_text().strip()
+            return [e.strip() for e in content.split(",") if e.strip()] if content else []
+
+        prev_entries = _parse_entries(col_path / matches[-2])
+        curr_entries = _parse_entries(col_path / matches[-1])
+        prev_set = set(prev_entries)
+        curr_set = set(curr_entries)
+        deleted = [e for e in prev_entries if e not in curr_set]
+        added = [e for e in curr_entries if e not in prev_set]
+
+    print(json.dumps({"deleted": deleted, "added": added}, ensure_ascii=False, indent=2))
+
+
 def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
              schedule_whitelist: set[str], contact_whitelist: set[str],
              additional_props: tuple[str, ...] = ()):
@@ -609,6 +660,7 @@ USAGE = (
     "  len <collection> <name>\n"
     "  push <collection> <name>\n"
     "  export <collection> <file.csv>\n"
+    "  diff <collection> <name>\n"
     "  exit\n"
     "collections: systems, schedules, contacts"
 )
@@ -623,7 +675,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     if cmd == "exit":
         return False
 
-    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export"):
+    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export", "diff"):
         if len(parts) < 2:
             print("error: missing collection")
             return True
@@ -679,6 +731,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: export <collection> <file.csv>")
         else:
             cmd_export(repo_root, collection, parts[2], downloads_dir, cache_dir, editor, additional_props)
+
+    elif cmd == "diff":
+        if len(parts) != 3:
+            print("usage: diff <collection> <name>")
+        else:
+            cmd_diff(repo_root, collection, parts[2])
 
     else:
         print(f"unknown command: {cmd!r}")

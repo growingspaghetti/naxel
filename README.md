@@ -12,15 +12,26 @@ cat systems sys4 # print contents finding the maching file by name
 get systems sys3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
 clear systems sys3 # like `get` command this opens the editor but with the empty system document.
 len systems sys3 # prints "%d" that is the length of the non-empty records contained in this system document.
+diff systems sys3 # compares the objects in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
 push systems sys3 # reads the contents after finding the file in downloads, then write it in the file in the repository.
 
-ls schedules # list schedule names in /systems/ decoding base32
-add schedules sc1 # create a file with the system name in /schedules/ encoding base32
+ls schedules # list schedule names in /schedules/ decoding base32
+add schedules sc1 # create a file with the schedule name in /schedules/ encoding base32
 cat schedules sc4 # print contents finding the maching file by name
 get schedules sc3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
-clear schedule sc3 # like `get` command this opens the editor but with the empty schedule document.
-len schedule sc3 # prints "%d" that is how many dates contained in this schedule document.
+clear schedules sc3 # like `get` command this opens the editor but with the empty schedule document.
+len schedules sc3 # prints "%d" that is how many dates contained in this schedule document.
+diff schedules sys3 # compares the dates in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
 push schedules sc3 # reads the contents after finding the file in downloads, then write it in the file in the repository
+
+ls contacts # list contact names in /contacts/ decoding base32
+add contacts cont1 # create a file with the contact name in /contacts/ encoding base32
+cat contacts cont4 # print contents finding the maching file by name
+get contacts cont3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
+clear contacts c3 # like `get` command this opens the editor but with the empty contact document.
+len contacts c3 # prints "%d" that is how many contacts contained in this contact document.
+diff contacts c3 # compares the phone numbers in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
+push contact c3 # reads the contents after finding the file in downloads, then write it in the file in the repository
 
 export systems foo.csv # export data in systems to the csv and open with the editor.
 export schedules bar.csv # export data in systems to the csv and open with the editor.
@@ -40,6 +51,11 @@ base32-named-sys2.txt
 /schedules/
 base32-named-schedule-name1.txt
 base32-named-schedule-name2.txt
+...
+
+/contacts/
+base32-named-contact-name1.txt
+base32-named-contact-name2.txt
 ...
 
 # how to specify repository path
@@ -68,6 +84,8 @@ sche1
 some
 memo
 here
+👉contact👈
+con4
 👉props1👈
 
 👉props2👈
@@ -90,6 +108,8 @@ sche1
 some
 memo
 here
+👉contact👈
+c3
 👉props1👈
 
 👉props2👈
@@ -107,6 +127,8 @@ sche8
 12:22
 👉notes👈
 optional
+👉contact👈
+con5
 👉props1👈
 
 👉props2👈
@@ -127,6 +149,8 @@ optional
 👉time👈
 
 👉notes👈
+
+👉contact👈
 
 👉props1👈
 
@@ -152,6 +176,22 @@ one line or one line + \n. repetition of yyyy/mm/dd with commas.
 
 ```
 
+## contact
+one line or one line + \n. repetition of ([0-9] or [-] or [+])+ with commas.
+```
+03-1234-5678,09012345678,+81-0100-0331
+```
+
+```
+03-1234-5678,09012345678,+81-0100-0331
+
+```
+
+### empty contact document
+```
+
+```
+
 # export to csv
 saved to `downloads`.
 ## systems
@@ -166,4 +206,10 @@ sys2, #id2, m4, sche7, hoge
 schedule_name, dates
 sche1, 1234/11/12 1234/11/12 1234/12/12 1234/11/13
 sche5, 1234/11/12 1234/12/12 1234/11/13
+```
+## contacts
+```csv
+contact_name, numbers
+con1, 03-1234-5678 09012345678 +81-0100-0331
+c3, 03-9999-9999
 ```
