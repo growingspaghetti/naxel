@@ -138,7 +138,7 @@ prop1_value
 ### systems
 
 ```csv
-system_name, id, machine_name, time, notes, schedule_name, contact_name, prop1, prop2
+system_name, id, machine_name, time, notes, schedule, contact, prop1, prop2
 sys1, id1, m1, 09:00, ノート内容, sche1, cont1, val1, val2
 sys1, id2, m2, 12:30, , sche2, cont2, ,
 ```

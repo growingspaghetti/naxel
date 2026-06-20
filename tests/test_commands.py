@@ -395,7 +395,7 @@ class TestCmdExport:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=SC_PROPS)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, id, machine_name, time, notes, schedule_name, contact_name" in content
+        assert "system_name, id, machine_name, time, notes, schedule, contact" in content
         assert "sys1, id1, m1, 12:00, some notes, sc1, cont1" in content
 
     def test_systems_multiple_sections_expand_to_rows(self, repo, downloads, cache):
@@ -517,7 +517,7 @@ class TestAdditionalProps:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=SC_PROPS + PROPS)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, id, machine_name, time, notes, schedule_name, contact_name, p1, p2" in content
+        assert "system_name, id, machine_name, time, notes, schedule, contact, p1, p2" in content
         assert "sys1, id1, m1, 12:00, notes, sc1, cont1, val1, val2" in content
 
     def test_export_csv_empty_prop_value(self, repo, downloads, cache):
@@ -535,7 +535,7 @@ class TestAdditionalProps:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=SC_PROPS + PROPS)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, id, machine_name, time, notes, schedule_name, contact_name, p1, p2" in content
+        assert "system_name, id, machine_name, time, notes, schedule, contact, p1, p2" in content
         assert "sys1, id1, m1, 12:00, notes, sc1, cont1, val1, " in content
 
 

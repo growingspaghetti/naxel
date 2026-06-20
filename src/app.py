@@ -151,8 +151,6 @@ _DEFAULT_CORE_SET = frozenset(_DEFAULT_CORE)
 # CSV column name overrides for core fields
 _CSV_FIELD_NAME: dict[str, str] = {
     "machine": "machine_name",
-    "schedule": "schedule_name",
-    "contact": "contact_name",
 }
 
 

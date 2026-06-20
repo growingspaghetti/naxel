@@ -221,12 +221,12 @@ Empty template: empty string.
 ### systems
 
 ```csv
-system_name, id, machine_name, time, notes, schedule_name, contact_name, prop1, prop2
+system_name, id, machine_name, time, notes, schedule, contact, prop1, prop2
 sys1, id1, m1, 09:00, foobarbaz, sche3, cont1, val1, val2
 sys1, id2, m2, 12:30, , sche7, cont2, , 
 ```
 
-One row per section. Multi-line notes are joined with a space. Documents where every section has an empty `machine` are excluded from the CSV. Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[system] property_order`; `machine`, `schedule`, and `contact` are renamed to `machine_name`, `schedule_name`, and `contact_name` in the header. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
+One row per section. Multi-line notes are joined with a space. Documents where every section has an empty `machine` are excluded from the CSV. Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[system] property_order`; `machine` is renamed to `machine_name` in the header. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules
 
