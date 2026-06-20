@@ -21,6 +21,12 @@ N = "👉notes👈"
 
 PROPS = ("p1", "p2")
 
+# mandatory_ref_props tuple covering schedule + contact with no whitelist
+_SC_CONTACT_REFS = (
+    ("schedule", "schedules", frozenset()),
+    ("contact", "contacts", frozenset()),
+)
+
 
 def sys_doc(*rows, props=()):
     parts = []
@@ -234,7 +240,7 @@ class TestCmdPush:
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=_SC_CONTACT_REFS)
         assert (repo / "systems" / f"{enc}.0001.txt.gz").exists()
         assert "version 0001" in capsys.readouterr().out
 
@@ -245,7 +251,7 @@ class TestCmdPush:
         enc = encode_name("sys1")
         content = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"))
         (downloads / "systems" / f"{enc}.0000.txt").write_text(content)
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=_SC_CONTACT_REFS)
         gz = repo / "systems" / f"{enc}.0001.txt.gz"
         assert gzip.decompress(gz.read_bytes()).decode() == _text_to_system_json(content)
 
@@ -253,7 +259,7 @@ class TestCmdPush:
         put_system(repo, "sys1", 0, "")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text("not valid")
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads)
         assert "rejected" in capsys.readouterr().out
         assert not (repo / "systems" / f"{enc}.0001.txt.gz").exists()
 
@@ -262,7 +268,7 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "#hash-id", "sc1", "cont1", "12:00", "notes")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads)
         assert "rejected" in capsys.readouterr().out
         assert not (repo / "systems" / f"{enc}.0001.txt.gz").exists()
 
@@ -271,7 +277,7 @@ class TestCmdPush:
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "ghost_sched", "cont1", "12:00", "notes")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=_SC_CONTACT_REFS)
         assert "rejected" in capsys.readouterr().out
         assert not (repo / "systems" / f"{enc}.0001.txt.gz").exists()
 
@@ -280,7 +286,10 @@ class TestCmdPush:
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "everyday", "cont1", "12:00", "notes")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist={"everyday"}, contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=(
+            ("schedule", "schedules", frozenset({"everyday"})),
+            ("contact", "contacts", frozenset()),
+        ))
         assert "pushed" in capsys.readouterr().out
 
     def test_system_existing_repo_schedule_accepted(self, repo, downloads, capsys):
@@ -289,7 +298,7 @@ class TestCmdPush:
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "real_sched", "cont1", "12:00", "notes")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=_SC_CONTACT_REFS)
         assert "pushed" in capsys.readouterr().out
 
     def test_system_missing_contact_rejected(self, repo, downloads, capsys):
@@ -297,7 +306,7 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "ghost_cont", "12:00", "notes")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=_SC_CONTACT_REFS)
         assert "rejected" in capsys.readouterr().out
         assert not (repo / "systems" / f"{enc}.0001.txt.gz").exists()
 
@@ -306,7 +315,10 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "2020/01/01")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "on-call", "12:00", "notes")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist={"on-call"})
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=(
+            ("schedule", "schedules", frozenset()),
+            ("contact", "contacts", frozenset({"on-call"})),
+        ))
         assert "pushed" in capsys.readouterr().out
 
     def test_system_existing_repo_contact_accepted(self, repo, downloads, capsys):
@@ -315,14 +327,14 @@ class TestCmdPush:
         put_contact(repo, "real_cont", 0, "09-9999-9999")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "real_cont", "12:00", "notes")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=_SC_CONTACT_REFS)
         assert "pushed" in capsys.readouterr().out
 
     def test_schedule_increments_version(self, repo, downloads, capsys):
         put_schedule(repo, "sc1", 0, "")
         enc = encode_name("sc1")
         (downloads / "schedules" / f"{enc}.0000.txt").write_text("2020/01/01")
-        cmd_push(repo, "schedules", "sc1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "schedules", "sc1", downloads)
         assert (repo / "schedules" / f"{enc}.0001.txt").exists()
         assert "version 0001" in capsys.readouterr().out
 
@@ -330,14 +342,14 @@ class TestCmdPush:
         put_schedule(repo, "sc1", 0, "")
         enc = encode_name("sc1")
         (downloads / "schedules" / f"{enc}.0000.txt").write_text("not-a-date")
-        cmd_push(repo, "schedules", "sc1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "schedules", "sc1", downloads)
         assert "rejected" in capsys.readouterr().out
 
     def test_empty_system_document_accepted(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(_EMPTY_DOCUMENTS["systems"])
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads)
         assert "pushed" in capsys.readouterr().out
         assert (repo / "systems" / f"{enc}.0001.txt.gz").exists()
 
@@ -345,7 +357,7 @@ class TestCmdPush:
         put_system(repo, "sys1", 0, "")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text("\n")  # GUI saves empty string when all rows deleted
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads)
         assert "pushed" in capsys.readouterr().out
         pushed = repo / "systems" / f"{enc}.0001.txt.gz"
         assert pushed.exists()
@@ -353,7 +365,7 @@ class TestCmdPush:
 
     def test_not_in_downloads_prints_error(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads)
         assert "error" in capsys.readouterr().out
 
     def test_not_in_repo_prints_error(self, repo, downloads, capsys):
@@ -361,7 +373,7 @@ class TestCmdPush:
         put_contact(repo, "cont1", 0, "03-1234-5678")
         enc = encode_name("ghost")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "n")))
-        cmd_push(repo, "systems", "ghost", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "ghost", downloads)
         assert "error" in capsys.readouterr().out
 
     def test_push_uses_latest_downloads_file(self, repo, downloads, capsys):
@@ -371,7 +383,7 @@ class TestCmdPush:
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(sys_doc(("old", "id1", "sc1", "cont1", "12:00", "n")))
         (downloads / "systems" / f"{enc}.0003.txt").write_text(sys_doc(("new", "id1", "sc1", "cont1", "12:00", "n")))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set())
+        cmd_push(repo, "systems", "sys1", downloads, mandatory_ref_props=_SC_CONTACT_REFS)
         gz = repo / "systems" / f"{enc}.0001.txt.gz"
         assert "new" in gzip.decompress(gz.read_bytes()).decode()
 
@@ -479,7 +491,7 @@ class TestAdditionalProps:
         enc = encode_name("sys1")
         doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"), props=[("p1", "val1"), ("p2", "")])
         (downloads / "systems" / f"{enc}.0000.txt").write_text(doc)
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set(), additional_props=PROPS)
+        cmd_push(repo, "systems", "sys1", downloads, PROPS, _SC_CONTACT_REFS)
         assert "pushed" in capsys.readouterr().out
 
     def test_push_rejects_doc_missing_props(self, repo, downloads, capsys):
@@ -488,14 +500,14 @@ class TestAdditionalProps:
         enc = encode_name("sys1")
         doc = sys_doc(("m1", "id1", "sc1", "cont1", "12:00", "notes"))  # no additional props in document
         (downloads / "systems" / f"{enc}.0000.txt").write_text(doc)
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set(), additional_props=PROPS)
+        cmd_push(repo, "systems", "sys1", downloads, PROPS)
         assert "rejected" in capsys.readouterr().out
 
     def test_push_accepts_initial_state_with_props(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
         enc = encode_name("sys1")
         (downloads / "systems" / f"{enc}.0000.txt").write_text(_empty_system_document(PROPS))
-        cmd_push(repo, "systems", "sys1", downloads, schedule_whitelist=set(), contact_whitelist=set(), additional_props=PROPS)
+        cmd_push(repo, "systems", "sys1", downloads, PROPS)
         assert "pushed" in capsys.readouterr().out
 
     def test_export_csv_includes_prop_columns(self, repo, downloads, cache):
