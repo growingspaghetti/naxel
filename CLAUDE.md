@@ -39,7 +39,7 @@ cache/                            local mirror of the NAS repo, populated at sta
 | `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
 | `[schedule]`   | `whitelist` | *(empty)*    | Comma-separated schedule names always accepted on push |
 | `[contact]`    | `whitelist` | *(empty)*    | Comma-separated contact names always accepted on push  |
-| `[system]`     | `property_order` | *(empty)* | Comma-separated extra property names; listed names appear first in system documents (others follow in their default order). Core fields and unknown names are ignored. |
+| `[system]`     | `property_order` | *(empty)* | Comma-separated field names (core or extra) that appear first in system documents, in the listed order. Remaining fields follow in their default relative order (core fields, then extra props). Unknown names are silently ignored. |
 
 ## additional_properties.json
 
@@ -174,7 +174,7 @@ prop1_value
 prop2_value
 ```
 
-The core fields in order are: `machine`, `id`, `schedule`, `contact`, `time`, `notes`. The additional fields after `👉notes👈` are determined by `[system] additional_properties` in `settings.ini`. Their values may be empty. If no additional properties are configured the section ends after the notes content.
+By default the core fields appear in this order: `machine`, `id`, `schedule`, `contact`, `time`, `notes`; extra fields (from `additional_properties.json` and `additional_mandatory_properties.json`) follow. The order is fully controlled by `[system] property_order` in `settings.ini` — any field (core or extra) listed there moves to the front in the stated sequence. All fields must still be present; only the order changes. If `property_order` is empty the default order is used.
 
 Validation rules enforced on `push` (applied to the 👉👈 text before conversion):
 - Every section must begin with the exact separator.
@@ -220,7 +220,7 @@ sys1, #id1, m1, sche3, cont1, 09:00, foobarbaz, val1, val2
 sys1, #id2, m2, sche7, cont2, 12:30, , , 
 ```
 
-One row per section. Multi-line notes are joined with a space. Documents where every section has an empty `machine` and `schedule` are excluded from the CSV. Additional property columns appear in the order defined by `[system] additional_properties`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
+One row per section. Multi-line notes are joined with a space. Documents where every section has an empty `machine` and `schedule` are excluded from the CSV. Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[system] property_order`; `machine`, `schedule`, and `contact` are renamed to `machine_name`, `schedule_name`, and `contact_name` in the header. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules
 
@@ -260,7 +260,8 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - `_validate_system` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_system_sections` is lenient and used only for schedule/contact/mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - `id` is a core field (always present, between `machine` and `schedule`), not an additional property. It is not unique — multiple sections or systems can share the same id value.
 - `contact` is a core field (always present, between `schedule` and `time`). Its value must exist in the `contacts/` collection or be in `[contact] whitelist`. The contacts directory is scanned once per push, after the schedule check.
-- `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str,str],...]` of `(property_name, collection_name)` pairs) is threaded from `main` → `dispatch` → `cmd_push`; `additional_props` seen by all other functions already contains the mandatory prop names appended after optional ones.
+- `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str,str],...]` of `(property_name, collection_name)` pairs) is threaded from `main` → `dispatch` → `cmd_push`; `additional_props` seen by all other functions contains the mandatory prop names appended after optional ones.
+- `field_order` is a `tuple[str, ...]` of all system field names in the display/validation order dictated by `[system] property_order`. It is computed once in `main()` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the old `additional_props`-based behaviour is used, which keeps the existing test suite green without modification.
 
 ## JTable GUI (`src/gui.py`)
 
