@@ -9,7 +9,9 @@ You can exit app using `exit` command.
 ls systems # list system names in /systems/ decoding base32
 add systems sys3 # create a file with the system name in /systems/ encoding base32
 cat systems sys4 # print contents finding the maching file by name
+cat systems sys3 --jtable # show the contents finding the maching file by name, and open it with jtable gui.
 get systems sys3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
+get systems sys3 --jtable # get the contents finding the maching file by name, save it in downloaads, then open it with jtable gui.
 clear systems sys3 # like `get` command this opens the editor but with the empty system document.
 len systems sys3 # prints "%d" that is the length of the non-empty records contained in this system document.
 diff systems sys3 # compares the objects in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
