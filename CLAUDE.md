@@ -108,10 +108,10 @@ The empty template written by `add` is a single-element array with all blank str
 
 `get`, `cat`, and `clear` present the 👉👈 separator format. `push` accepts it and converts back to JSON before writing to the repo.
 
-One or more sections, each starting with the separator line (10 × 👉 + 10 × 👈):
+One or more sections, each starting with the separator line (20 × 🏔):
 
 ```
-👉👉👉👉👉👉👉👉👉👉👈👈👈👈👈👈👈👈👈👈
+🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
 👉machine👈
 machine_value
 👉id👈
@@ -225,6 +225,6 @@ JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None).run()
 | `diff_data` | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
 | `title`     | Window title (defaults to filename or `"diff"`) |
 
-**Systems editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Multiline notes are displayed collapsed (newlines → spaces); the original newlines are restored on Save if the cell was not edited.
+**Systems editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Multiline notes are displayed collapsed (newlines → spaces); double-clicking a `notes` cell opens a modal text-editor dialog (OK / Cancel) instead of an inline entry — OK updates the treeview and preserves newlines for the next Save.
 
 **Diff mode** (`diff_data` provided): read-only, deleted rows shown in red with `−`, added rows in green with `+`. Data columns are sortable.
