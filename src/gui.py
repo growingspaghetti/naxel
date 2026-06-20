@@ -139,7 +139,7 @@ class JTable:
 
     def _load_csv(self):
         with self._path.open(newline="", encoding="utf-8") as f:
-            rows = list(csv.reader(f))
+            rows = list(csv.reader(f, skipinitialspace=True))
         if not rows:
             return
         headers = [h.strip() for h in rows[0]]
