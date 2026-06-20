@@ -81,13 +81,13 @@ push systems <名前>           # 検証して登録
 🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
 👉machine👈
 machine_value
-👉id👈
-id_value
 👉time👈
 12:00
 👉notes👈
 ノート1行目
 ノート2行目
+👉id👈
+id_value
 👉schedule👈
 schedule_value
 👉contact👈
@@ -96,7 +96,7 @@ contact_value
 prop1_value
 ```
 
-コアフィールド（`machine`, `id`, `time`, `notes`）は常に先頭に表示されます。`schedule` や `contact` は `additional_mandatory_properties.json` で定義された場合にコアフィールドの後に続きます。フィールドの表示順は `settings.ini` の `[system] property_order` で制御できます（後述）。
+コアフィールド（`machine`, `time`, `notes`）は常に先頭に表示されます。`id`・`schedule`・`contact` などは `additional_properties.json` または `additional_mandatory_properties.json` で定義された場合にコアフィールドの後に続きます。フィールドの表示順は `settings.ini` の `[system] property_order` で制御できます（後述）。
 
 #### push 時の検証ルール
 
@@ -105,10 +105,9 @@ prop1_value
 | フィールド | 検証内容 |
 |---|---|
 | `machine` | 空でないこと |
-| `id` | 空でないこと、かつ `#` で始まらないこと |
 | `time` | 空でないこと、かつ `dd:dd`（数字2桁・コロン・数字2桁）の形式であること |
 | `notes` | ラベルが存在すること（値は空でも可） |
-| 追加プロパティ（任意） | ラベルが存在すること（値は空でも可） |
+| 追加プロパティ（任意） | ラベルが存在すること。`validation_type` に応じた入力検証が行われる（`NONE` — 制約なし; `NOT_EMPTY` — 空値を拒否; `HH:MM` — `\d{2}:\d{2}` 形式でない値を拒否; `RE:<pattern>` — 正規表現にマッチしない値を拒否） |
 | 追加プロパティ（必須） | ラベルが存在し、値が空でないこと、かつ対応するコレクションに存在すること（`schedule`・`contact` も `additional_mandatory_properties.json` で定義した場合はここに含まれる） |
 
 **例外：** すべてのセクションの全フィールドが空（`add` / `clear` 直後の状態）、またはファイル内容が空白のみの場合は検証をスキップして空テンプレートとして登録されます。
@@ -138,9 +137,9 @@ prop1_value
 ### systems
 
 ```csv
-system_name, id, machine_name, time, notes, schedule, contact, prop1, prop2
-sys1, id1, m1, 09:00, ノート内容, sche1, cont1, val1, val2
-sys1, id2, m2, 12:30, , sche2, cont2, ,
+system_name, machine_name, time, notes, id, schedule, contact, prop1, prop2
+sys1, m1, 09:00, ノート内容, id1, sche1, cont1, val1, val2
+sys1, m2, 12:30, , id2, sche2, cont2, ,
 ```
 
 - セクションごとに1行出力されます。
@@ -211,6 +210,7 @@ property_order = team,notes,id
 
 ```json
 [
+  {"property_name": "id",    "validation_type": "RE:[^#]+"},
   {"property_name": "prop1", "validation_type": "NONE"},
   {"property_name": "prop2", "validation_type": "NOT_EMPTY"},
   {"property_name": "prop3", "validation_type": "HH:MM"}
@@ -220,7 +220,7 @@ property_order = team,notes,id
 | フィールド | 説明 |
 |---|---|
 | `property_name` | フィールド名 |
-| `validation_type` | `push` 時の入力検証: `"NONE"` — 検証なし（値が空でも可）; `"NOT_EMPTY"` — 空値を拒否; `"HH:MM"` — `\d{2}:\d{2}` 形式でない値を拒否。省略時は `"NONE"` として扱われる |
+| `validation_type` | `push` 時の入力検証: `"NONE"` — 検証なし（値が空でも可）; `"NOT_EMPTY"` — 空値を拒否; `"HH:MM"` — `\d{2}:\d{2}` 形式でない値を拒否; `"RE:<pattern>"` — 正規表現 `<pattern>` に完全マッチしない値を拒否（`re.fullmatch` 使用）。省略時は `"NONE"` として扱われる |
 
 オブジェクト以外のエントリは無視されます。
 
@@ -244,7 +244,7 @@ property_order = team,notes,id
 | `whitelist` | コレクションへの存在チェックをスキップして受け入れる値のリスト（省略または空配列 `[]` でホワイトリストなし） |
 
 - 定義したコレクションはツール起動時に自動で利用可能になります。
-- `property_name` が `machine`・`id`・`time`・`notes` 以外の場合、全システムドキュメントの必須項目として追加されます。`schedule` や `contact` もここで定義することで必須フィールドになります。
+- `property_name` が `machine`・`time`・`notes` 以外の場合、全システムドキュメントの必須項目として追加されます。`schedule` や `contact` もここで定義することで必須フィールドになります。
 - `push` 時、各 `property_name` の値が空でないこと、かつ対応する `collection_name` コレクションに登録されていること（または `whitelist` に含まれること）が検証されます。
 - `schedule` や `contact` を記載することで、これらのコレクション参照チェックを含む全検証を動的コレクション設定で管理できます。
 - 動的コレクションは組み込みの `schedules` / `contacts` と同様に操作できます。

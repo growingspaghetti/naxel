@@ -151,12 +151,11 @@ _EMAIL_RE = re.compile(rf"^{_EMAIL_SEG}(,{_EMAIL_SEG})*\n?$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 _CORE_LABELS = frozenset({
     "\U0001f449machine\U0001f448",
-    "\U0001f449id\U0001f448",
     "\U0001f449time\U0001f448",
     "\U0001f449notes\U0001f448",
 })
 
-_DEFAULT_CORE = ("machine", "id", "time", "notes")
+_DEFAULT_CORE = ("machine", "time", "notes")
 _DEFAULT_CORE_SET = frozenset(_DEFAULT_CORE)
 
 # CSV column name overrides for core fields
@@ -246,7 +245,7 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *
             if len(section) == len(field_order):
                 sections.append(section)
         else:
-            for key in ("machine", "id", "time", "notes"):
+            for key in ("machine", "time", "notes"):
                 label = f"\U0001f449{key}\U0001f448"
                 if i >= n or lines[i] != label:
                     section = {}
@@ -261,7 +260,7 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *
                 else:
                     section[key] = lines[i].strip() if i < n else ""
                     i += 1
-            if len(section) == 4:
+            if len(section) == 3:
                 found: dict[str, str] = {}
                 while i < n and lines[i] != _SEPARATOR:
                     line = lines[i]
@@ -316,12 +315,6 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
                 if i >= n or not lines[i].strip():
                     return False, f"line {i + 1}: value after {label!r} is missing"
                 i += 1
-            elif key == "id":
-                if i >= n or not lines[i].strip():
-                    return False, f"line {i + 1}: value after {label!r} is missing"
-                if lines[i].startswith("#"):
-                    return False, f"line {i + 1}: id must not start with '#' (got {lines[i]!r})"
-                i += 1
             elif key == "time":
                 if i >= n or not lines[i].strip():
                     return False, f"line {i + 1}: value after {label!r} is missing"
@@ -341,6 +334,10 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
                         return False, f"line {i + 1}: value for {key!r} is required"
                     elif vtype == "HH:MM" and not _TIME_RE.match(lines[i]):
                         return False, f"line {i + 1}: value for {key!r} must be HH:MM (got {lines[i]!r})"
+                    elif vtype.startswith("RE:"):
+                        pattern = vtype[3:]
+                        if not re.fullmatch(pattern, lines[i]):
+                            return False, f"line {i + 1}: value for {key!r} must match /{pattern}/ (got {lines[i]!r})"
                 i += 1
 
         section_count += 1
@@ -685,7 +682,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (),
             if len(section) == len(field_order):
                 sections.append(section)
         else:
-            for key in ("machine", "id", "time", "notes"):
+            for key in ("machine", "time", "notes"):
                 label = f"\U0001f449{key}\U0001f448"
                 if i >= n or lines[i] != label:
                     section = {}
@@ -700,7 +697,7 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (),
                 else:
                     section[key] = lines[i].strip() if i < n else ""
                     i += 1
-            if len(section) == 4:
+            if len(section) == 3:
                 # Collect all prop label-value pairs present in the document
                 found: dict[str, str] = {}
                 while i < n and lines[i] != _SEPARATOR:
@@ -730,7 +727,7 @@ def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = (
         if field_order is not None else additional_props
     )
     return bool(sections) and all(
-        not s["machine"] and not s["id"] and not s["time"] and not s["notes"]
+        not s["machine"] and not s["time"] and not s["notes"]
         and all(not s.get(p) for p in extra_to_check)
         for s in sections
     )
@@ -772,7 +769,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
             csv_col_names = [_CSV_FIELD_NAME.get(f, f) for f in field_order]
             rows.append(_csv_row("system_name", *csv_col_names))
         else:
-            rows.append(_csv_row("system_name", "id", "machine_name", "time", "notes",
+            rows.append(_csv_row("system_name", "machine_name", "time", "notes",
                                   *[_CSV_FIELD_NAME.get(p, p) for p in additional_props]))
         for encoded, fname in sorted(seen.items()):
             system_name = decode_name(encoded) or encoded
@@ -791,7 +788,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                 else:
                     notes_str = " ".join(sec.get("notes", "").splitlines()).strip()
                     rows.append(_csv_row(
-                        system_name, sec.get("id", ""), sec.get("machine", ""),
+                        system_name, sec.get("machine", ""),
                         sec.get("time", ""), notes_str,
                         *[sec.get(p, "") for p in additional_props]))
     elif collection == "schedules":
