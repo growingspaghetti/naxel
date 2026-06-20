@@ -34,7 +34,8 @@ diff contacts c3 # compares the phone numbers in the latest version in the repos
 push contact c3 # reads the contents after finding the file in downloads, then write it in the file in the repository
 
 export systems foo.csv # export data in systems to the csv and open with the editor.
-export schedules bar.csv # export data in systems to the csv and open with the editor.
+export schedules bar.csv # export data in schedules to the csv and open with the editor.
+export contacts baz.csv # export data in contacts to the csv and open with the editor.
 
 exit # terminates this application
 ```
