@@ -85,7 +85,7 @@ repetition of this section.
 👉machine👈
 m1
 👉id👈
-#id1
+id1
 👉schedule👈
 sche1
 👉time👈
@@ -111,7 +111,7 @@ con4
 👉machine👈
 m1
 👉id👈
-#id12
+id12
 👉schedule👈
 sche1
 👉time👈
@@ -134,7 +134,7 @@ japan
 👉machine👈
 m2
 👉id👈
-#1222
+1222
 👉schedule👈
 sche8
 👉time👈
@@ -214,10 +214,10 @@ one line or one line + \n. repetition of ([0-9] or [-] or [+])+ with commas.
 saved to `downloads`.
 ## systems
 ```csv
-system_name, id, machine_name, schedule_name, notes
-sys1, #id2, m1, sche3, foobarbaz
-sys1, #1, m2, sche7, 
-sys2, #id2, m4, sche7, hoge
+system_name, id, machine, schedule, notes
+sys1, id2, m1, sche3, foobarbaz
+sys1, 1, m2, sche7, 
+sys2, id2, m4, sche7, hoge
 ```
 ## schedules
 ```csv

@@ -139,6 +139,8 @@ _DATE_SEG = r"\d{4}/\d{2}/\d{2}"
 _SCHEDULE_RE = re.compile(rf"^{_DATE_SEG}(,{_DATE_SEG})*\n?$")
 _CONTACT_SEG = r"[0-9\-\+]+"
 _CONTACT_RE = re.compile(rf"^{_CONTACT_SEG}(,{_CONTACT_SEG})*\n?$")
+_EMAIL_SEG = r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
+_EMAIL_RE = re.compile(rf"^{_EMAIL_SEG}(,{_EMAIL_SEG})*\n?$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 _CORE_LABELS = frozenset({
     "\U0001f449machine\U0001f448",
@@ -345,6 +347,12 @@ def _validate_contact(content: str) -> tuple[bool, str]:
     return False, "expected: digits/dashes/plus signs separated by commas (one line)"
 
 
+def _validate_email(content: str) -> tuple[bool, str]:
+    if _EMAIL_RE.match(content):
+        return True, ""
+    return False, "expected: email@domain.tld,email2@domain.tld,... (one line)"
+
+
 def validate(collection: str, content: str, additional_props: tuple[str, ...] = (),
              mandatory_prop_names: frozenset[str] = frozenset(), *,
              field_order: tuple[str, ...] | None = None) -> tuple[bool, str]:
@@ -356,6 +364,8 @@ def validate(collection: str, content: str, additional_props: tuple[str, ...] = 
         return _validate_schedule(content)
     if ctype == "PHONE_NUMBER":
         return _validate_contact(content)
+    if ctype == "EMAIL":
+        return _validate_email(content)
     return True, ""
 
 

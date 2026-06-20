@@ -751,3 +751,15 @@ class TestCollectionTypeValidation:
         self._put(repo, downloads, dynamic_col, 0, "anything at all")
         cmd_push(repo, dynamic_col, "entry1", downloads)
         assert "pushed" in capsys.readouterr().out
+
+    def test_email_type_accepts_valid_addresses(self, repo, downloads, capsys, dynamic_col):
+        app.COLLECTION_TYPE[dynamic_col] = "EMAIL"
+        self._put(repo, downloads, dynamic_col, 0, "user@example.com,admin@corp.jp")
+        cmd_push(repo, dynamic_col, "entry1", downloads)
+        assert "pushed" in capsys.readouterr().out
+
+    def test_email_type_rejects_invalid_content(self, repo, downloads, capsys, dynamic_col):
+        app.COLLECTION_TYPE[dynamic_col] = "EMAIL"
+        self._put(repo, downloads, dynamic_col, 0, "not-an-email")
+        cmd_push(repo, dynamic_col, "entry1", downloads)
+        assert "rejected" in capsys.readouterr().out

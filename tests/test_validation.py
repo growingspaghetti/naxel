@@ -3,7 +3,8 @@ import pytest
 from pathlib import Path
 import app
 from app import (
-    _validate_system, _validate_schedule, validate, _parse_system_sections,
+    _validate_system, _validate_schedule, _validate_contact, _validate_email,
+    validate, _parse_system_sections,
     _csv_field, _csv_row, _empty_system_document,
     _text_to_system_json, _system_sections_to_text, _empty_system_json,
     load_additional_properties,
@@ -162,6 +163,48 @@ class TestValidateSchedule:
 
     def test_plain_text_rejected(self):
         ok, _ = _validate_schedule("not a date")
+        assert not ok
+
+
+class TestValidateEmail:
+    def test_single_address_valid(self):
+        ok, _ = _validate_email("user@example.com")
+        assert ok
+
+    def test_multiple_addresses_valid(self):
+        ok, _ = _validate_email("a@b.com,c@d.org,e@f.co.jp")
+        assert ok
+
+    def test_trailing_newline_valid(self):
+        ok, _ = _validate_email("user@example.com\n")
+        assert ok
+
+    def test_plus_in_local_part_valid(self):
+        ok, _ = _validate_email("user+tag@example.com")
+        assert ok
+
+    def test_dots_in_local_part_valid(self):
+        ok, _ = _validate_email("first.last@example.com")
+        assert ok
+
+    def test_empty_rejected(self):
+        ok, _ = _validate_email("")
+        assert not ok
+
+    def test_no_at_sign_rejected(self):
+        ok, _ = _validate_email("userexample.com")
+        assert not ok
+
+    def test_no_domain_dot_rejected(self):
+        ok, _ = _validate_email("user@examplecom")
+        assert not ok
+
+    def test_plain_text_rejected(self):
+        ok, _ = _validate_email("not an email")
+        assert not ok
+
+    def test_space_separator_rejected(self):
+        ok, _ = _validate_email("a@b.com c@d.com")
         assert not ok
 
 
