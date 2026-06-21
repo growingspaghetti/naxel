@@ -8,6 +8,16 @@ python3 src/app.py
 
 Reads `settings.ini` from the project root (one level above `src/`), and `repository.ini` from the repo root.
 
+```
+python3 src/app.py -c 'cmd1 && cmd2 && ...'
+```
+
+Batch mode: runs the `&&`-separated commands sequentially, then exits without entering the REPL. Useful for scripting and pipelines, e.g.:
+
+```
+cat foo_main.txt | python3 src/app.py -c 'add systems foo && get systems foo - && push systems foo && diff systems foo'
+```
+
 ## Project layout
 
 ```
@@ -151,6 +161,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `cat <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open read-only JTable window |
 | `get <collection> <name>`               | Copy latest version to `downloads/{collection}/` as `.txt`, open with editor |
 | `get <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open editable JTable window. Main collection: Save / Add Row / Duplicate Row / Delete Row. Reference collections: Save / Add Row / Delete Row. |
+| `get <collection> <name> -`             | Write stdin to `downloads/{collection}/` (same filename as `get`) without opening an editor; intended for use with `-c` batch mode pipelines |
 | `clear <collection> <name>`             | Write empty document template to `downloads/{collection}/` (same filename as `get`), open with editor |
 | `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for the main collection, comma-separated entries for all others) |
 | `push <collection> <name>`              | Validate latest `.txt` in `downloads/{collection}/`, write as next version in repo |
