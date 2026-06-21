@@ -41,7 +41,7 @@ def get_editor(config):
     return config.get("editor", "command", fallback="mousepad")
 
 
-def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], str, str]:
+def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], str, str, str]:
     repo_ini = configparser.ConfigParser()
     repo_ini.read(repo_root / "repository.ini")
     collection_name = repo_ini.get("main_collection", "collection_name", fallback="systems")
@@ -50,7 +50,8 @@ def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], 
     property_order = tuple(s.strip() for s in raw.split(",") if s.strip())
     additional_props_file = repo_ini.get("additional_properties", "json", fallback="additional_properties.json")
     ref_collections_file = repo_ini.get("reference_collections", "json", fallback="additional_mandatory_properties.json")
-    return collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file
+    intro_message = repo_ini.get("introduction", "message", fallback="")
+    return collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file, intro_message
 
 
 def load_additional_properties(repo_root: Path, filename: str) -> tuple[tuple[str, str, bool], ...]:
@@ -1015,7 +1016,7 @@ def main():
     cache_dir = get_cache_dir(config)
     editor = get_editor(config)
 
-    main_coll, partition_prop, property_order, additional_props_file, ref_collections_file = load_repository_config(repo_root)
+    main_coll, partition_prop, property_order, additional_props_file, ref_collections_file, intro_message = load_repository_config(repo_root)
     MAIN_COLLECTION = main_coll
     PARTITIONING_PROPERTY = partition_prop
     COLLECTIONS.add(main_coll)
@@ -1073,6 +1074,8 @@ def main():
 
     print(f"repo-manipulator  repository={repo_root}")
     sync_cache(repo_root, cache_dir)
+    if intro_message:
+        print(intro_message)
     print("Type 'help' for usage or 'exit' to quit.\n")
 
     while True:
