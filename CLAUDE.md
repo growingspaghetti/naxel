@@ -30,9 +30,13 @@ dummy-repo/                       local NAS substitute for development
   additional_mandatory_properties.json  JSON array defining all reference collections
   <main-collection>/              .txt.gz files named by base32-encoded name + version
   <reference-collection>/         .txt files named by base32-encoded name + version
-downloads/                        files staged for editing, organised by collection
-  <collection>/                   plain .txt files for each collection
+downloads/                        files staged for editing, organised by repository and collection
+  <md5>/                          subdirectory named by MD5 hash of the repo's absolute path
+    <collection>/                 plain .txt files for each collection
+    <file.csv|file.json>          export output (written directly here, not in a collection subdir)
 cache/                            local mirror of the NAS repo, populated at startup and on export
+  <md5>/                          subdirectory named by MD5 hash of the repo's absolute path
+    <collection>/                 cached repo files for each collection
 ```
 
 ## settings.ini keys
@@ -139,13 +143,17 @@ Every file in the repo is named `{base32(name)}.{version}.{ext}` where:
 
 ## Downloads
 
-`get`, `clear`, and `cat --jtable` write files to `downloads/{collection}/` (e.g. `downloads/systems/`, `downloads/schedules/`). `push` reads from the same subdirectory. Using per-collection subdirectories means same-name entries in different collections (e.g. a "foo" in `schedules` and a "foo" in a dynamic collection) never share a filename and cannot overwrite each other.
+Downloads and cache are namespaced by repository so that switching repositories (via `cd`) never mixes files from different repos. The namespace is the MD5 hex digest of the repository root's absolute path — `repo_namespace(repo_root)` in `app.py` computes it.
 
-`export` is the exception: its output file (CSV or JSON) is written directly to `downloads/` (not a subdirectory), because it is not a versioned collection entry.
+`get`, `clear`, and `cat --jtable` write files to `downloads/{md5}/{collection}/` (e.g. `downloads/a3f7.../systems/`). `push` reads from the same subdirectory. Using per-collection subdirectories means same-name entries in different collections (e.g. a "foo" in `schedules` and a "foo" in a dynamic collection) never share a filename and cannot overwrite each other.
 
-All files in `downloads/` are plain `.txt` regardless of collection, so any text editor can open them directly.
+`export` is the exception: its output file (CSV or JSON) is written directly to `downloads/{md5}/` (not a collection subdir), because it is not a versioned collection entry.
+
+All files in `downloads/{md5}/` are plain `.txt` regardless of collection, so any text editor can open them directly.
 
 ## Cache
+
+Cache is also namespaced: `cache/{md5}/{collection}/`.
 
 On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one on the cache dir, then copies only the missing files. No per-file stat calls against the NAS.
 
@@ -155,6 +163,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 
 | Command                                  | Description |
 |------------------------------------------|-------------|
+| `cd <path>`                              | Switch to a different repository; re-reads all config, resets collections, syncs cache for new repo. Downloads and cache are automatically scoped per-repo via MD5 namespace. |
 | `ls <collection>`                        | Print decoded names (one per line, latest-version files only, deduped) |
 | `add <collection> <name>`                | Create `{encoded}.0000{ext}` with the empty document template |
 | `cat <collection> <name>`               | Print latest version content to stdout (decompresses the main collection) |
@@ -307,14 +316,16 @@ The main collection array appears under its collection name. Each reference coll
 
 - `os.listdir()` is used for all directory reads (not `glob` or `iterdir`) to issue a single syscall per directory — important on NAS with many files.
 - Collection directories contain no subdirectories, so flat `listdir` is sufficient.
-- `push` looks for the latest `.txt` in `downloads/{collection}/`; the repo suffix is determined by `_repo_suffix(collection)` — returns `.txt.gz` when `collection == MAIN_COLLECTION`, `.txt` for all others.
+- `push` looks for the latest `.txt` in `downloads/{md5}/{collection}/`; the repo suffix is determined by `_repo_suffix(collection)` — returns `.txt.gz` when `collection == MAIN_COLLECTION`, `.txt` for all others.
 - The main collection is stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
 - `_validate_main_collection` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_main_collection_sections` is lenient and used only for mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - There are **no hardcoded core fields**. Every main-collection field — including `notes`, `machine`, `time`, `id`, `schedule`, `contact` — is an additional property declared in `additional_properties.json` or `additional_mandatory_properties.json`. `notes` is declared in `additional_properties.json` with `"multiline": true`. `id` is not unique — multiple sections or documents can share the same id value.
-- `load_repository_config(repo_root)` reads `repository.ini` and returns a 5-tuple: `(collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file)`. `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals (start as `None`) set by `main()` from this call. `COLLECTIONS` starts as an empty `set[str]` and is populated in `main()` — first with the main collection, then with each reference collection. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time.
-- `load_additional_properties(repo_root, filename)` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `main()` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch main-collection text; JTable receives it as `multiline_cols`.
+- `repo_namespace(repo_root)` returns `hashlib.md5(str(repo_root.resolve()).encode()).hexdigest()` — the 32-character hex digest used to namespace downloads and cache directories per repository.
+- `initialize_repo(repo_root, downloads_base, cache_base)` bundles all per-repository initialisation: clears and re-populates `MAIN_COLLECTION`, `PARTITIONING_PROPERTY`, `COLLECTIONS`, `COLLECTION_TYPE`; computes namespaced `downloads_dir = downloads_base / md5` and `cache_dir = cache_base / md5`; loads config and returns a `RepoState` dataclass. Called once at startup and again on every `cd`. The `cd` command validates the path (must be a directory; must contain `repository.ini` in REPL mode), then calls `initialize_repo` and `sync_cache` before continuing the REPL.
+- `load_repository_config(repo_root)` reads `repository.ini` and returns a 6-tuple: `(collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file, intro_message)`. `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals (start as `None`) set by `initialize_repo`. `COLLECTIONS` starts as an empty `set[str]` and is populated in `initialize_repo` — first with the main collection, then with each reference collection. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time.
+- `load_additional_properties(repo_root, filename)` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `initialize_repo` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch main-collection text; JTable receives it as `multiline_cols`.
 - `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `mandatory_prop_names` (the `frozenset` passed to `_validate_main_collection`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to every declared reference prop.
-- `field_order` is a `tuple[str, ...]` of all main-collection field names in the display/validation order dictated by `[main_collection] property_order` in `repository.ini`. It is computed once in `main()` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
+- `field_order` is a `tuple[str, ...]` of all main-collection field names in the display/validation order dictated by `[main_collection] property_order` in `repository.ini`. It is computed once in `initialize_repo` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
 
 ## JTable GUI (`src/gui.py`)
 

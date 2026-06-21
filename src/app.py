@@ -1,5 +1,6 @@
 import base64
 import configparser
+import hashlib
 import gzip
 import json
 import os
@@ -8,6 +9,7 @@ import readline  # noqa: F401 — enables up/down arrow history in input()
 import subprocess
 import sys
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 from gui import JTable
@@ -39,6 +41,10 @@ def get_cache_dir(config):
 
 def get_editor(config):
     return config.get("editor", "command", fallback="mousepad")
+
+
+def repo_namespace(repo_root: Path) -> str:
+    return hashlib.md5(str(repo_root.resolve()).encode()).hexdigest()
 
 
 def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], str, str, str]:
@@ -133,6 +139,19 @@ PARTITIONING_PROPERTY: str | None = None
 COLLECTIONS: set[str] = set()  # populated in main() from repository.ini and reference_collections JSON
 
 COLLECTION_TYPE: dict[str, str] = {}
+
+
+@dataclass
+class RepoState:
+    repo_root: Path
+    downloads_dir: Path
+    cache_dir: Path
+    additional_props: tuple[str, ...]
+    mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...]
+    field_order: tuple[str, ...] | None
+    prop_validation_types: dict[str, str]
+    multiline_props: frozenset[str]
+    intro_message: str
 
 
 def _repo_suffix(collection: str) -> str:
@@ -895,9 +914,71 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
+def initialize_repo(repo_root: Path, downloads_base: Path, cache_base: Path) -> RepoState:
+    global MAIN_COLLECTION, PARTITIONING_PROPERTY
+    COLLECTIONS.clear()
+    COLLECTION_TYPE.clear()
+
+    ns = repo_namespace(repo_root)
+    downloads_dir = downloads_base / ns
+    cache_dir = cache_base / ns
+
+    main_coll, partition_prop, property_order, additional_props_file, ref_collections_file, intro_message = \
+        load_repository_config(repo_root)
+    MAIN_COLLECTION = main_coll
+    PARTITIONING_PROPERTY = partition_prop
+    COLLECTIONS.add(main_coll)
+
+    optional_prop_pairs = load_additional_properties(repo_root, additional_props_file)
+    optional_props = tuple(name for name, _, _ in optional_prop_pairs)
+    prop_validation_types: dict[str, str] = {
+        name: vtype for name, vtype, _ in optional_prop_pairs if vtype != "NONE"
+    }
+    multiline_props: frozenset[str] = frozenset(name for name, _, ml in optional_prop_pairs if ml)
+
+    dynamic_colls = load_dynamic_collections(repo_root, ref_collections_file)
+    for dc in dynamic_colls:
+        cname = dc["collection_name"]
+        COLLECTIONS.add(cname)
+        COLLECTION_TYPE[cname] = dc.get("type", "")
+        (repo_root / cname).mkdir(parents=True, exist_ok=True)
+        (cache_dir / cname).mkdir(parents=True, exist_ok=True)
+
+    mandatory_ref_props = tuple(
+        (dc["property_name"], dc["collection_name"], frozenset(dc.get("whitelist", [])))
+        for dc in dynamic_colls
+        if dc.get("property_name")
+    )
+    all_props = optional_props + tuple(pname for pname, _, _ in mandatory_ref_props)
+
+    all_fields_set = _DEFAULT_CORE_SET | set(all_props)
+    ordered_front = [p for p in property_order if p in all_fields_set]
+    ordered_front_set = set(ordered_front)
+    remaining_core = [p for p in _DEFAULT_CORE if p not in ordered_front_set]
+    remaining_extra = [p for p in all_props if p not in ordered_front_set]
+    field_order: tuple[str, ...] | None = (
+        tuple(ordered_front + remaining_core + remaining_extra) if property_order else None
+    )
+    additional_props = tuple(p for p in (field_order or (_DEFAULT_CORE + all_props))
+                             if p not in _DEFAULT_CORE_SET)
+
+    return RepoState(
+        repo_root=repo_root,
+        downloads_dir=downloads_dir,
+        cache_dir=cache_dir,
+        additional_props=additional_props,
+        mandatory_ref_props=mandatory_ref_props,
+        field_order=field_order,
+        prop_validation_types=prop_validation_types,
+        multiline_props=multiline_props,
+        intro_message=intro_message,
+    )
+
+
 def usage_string() -> str:
     return (
         "commands:\n"
+        "  cd <path>\n"
         "  ls <collection>\n"
         "  add <collection> <name>\n"
         "  cat <collection> <name> [--jtable]\n"
@@ -1021,74 +1102,63 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     return True
 
 
+def _do_cd(path_str: str, downloads_base: Path, cache_base: Path,
+           check_repo_ini: bool = True) -> RepoState | None:
+    new_path = Path(path_str).resolve()
+    if not new_path.is_dir():
+        print(f"error: not a directory: {new_path}")
+        return None
+    if check_repo_ini and not (new_path / "repository.ini").exists():
+        print(f"error: not a repository (no repository.ini): {new_path}")
+        return None
+    state = initialize_repo(new_path, downloads_base, cache_base)
+    sync_cache(state.repo_root, state.cache_dir)
+    if state.intro_message:
+        print(state.intro_message)
+    print(f"switched to: {state.repo_root}")
+    return state
+
+
 def main():
-    global MAIN_COLLECTION, PARTITIONING_PROPERTY
     config = load_config()
     repo_root = get_repo_root(config)
-    downloads_dir = get_downloads_dir(config)
-    cache_dir = get_cache_dir(config)
+    downloads_base = get_downloads_dir(config)
+    cache_base = get_cache_dir(config)
     editor = get_editor(config)
 
-    main_coll, partition_prop, property_order, additional_props_file, ref_collections_file, intro_message = load_repository_config(repo_root)
-    MAIN_COLLECTION = main_coll
-    PARTITIONING_PROPERTY = partition_prop
-    COLLECTIONS.add(main_coll)
-
-    optional_prop_pairs = load_additional_properties(repo_root, additional_props_file)
-    optional_props = tuple(name for name, _, _ in optional_prop_pairs)
-    prop_validation_types: dict[str, str] = {
-        name: vtype for name, vtype, _ in optional_prop_pairs if vtype != "NONE"
-    }
-    multiline_props: frozenset[str] = frozenset(name for name, _, ml in optional_prop_pairs if ml)
-
-    dynamic_colls = load_dynamic_collections(repo_root, ref_collections_file)
-    for dc in dynamic_colls:
-        cname = dc["collection_name"]
-        COLLECTIONS.add(cname)
-        COLLECTION_TYPE[cname] = dc.get("type", "")
-        (repo_root / cname).mkdir(parents=True, exist_ok=True)
-        (cache_dir / cname).mkdir(parents=True, exist_ok=True)
-
-    mandatory_ref_props = tuple(
-        (dc["property_name"], dc["collection_name"], frozenset(dc.get("whitelist", [])))
-        for dc in dynamic_colls
-        if dc.get("property_name")
-    )
-    all_props = optional_props + tuple(pname for pname, _, _ in mandatory_ref_props)
-
-    all_fields_set = _DEFAULT_CORE_SET | set(all_props)
-    ordered_front = [p for p in property_order if p in all_fields_set]
-    ordered_front_set = set(ordered_front)
-    remaining_core = [p for p in _DEFAULT_CORE if p not in ordered_front_set]
-    remaining_extra = [p for p in all_props if p not in ordered_front_set]
-    field_order: tuple[str, ...] | None = (
-        tuple(ordered_front + remaining_core + remaining_extra) if property_order else None
-    )
-    additional_props = tuple(p for p in (field_order or (_DEFAULT_CORE + all_props))
-                              if p not in _DEFAULT_CORE_SET)
+    state = initialize_repo(repo_root, downloads_base, cache_base)
 
     cli_args = sys.argv[1:]
     if cli_args and cli_args[0] == "-c":
         if len(cli_args) < 2:
             print("error: -c requires a command string", file=sys.stderr)
             sys.exit(1)
-        sync_cache(repo_root, cache_dir)
+        sync_cache(state.repo_root, state.cache_dir)
         for raw in cli_args[1].split("&&"):
             raw = raw.strip()
             if not raw:
                 continue
-            if not dispatch(raw.split(), repo_root, downloads_dir, cache_dir, editor,
-                            additional_props, mandatory_ref_props,
-                            field_order=field_order,
-                            prop_validation_types=prop_validation_types,
-                            multiline_props=multiline_props):
+            parts = raw.split()
+            if parts[0] == "cd":
+                if len(parts) != 2:
+                    print("error: cd requires a path")
+                    continue
+                new_state = _do_cd(parts[1], downloads_base, cache_base, check_repo_ini=False)
+                if new_state is not None:
+                    state = new_state
+                continue
+            if not dispatch(parts, state.repo_root, state.downloads_dir, state.cache_dir, editor,
+                            state.additional_props, state.mandatory_ref_props,
+                            field_order=state.field_order,
+                            prop_validation_types=state.prop_validation_types,
+                            multiline_props=state.multiline_props):
                 break
         return
 
-    print(f"repo-manipulator  repository={repo_root}")
-    sync_cache(repo_root, cache_dir)
-    if intro_message:
-        print(intro_message)
+    print(f"repo-manipulator  repository={state.repo_root}")
+    sync_cache(state.repo_root, state.cache_dir)
+    if state.intro_message:
+        print(state.intro_message)
     print("Type 'help' for usage or 'exit' to quit.\n")
 
     while True:
@@ -1105,11 +1175,20 @@ def main():
             continue
 
         parts = line.split()
-        if not dispatch(parts, repo_root, downloads_dir, cache_dir, editor,
-                        additional_props, mandatory_ref_props,
-                        field_order=field_order,
-                        prop_validation_types=prop_validation_types,
-                        multiline_props=multiline_props):
+        if parts[0] == "cd":
+            if len(parts) != 2:
+                print("usage: cd <path>")
+            else:
+                new_state = _do_cd(parts[1], downloads_base, cache_base)
+                if new_state is not None:
+                    state = new_state
+            continue
+
+        if not dispatch(parts, state.repo_root, state.downloads_dir, state.cache_dir, editor,
+                        state.additional_props, state.mandatory_ref_props,
+                        field_order=state.field_order,
+                        prop_validation_types=state.prop_validation_types,
+                        multiline_props=state.multiline_props):
             break
 
 
