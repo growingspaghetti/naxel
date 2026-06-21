@@ -270,7 +270,8 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 `JTable` is a tkinter `ttk.Treeview`-based table widget imported directly by `app.py` (no subprocess). Constructor:
 
 ```python
-JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None, multiline_cols=frozenset()).run()
+JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None,
+       multiline_cols=frozenset(), ref_data=None).run()
 ```
 
 | Parameter      | Values / meaning |
@@ -281,7 +282,28 @@ JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None, multil
 | `diff_data`    | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
 | `title`        | Window title (defaults to filename or `"diff"`) |
 | `multiline_cols` | `frozenset[str]` of column names whose cells open a modal text-editor dialog on double-click instead of an inline entry. Passed from `multiline_props` in `app.py`. |
+| `ref_data`     | `{property_name: {entry_name: content}}` — reference collection data used by the search bar for deep search. Built by `build_ref_data(cache_dir, mandatory_ref_props)` in `app.py` and passed to `cmd_cat` for `cat --jtable`. |
 
 **Main-collection editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save.
 
 **Diff mode** (`diff_data` provided): read-only, deleted rows shown in red with `−`, added rows in green with `+`. Data columns are sortable.
+
+**Search bar** — shown at the top of the window when `readonly=True` (cat --jtable) or `mode="csv"` (export --jtable); hidden in editable mode and diff mode. A row-count label sits at the right end of the bar. The search bar is powered by a custom query parser (`_parse_query` in `gui.py`) and supports the following syntax (all keywords case-insensitive):
+
+| Query | Behaviour |
+|-------|-----------|
+| `foo bar` | Plain-text substring search across all columns. For ref columns the search also covers the referenced entry's content (deep search). |
+| `where col = 'val'` | Exact match (case-insensitive) on the cell value of `col`. No ref expansion. |
+| `where col like 'pat'` | SQL LIKE pattern (`%` = any chars, `_` = one char) on `col`. For ref columns, also searches the referenced entry's content (deep search). |
+| `where col.contents like 'pat'` | LIKE pattern applied to the raw content string of the ref entry named in `col` (e.g. `"1234/12/31,2024/01/01"`). Useful for searching dates, phone numbers, etc. stored inside a ref entry. |
+| `where 'val' in col` | Membership check: `val` must be one of the comma-separated tokens in the cell value of `col` (case-insensitive). If `val` contains `%` or `_`, each token is tested with LIKE matching instead of exact match. |
+| `where 'val' in col.contents` | Same membership check but against the content of the ref entry named in `col`. Supports LIKE patterns in `val` the same way. |
+| `[select *] where cond` | Explicit `select *` prefix — identical to omitting it. Filters the treeview. |
+| `select count where cond` | Same filter logic, but the treeview is **not** updated — only the count label changes to `count: N / total`. Use this to count matches without losing the current view. |
+| `select prop.entry.contents` | Lookup mode: displays the comma-split values of the named ref entry (`ref_data[prop][entry]`) as rows in the treeview. Count label shows `N values — prop.entry`. The first column header changes to `prop.entry` and other headers are cleared; they are restored when leaving lookup mode. |
+| `cond1 and cond2` | AND combination. AND binds tighter than OR (standard SQL precedence). |
+| `cond1 or cond2` | OR combination. |
+
+Deep search detail: for `like` and plain-text queries, ref-column cells are expanded to `"entry_name ref_content"` before matching. This means searching `2024/01/01` will find rows whose `schedule` entry contains that date, even though the cell itself shows only the entry name. The expansion is pre-computed in `_expand_row` and stored in `self._expanded_rows` at load time. Exact-match (`=`) always checks the original cell value only.
+
+`build_ref_data(cache_dir, mandatory_ref_props)` in `app.py` reads the latest file for each reference collection from the local cache and returns the `ref_data` dict. It is called in `dispatch` only when `cat --jtable` is invoked (lazy, not at startup).

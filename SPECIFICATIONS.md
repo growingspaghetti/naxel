@@ -266,6 +266,13 @@ json = additional_mandatory_properties.json
 - 内容を表形式で閲覧できます。
 - 列ヘッダーのクリックでソートできます。
 - 編集・保存はできません。
+- ウィンドウ上部に**検索バー**が表示されます（下記「検索バー」節を参照）。
+
+### export \<コレクション\> \<ファイル名\> --jtable（CSVエクスポートの表示）
+
+- エクスポートされたCSVを表形式で閲覧できます。
+- 編集・保存はできません。
+- ウィンドウ上部に**検索バー**が表示されます（下記「検索バー」節を参照）。
 
 ### get \<メインコレクション\> \<名前\> --jtable（編集可能）
 
@@ -280,3 +287,56 @@ json = additional_mandatory_properties.json
 
 - 削除されたレコードを赤（`−`）、追加されたレコードを緑（`+`）で表示します。
 - 列ヘッダーのクリックでソートできます。
+
+### 検索バー
+
+`cat --jtable`（読み取り専用）と `export --jtable`（CSV表示）では、ウィンドウ上部に検索バーが表示されます。入力内容に応じてリアルタイムにテーブルが絞り込まれ、右端にヒット件数が表示されます。編集モード（`get --jtable`）と差分表示（`diff --jtable`）には検索バーはありません。
+
+#### クエリ構文
+
+キーワード・演算子はすべて大文字小文字を区別しません。
+
+| クエリ例 | 動作 |
+|---|---|
+| `foo` | すべての列に対して部分一致検索。参照コレクション列は参照先の内容も対象とする（ディープサーチ） |
+| `where col = 'val'` | `col` 列の値が `val` に完全一致する行を絞り込む |
+| `where col like '%foo%'` | `col` 列に対してLIKEパターンで絞り込む（`%`：任意の文字列、`_`：任意の1文字）。参照コレクション列はディープサーチ |
+| `where col.contents like 'pat'` | 参照コレクション列 `col` の参照先エントリの**内容文字列**（例: `"2024/01/01,2025/06/15"`）に対してLIKEパターンで検索 |
+| `where 'val' in col` | メンバーシップ検索：`col` 列のセル値をカンマ区切りで分割し、`val` がその中に含まれるかを確認する（大文字小文字を区別しない）。`val` に `%` または `_` が含まれる場合は各トークンに対してLIKEマッチを行う |
+| `where 'val' in col.contents` | 参照コレクション列の内容に対するメンバーシップ検索：`col` 列のエントリの内容文字列をカンマ区切りで分割し、`val`（LIKEパターン可）が含まれるかを確認する |
+| `[select *] where cond` | `select *` は省略可。`where` のみでも同じ動作 |
+| `select count where cond` | フィルタ条件に合致する件数のみを右端ラベルに表示する（`count: N / 合計`）。テーブルの表示行は変化しない |
+| `select prop.entry.contents` | ルックアップモード：参照コレクション列 `prop` のエントリ `entry` の内容（カンマ区切り値）を1行ずつテーブルに表示する。右端ラベルは `N values — prop.entry` となり、先頭列ヘッダーが `prop.entry` に変化する（通常モードに戻ると元に戻る） |
+| `cond1 and cond2` | AND 結合。OR より優先度が高い（SQL と同様） |
+| `cond1 or cond2` | OR 結合 |
+
+#### ディープサーチ（参照コレクション列）
+
+参照コレクション列（`schedule`・`contact` など）のセルには参照先エントリの**名前**が表示されています。`like` および平文検索では、この名前だけでなく参照先エントリの**内容**も検索対象に含まれます。たとえば `2024/01/01` と入力すると、`schedule` 列のエントリがその日付を含んでいる行がヒットします。
+
+`where col = 'val'` による完全一致検索は名前のみを対象とします（内容は展開しません）。
+
+#### 使用例
+
+```
+where schedule like '%2024%'
+  → schedule 参照先の内容に "2024" が含まれる行を絞り込む
+
+where schedule.contents like '%/01%'
+  → schedule 参照先の内容文字列中に "/01" が含まれるエントリを持つ行を絞り込む
+
+where '2024/01/01' in schedule.contents
+  → schedule 参照先の内容をカンマ区切りで分割し、"2024/01/01" が含まれる行を絞り込む
+
+where '2044%' in schedule.contents
+  → schedule 参照先の内容をカンマ区切りで分割し、"2044" で始まるトークンが含まれる行を絞り込む（LIKEパターン）
+
+select schedule.everyday.contents
+  → schedule コレクションの "everyday" エントリの内容を値ごとに表示する（先頭列ヘッダーが "schedule.everyday" に変わる）
+
+select count where team = 'alpha' and notes like '%urgent%'
+  → team が "alpha" かつ notes に "urgent" を含む行数をカウントする（表示は変えない）
+
+where team = 'alpha' or team = 'beta'
+  → team が "alpha" または "beta" の行を絞り込む
+```

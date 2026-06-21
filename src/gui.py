@@ -80,47 +80,103 @@ def _tokenize_where(clause: str) -> list:
             tokens.append((m_kw.group(1).upper(),))
             i += m_kw.end()
             continue
-        m = re.match(r"(\w+)\s*(=|like)\s*(?:'([^']*)'|\"([^\"]*)\")", rest, re.IGNORECASE)
+        # 'val' in col[.contents] — membership check in comma-separated cell or ref content
+        m_in = re.match(
+            r"(?:'([^']*)'|\"([^\"]*)\")\s+in\s+(\w+)(?:\.(contents))?(?=\s|$)",
+            rest, re.IGNORECASE,
+        )
+        if m_in:
+            value = m_in.group(1) if m_in.group(1) is not None else m_in.group(2)
+            is_contents = m_in.group(4) is not None
+            tokens.append(("COND", m_in.group(3), "in", value, is_contents))
+            i += m_in.end()
+            continue
+        # col[.contents] op 'val' — .contents means search the ref entry's content string
+        m = re.match(
+            r"(\w+)(?:\.(contents))?\s*(=|like)\s*(?:'([^']*)'|\"([^\"]*)\")",
+            rest, re.IGNORECASE,
+        )
         if m:
-            value = m.group(3) if m.group(3) is not None else m.group(4)
-            tokens.append(("COND", m.group(1), m.group(2).lower(), value))
+            value = m.group(4) if m.group(4) is not None else m.group(5)
+            is_contents = m.group(2) is not None
+            tokens.append(("COND", m.group(1), m.group(3).lower(), value, is_contents))
             i += m.end()
         else:
             i += 1
     return tokens
 
 
-def _parse_or_expr(tokens: list, columns: list[str], pos: int) -> tuple:
-    fn, pos = _parse_and_expr(tokens, columns, pos)
+def _parse_or_expr(tokens: list, columns: list[str], pos: int,
+                   ref_data: dict | None = None) -> tuple:
+    fn, pos = _parse_and_expr(tokens, columns, pos, ref_data)
     while pos < len(tokens) and tokens[pos][0] == "OR":
         pos += 1
-        rf, pos = _parse_and_expr(tokens, columns, pos)
+        rf, pos = _parse_and_expr(tokens, columns, pos, ref_data)
         lf = fn
         fn = lambda orig, exp, l=lf, r=rf: l(orig, exp) or r(orig, exp)
     return fn, pos
 
 
-def _parse_and_expr(tokens: list, columns: list[str], pos: int) -> tuple:
-    fn, pos = _parse_factor(tokens, columns, pos)
+def _parse_and_expr(tokens: list, columns: list[str], pos: int,
+                    ref_data: dict | None = None) -> tuple:
+    fn, pos = _parse_factor(tokens, columns, pos, ref_data)
     while pos < len(tokens) and tokens[pos][0] == "AND":
         pos += 1
-        rf, pos = _parse_factor(tokens, columns, pos)
+        rf, pos = _parse_factor(tokens, columns, pos, ref_data)
         lf = fn
         fn = lambda orig, exp, l=lf, r=rf: l(orig, exp) and r(orig, exp)
     return fn, pos
 
 
-def _parse_factor(tokens: list, columns: list[str], pos: int) -> tuple:
+def _parse_factor(tokens: list, columns: list[str], pos: int,
+                  ref_data: dict | None = None) -> tuple:
     if pos >= len(tokens) or tokens[pos][0] != "COND":
         return (lambda orig, exp: False), pos
-    _, col_name, op, value = tokens[pos]
+    _, col_name, op, value, is_contents = tokens[pos]
     pos += 1
     col_idx = next((i for i, c in enumerate(columns) if c.lower() == col_name.lower()), None)
     if col_idx is None:
         return (lambda orig, exp: False), pos
+
+    if is_contents:
+        # Match against the ref entry's raw content string (e.g. "1234/12/31,2024/01/01")
+        rd = ref_data or {}
+        if op == "=":
+            def fn(orig, exp, idx=col_idx, val=value, col=col_name, r=rd):
+                content = r.get(col, {}).get(orig[idx] if idx < len(orig) else "", "")
+                return content.lower() == val.lower()
+        elif op == "in":
+            if "%" in value or "_" in value:
+                pat = _like_to_regex(value)
+                def fn(orig, exp, idx=col_idx, p=pat, col=col_name, r=rd):
+                    content = r.get(col, {}).get(orig[idx] if idx < len(orig) else "", "")
+                    return any(p.match(t.strip()) for t in content.split(",") if t.strip())
+            else:
+                def fn(orig, exp, idx=col_idx, val=value, col=col_name, r=rd):
+                    content = r.get(col, {}).get(orig[idx] if idx < len(orig) else "", "")
+                    parts = [p.strip().lower() for p in content.split(",") if p.strip()]
+                    return val.lower() in parts
+        else:  # like
+            pat = _like_to_regex(value)
+            def fn(orig, exp, idx=col_idx, p=pat, col=col_name, r=rd):
+                content = r.get(col, {}).get(orig[idx] if idx < len(orig) else "", "")
+                return bool(p.match(content))
+        return fn, pos
+
     if op == "=":
         def fn(orig, exp, idx=col_idx, val=value):
             return idx < len(orig) and orig[idx].lower() == val.lower()
+    elif op == "in":
+        if "%" in value or "_" in value:
+            pat = _like_to_regex(value)
+            def fn(orig, exp, idx=col_idx, p=pat):
+                cell = orig[idx] if idx < len(orig) else ""
+                return any(p.match(t.strip()) for t in cell.split(",") if t.strip())
+        else:
+            def fn(orig, exp, idx=col_idx, val=value):
+                cell = orig[idx] if idx < len(orig) else ""
+                parts = [p.strip().lower() for p in cell.split(",") if p.strip()]
+                return val.lower() in parts
     else:  # like — match against expanded row for deep ref search
         pat = _like_to_regex(value)
         def fn(orig, exp, idx=col_idx, p=pat):
@@ -129,32 +185,47 @@ def _parse_factor(tokens: list, columns: list[str], pos: int) -> tuple:
 
 
 _QUERY_PREFIX_RE = re.compile(r"^(?:select\s+(\*|count)\s+)?where\s+", re.IGNORECASE)
+_LOOKUP_RE = re.compile(r"^select\s+(\w+)\.([^\s.]+)\.contents\s*$", re.IGNORECASE)
 
 
-def _parse_query(query: str, columns: list[str]) -> tuple:
+def _parse_query(query: str, columns: list[str], ref_data: dict | None = None) -> tuple:
     """
-    Returns (filter_fn, count_only).
-      filter_fn : (orig_row, exp_row) -> bool
-                  orig = original cell values; exp = ref-expanded values for deep search
+    Returns (filter_fn, count_only, lookup).
+      filter_fn : (orig_row, exp_row) -> bool   — None when lookup is set
       count_only: show count in label only, do not filter treeview
+      lookup    : {"prop": str, "entry": str, "values": list[str]} | None
 
     Supported syntax (case-insensitive keywords):
-      plain text                        — substring match across all expanded columns
-      [select *] where col = 'val'      — exact match on cell value (no ref expansion)
-      [select *] where col like 'pat'   — SQL LIKE (% / _ wildcards) on expanded value
-      ... and/or ...                    — boolean combinations; AND binds tighter than OR
-      select count where ...            — count matching rows; treeview unchanged
+      plain text                          — substring match across all expanded columns
+      [select *] where col = 'val'        — exact match on cell value (no ref expansion)
+      [select *] where col like 'pat'     — SQL LIKE (% / _) on expanded value (deep)
+      [select *] where col.contents op    — match the ref entry's raw content string
+      [select *] where 'val' in col       — 'val' is a comma-separated token in the cell;
+                                            if val contains % or _, uses LIKE matching per token
+      [select *] where 'val' in col.contents — same but against the ref entry's content
+      ... and/or ...                      — boolean combinations; AND binds tighter than OR
+      select count where ...              — count matching rows; treeview unchanged
+      select <prop>.<entry>.contents      — display ref entry values in treeview
     """
     q = query.strip()
     if not q:
-        return (lambda orig, exp: True), False
-    m = _QUERY_PREFIX_RE.match(q)
+        return (lambda orig, exp: True), False, None
+
+    m = _LOOKUP_RE.match(q)
     if m:
-        count_only = ((m.group(1) or "*").lower() == "count")
-        fn, _ = _parse_or_expr(_tokenize_where(q[m.end():]), columns, 0)
-        return fn, count_only
+        prop, entry = m.group(1), m.group(2)
+        raw = (ref_data or {}).get(prop, {}).get(entry, "")
+        values = [v.strip() for v in raw.split(",") if v.strip()] if raw else []
+        return None, False, {"prop": prop, "entry": entry, "values": values}
+
+    mq = _QUERY_PREFIX_RE.match(q)
+    if mq:
+        count_only = ((mq.group(1) or "*").lower() == "count")
+        fn, _ = _parse_or_expr(_tokenize_where(q[mq.end():]), columns, 0, ref_data)
+        return fn, count_only, None
+
     lower_q = q.lower()
-    return (lambda orig, exp: any(lower_q in cell.lower() for cell in exp)), False
+    return (lambda orig, exp: any(lower_q in cell.lower() for cell in exp)), False, None
 
 
 class JTable:
@@ -183,6 +254,7 @@ class JTable:
         self._expanded_rows: list[tuple] = []   # ref columns expanded with content for deep search
         self._search_var: tk.StringVar | None = None
         self._count_label: tk.Label | None = None
+        self._original_headings: list[str] | None = None  # saved when in lookup mode
 
         self._root = tk.Tk()
         self._root.title(title or (self._path.name if self._path else "diff"))
@@ -323,7 +395,35 @@ class JTable:
 
     def _on_search_changed(self, *_):
         q = self._search_var.get() if self._search_var else ""
-        filter_fn, count_only = _parse_query(q, self._columns)
+        filter_fn, count_only, lookup = _parse_query(q, self._columns, self._ref_data)
+
+        if lookup is not None:
+            if self._original_headings is None and self._columns:
+                self._original_headings = [
+                    self._tree.heading(col)["text"] for col in self._columns
+                ]
+            if self._columns:
+                self._tree.heading(self._columns[0],
+                                   text=f"{lookup['prop']}.{lookup['entry']}")
+                for col in self._columns[1:]:
+                    self._tree.heading(col, text="")
+            values = lookup["values"]
+            n = len(values)
+            if self._count_label is not None:
+                label = f"{n} value{'s' if n != 1 else ''} — {lookup['prop']}.{lookup['entry']}"
+                self._count_label.config(text=label)
+            self._tree.delete(*self._tree.get_children(""))
+            pad = [""] * (len(self._columns) - 1)
+            for rank, val in enumerate(values):
+                tag = "odd" if rank % 2 else ""
+                self._tree.insert("", tk.END, values=[val] + pad, tags=(tag,))
+            return
+
+        if self._original_headings is not None:
+            for col, text in zip(self._columns, self._original_headings):
+                self._tree.heading(col, text=text)
+            self._original_headings = None
+
         matched = [
             i for i, (orig, exp) in enumerate(zip(self._all_rows, self._expanded_rows))
             if filter_fn(orig, exp)

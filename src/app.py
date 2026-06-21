@@ -738,7 +738,8 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                downloads_dir: Path, cache_dir: Path, editor: str,
                additional_props: tuple[str, ...] = (), jtable: bool = False, *,
                field_order: tuple[str, ...] | None = None,
-               multiline_props: frozenset[str] = frozenset()):
+               multiline_props: frozenset[str] = frozenset(),
+               mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = ()):
     sync_cache(repo_root, cache_dir)
     col_path = cache_dir / collection
     if not col_path.is_dir():
@@ -799,7 +800,8 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
     dest.write_text("\n".join(rows) + "\n")
     print(f"exported: {dest}")
     if jtable:
-        JTable(dest).run()
+        ref = build_ref_data(cache_dir, mandatory_ref_props) if mandatory_ref_props else None
+        JTable(dest, ref_data=ref).run()
     else:
         subprocess.Popen([editor, str(dest)])
 
@@ -911,7 +913,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         else:
             cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir,
                        editor, additional_props, jtable=jtable, field_order=field_order,
-                       multiline_props=multiline_props)
+                       multiline_props=multiline_props,
+                       mandatory_ref_props=mandatory_ref_props)
 
     elif cmd == "diff":
         jtable = "--jtable" in parts
