@@ -993,6 +993,71 @@ def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
     print(f"exported: {dest_file}")
 
 
+def cmd_mkrepo(json_file: str, destination: str):
+    json_path = Path(json_file).resolve()
+    if not json_path.exists():
+        print(f"error: not found: {json_path}")
+        return
+
+    try:
+        full_data = json.loads(json_path.read_text())
+    except Exception as e:
+        print(f"error: could not parse {json_path}: {e}")
+        return
+
+    if not isinstance(full_data, dict) or "config" not in full_data or "data" not in full_data:
+        print("error: invalid fullcopy JSON (missing 'config' or 'data')")
+        return
+
+    dest_base = Path(destination).resolve()
+    if not dest_base.is_dir():
+        print(f"error: not a directory: {dest_base}")
+        return
+
+    repo_name = json_path.stem
+    repo_dir = dest_base / repo_name
+    if repo_dir.exists():
+        print(f"error: already exists: {repo_dir}")
+        return
+
+    config = full_data["config"]
+    data = full_data["data"]
+
+    repo_ini_text = config.get("repository_ini", "")
+    repo_ini_cfg = configparser.ConfigParser()
+    repo_ini_cfg.read_string(repo_ini_text)
+    main_coll = repo_ini_cfg.get("main_collection", "collection_name", fallback="systems")
+    additional_props_file = repo_ini_cfg.get("additional_properties", "json",
+                                              fallback="additional_properties.json")
+    ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
+                                             fallback="additional_mandatory_properties.json")
+
+    repo_dir.mkdir()
+    (repo_dir / "repository.ini").write_text(repo_ini_text)
+    (repo_dir / additional_props_file).write_text(
+        json.dumps(config.get("additional_properties", []), ensure_ascii=False, indent=2) + "\n"
+    )
+    (repo_dir / ref_collections_file).write_text(
+        json.dumps(config.get("reference_collections", []), ensure_ascii=False, indent=2) + "\n"
+    )
+
+    for collection_name, entries in data.items():
+        col_dir = repo_dir / collection_name
+        col_dir.mkdir(exist_ok=True)
+        is_main = (collection_name == main_coll)
+        suffix = ".txt.gz" if is_main else ".txt"
+        for entry_name, entry_data in entries.items():
+            encoded = encode_name(entry_name)
+            dest_file = col_dir / f"{encoded}.0000{suffix}"
+            if is_main:
+                body = json.dumps(entry_data, ensure_ascii=False, indent=2) + "\n"
+                dest_file.write_bytes(gzip.compress(body.encode()))
+            else:
+                dest_file.write_text(entry_data)
+
+    print(f"created: {repo_dir}")
+
+
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
 def initialize_repo(repo_root: Path, downloads_base: Path, cache_base: Path) -> RepoState:
@@ -1071,6 +1136,7 @@ def usage_string() -> str:
         "  export <collection> <file.json> [--onefile]\n"
         "  diff <collection> <name> [--jtable]\n"
         "  fullcopy <destination-directory> [--json]\n"
+        "  mkrepo <json-file> <destination-directory>\n"
         "  exit"
         f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
     )
@@ -1184,6 +1250,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: fullcopy <destination-directory> [--json]")
         else:
             cmd_fullcopy(repo_root, fullcopy_parts[1], json_mode)
+
+    elif cmd == "mkrepo":
+        if len(parts) != 3:
+            print("usage: mkrepo <json-file> <destination-directory>")
+        else:
+            cmd_mkrepo(parts[1], parts[2])
 
     else:
         print(f"unknown command: {cmd!r}")

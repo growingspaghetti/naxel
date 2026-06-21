@@ -7,7 +7,7 @@ import app
 from app import (
     encode_name,
     cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len, cmd_diff,
-    cmd_fullcopy,
+    cmd_fullcopy, cmd_mkrepo,
     _empty_main_collection_document, _empty_main_collection_json, _text_to_main_collection_json,
 )
 
@@ -1021,3 +1021,195 @@ class TestCmdFullcopy:
         data = json.loads((dest / "my_repo.json").read_text())
         assert data["config"]["additional_properties"] == []
         assert data["config"]["reference_collections"] == []
+
+
+class TestCmdMkrepo:
+    def _write_fullcopy_json(self, path, name="my_repo", config=None, data=None):
+        payload = {
+            "config": config or {
+                "repository_ini": "[main_collection]\ncollection_name = systems\n",
+                "additional_properties": [],
+                "reference_collections": [],
+            },
+            "data": data or {},
+        }
+        p = path / f"{name}.json"
+        p.write_text(json.dumps(payload))
+        return p
+
+    # ── happy-path ────────────────────────────────────────────────────────────
+
+    def test_creates_named_directory(self, tmp_path, capsys):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        json_file = self._write_fullcopy_json(src)
+        cmd_mkrepo(str(json_file), str(dest))
+        assert (dest / "my_repo").is_dir()
+        assert "created" in capsys.readouterr().out
+
+    def test_writes_repository_ini(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        ini_text = "[main_collection]\ncollection_name = systems\n"
+        json_file = self._write_fullcopy_json(src, config={
+            "repository_ini": ini_text,
+            "additional_properties": [],
+            "reference_collections": [],
+        })
+        cmd_mkrepo(str(json_file), str(dest))
+        assert (dest / "my_repo" / "repository.ini").read_text() == ini_text
+
+    def test_writes_additional_properties_json(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        props = [{"property_name": "notes", "validation_type": "NONE", "multiline": True}]
+        json_file = self._write_fullcopy_json(src, config={
+            "repository_ini": "",
+            "additional_properties": props,
+            "reference_collections": [],
+        })
+        cmd_mkrepo(str(json_file), str(dest))
+        written = json.loads((dest / "my_repo" / "additional_properties.json").read_text())
+        assert written == props
+
+    def test_writes_reference_collections_json(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        ref_colls = [{"collection_name": "schedules", "property_name": "schedule", "type": "DATE"}]
+        json_file = self._write_fullcopy_json(src, config={
+            "repository_ini": "",
+            "additional_properties": [],
+            "reference_collections": ref_colls,
+        })
+        cmd_mkrepo(str(json_file), str(dest))
+        written = json.loads((dest / "my_repo" / "additional_mandatory_properties.json").read_text())
+        assert written == ref_colls
+
+    def test_respects_custom_config_filenames_from_repository_ini(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        ini_text = (
+            "[main_collection]\ncollection_name = systems\n"
+            "[additional_properties]\njson = my_props.json\n"
+            "[reference_collections]\njson = my_refs.json\n"
+        )
+        props = [{"property_name": "notes"}]
+        ref_colls = [{"collection_name": "teams"}]
+        json_file = self._write_fullcopy_json(src, config={
+            "repository_ini": ini_text,
+            "additional_properties": props,
+            "reference_collections": ref_colls,
+        })
+        cmd_mkrepo(str(json_file), str(dest))
+        assert json.loads((dest / "my_repo" / "my_props.json").read_text()) == props
+        assert json.loads((dest / "my_repo" / "my_refs.json").read_text()) == ref_colls
+
+    def test_reconstructs_main_collection_as_gzip(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        sections = [{"notes": "hello world"}]
+        json_file = self._write_fullcopy_json(src, data={"systems": {"sys1": sections}})
+        cmd_mkrepo(str(json_file), str(dest))
+        enc = encode_name("sys1")
+        gz_file = dest / "my_repo" / "systems" / f"{enc}.0000.txt.gz"
+        assert gz_file.exists()
+        assert json.loads(gzip.decompress(gz_file.read_bytes()).decode()) == sections
+
+    def test_reconstructs_ref_collection_as_plain_text(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        json_file = self._write_fullcopy_json(src, data={
+            "systems": {},
+            "schedules": {"sc1": "2024/01/01,2024/06/15"},
+        })
+        cmd_mkrepo(str(json_file), str(dest))
+        enc = encode_name("sc1")
+        txt_file = dest / "my_repo" / "schedules" / f"{enc}.0000.txt"
+        assert txt_file.exists()
+        assert txt_file.read_text() == "2024/01/01,2024/06/15"
+
+    def test_round_trip_with_fullcopy(self, tmp_path):
+        repo = tmp_path / "my_repo"
+        repo.mkdir()
+        (repo / "systems").mkdir()
+        (repo / "schedules").mkdir()
+        (repo / "contacts").mkdir()
+        (repo / "repository.ini").write_text("[main_collection]\ncollection_name = systems\n")
+        (repo / "additional_properties.json").write_text(json.dumps([{"property_name": "notes"}]))
+        (repo / "additional_mandatory_properties.json").write_text("[]")
+        sections = [{"notes": "round-trip content"}]
+        enc = encode_name("sys1")
+        body = json.dumps(sections, ensure_ascii=False, indent=2) + "\n"
+        (repo / "systems" / f"{enc}.0000.txt.gz").write_bytes(gzip.compress(body.encode()))
+        (repo / "schedules" / f"{encode_name('sc1')}.0000.txt").write_text("2024/03/01")
+
+        export_dir = tmp_path / "export"
+        export_dir.mkdir()
+        cmd_fullcopy(repo, str(export_dir), json_mode=True)
+
+        restore_dir = tmp_path / "restore"
+        restore_dir.mkdir()
+        cmd_mkrepo(str(export_dir / "my_repo.json"), str(restore_dir))
+
+        restored = restore_dir / "my_repo"
+        assert json.loads(gzip.decompress((restored / "systems" / f"{enc}.0000.txt.gz").read_bytes()).decode()) == sections
+        assert (restored / "schedules" / f"{encode_name('sc1')}.0000.txt").read_text() == "2024/03/01"
+
+    # ── error cases ───────────────────────────────────────────────────────────
+
+    def test_error_json_not_found(self, tmp_path, capsys):
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        cmd_mkrepo(str(tmp_path / "nonexistent.json"), str(dest))
+        assert "error" in capsys.readouterr().out
+
+    def test_error_destination_not_directory(self, tmp_path, capsys):
+        src = tmp_path / "src"
+        src.mkdir()
+        json_file = self._write_fullcopy_json(src)
+        cmd_mkrepo(str(json_file), str(tmp_path / "nonexistent"))
+        assert "error" in capsys.readouterr().out
+
+    def test_error_target_already_exists(self, tmp_path, capsys):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "my_repo").mkdir()
+        json_file = self._write_fullcopy_json(src)
+        cmd_mkrepo(str(json_file), str(dest))
+        assert "error" in capsys.readouterr().out
+
+    def test_error_invalid_json(self, tmp_path, capsys):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        bad = src / "bad.json"
+        bad.write_text("not valid json {{{")
+        cmd_mkrepo(str(bad), str(dest))
+        assert "error" in capsys.readouterr().out
+
+    def test_error_missing_config_key(self, tmp_path, capsys):
+        src = tmp_path / "src"
+        src.mkdir()
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        bad = src / "bad.json"
+        bad.write_text(json.dumps({"data": {}}))  # missing "config"
+        cmd_mkrepo(str(bad), str(dest))
+        assert "error" in capsys.readouterr().out
