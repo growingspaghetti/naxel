@@ -190,6 +190,9 @@ _EMAIL_RE = re.compile(rf"^{_EMAIL_SEG}(,{_EMAIL_SEG})*\n?$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 _MMDD_RE = re.compile(r"^\d{2}/\d{2}$")
 _INT_RE = re.compile(r"^[0-9]+$")
+_YEAR_RE = re.compile(r"^\d{4}$")
+_YEAR_ENTRY_SEG = r"\d{4}"
+_YEAR_ENTRY_RE = re.compile(rf"^{_YEAR_ENTRY_SEG}(,{_YEAR_ENTRY_SEG})*\n?$")
 _CORE_LABELS: frozenset[str] = frozenset()
 _DEFAULT_CORE: tuple[str, ...] = ()
 _DEFAULT_CORE_SET: frozenset[str] = frozenset()
@@ -336,6 +339,8 @@ def _validate_main_collection(content: str, additional_props: tuple[str, ...] = 
                         return False, f"line {i + 1}: value for {key!r} must be MM/DD (got {lines[i]!r})"
                     elif vtype == "INT" and not _INT_RE.match(lines[i]):
                         return False, f"line {i + 1}: value for {key!r} must be an integer (got {lines[i]!r})"
+                    elif vtype == "YYYY" and not _YEAR_RE.match(lines[i]):
+                        return False, f"line {i + 1}: value for {key!r} must be YYYY (got {lines[i]!r})"
                     elif vtype.startswith("RE:"):
                         pattern = vtype[3:]
                         if not re.fullmatch(pattern, lines[i]):
@@ -347,6 +352,12 @@ def _validate_main_collection(content: str, additional_props: tuple[str, ...] = 
     if section_count == 0:
         return False, "no sections found"
     return True, ""
+
+
+def _validate_years(content: str) -> tuple[bool, str]:
+    if _YEAR_ENTRY_RE.match(content):
+        return True, ""
+    return False, "expected: yyyy,yyyy,... (one line)"
 
 
 def _validate_dates(content: str) -> tuple[bool, str]:
@@ -384,6 +395,8 @@ def validate(collection: str, content: str, additional_props: tuple[str, ...] = 
         return _validate_phone_numbers(content)
     if ctype == "EMAIL":
         return _validate_email(content)
+    if ctype == "YEAR":
+        return _validate_years(content)
     return True, ""
 
 
