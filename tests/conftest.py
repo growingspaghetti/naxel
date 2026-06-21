@@ -9,6 +9,10 @@ import app
 
 @pytest.fixture(autouse=True)
 def _seed_collections():
+    app.MAIN_COLLECTION = "systems"
+    app.PARTITIONING_PROPERTY = "system"
     app.COLLECTIONS.update({"systems", "schedules", "contacts"})
     yield
+    app.MAIN_COLLECTION = None
+    app.PARTITIONING_PROPERTY = None
     app.COLLECTIONS.difference_update({"systems", "schedules", "contacts"})

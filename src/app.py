@@ -97,8 +97,8 @@ def sync_cache(repo_root: Path, cache_dir: Path):
         print(f"cache: synced {copied} file(s)")
 
 
-MAIN_COLLECTION: str = "systems"
-PARTITIONING_PROPERTY: str = "system"
+MAIN_COLLECTION: str | None = None
+PARTITIONING_PROPERTY: str | None = None
 
 COLLECTIONS: set[str] = set()  # populated in main() from repository.ini and reference_collections JSON
 
