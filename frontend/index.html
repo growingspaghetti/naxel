@@ -66,6 +66,16 @@ button.primary:hover { background: #3a8eef; }
 #ml-title { font-size: 14px; font-weight: 600; }
 #ml-textarea { width: 100%; height: 200px; font-size: 13px; border: 1px solid #aaa; padding: 4px; resize: vertical; font-family: inherit; }
 #ml-btns { display: flex; gap: 6px; justify-content: flex-end; }
+
+#ctx-menu {
+  display: none; position: fixed; z-index: 200;
+  background: #fff; border: 1px solid #aaa; border-radius: 4px;
+  box-shadow: 2px 4px 12px rgba(0,0,0,0.2);
+  min-width: 180px; padding: 4px 0;
+}
+#ctx-menu.visible { display: block; }
+.ctx-item { padding: 6px 14px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.ctx-item:hover { background: #e8f0ff; }
 </style>
 </head>
 <body>
@@ -87,6 +97,11 @@ button.primary:hover { background: #3a8eef; }
   <button id="btn-dup" style="display:none">Duplicate Row</button>
   <button id="btn-del">Delete Row</button>
   <button id="btn-save" class="primary">Save</button>
+</div>
+
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-tsv">Copy row as TSV</div>
+  <div class="ctx-item" id="ctx-json">Copy row as JSON</div>
 </div>
 
 <div id="ml-overlay">
@@ -334,6 +349,7 @@ function renderBody(res) {
       commitEdit();
       render();
     });
+    tr.addEventListener('contextmenu', e => showCtxMenu(e, ri));
 
     columns.forEach((col,ci) => {
       let td;
@@ -631,6 +647,54 @@ function loadRefText(text) {
   const t=text.trim();
   if (t) t.split(',').forEach(v=>{ v=v.trim(); if(v){rows.push([v]);rowMeta.push({});} });
 }
+
+// ── context menu ─────────────────────────────────────────────────────────────
+let ctxRow = null;
+
+function rowDataValues(ri) {
+  return columns
+    .map((col, ci) => ({ col, val: origML[`${ri},${ci}`] ?? rows[ri][ci] ?? '' }))
+    .filter(({ col }) => col !== '_diff');
+}
+
+function showCtxMenu(e, ri) {
+  e.preventDefault();
+  ctxRow = ri;
+  const menu = document.getElementById('ctx-menu');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top  = e.clientY + 'px';
+  menu.classList.add('visible');
+  requestAnimationFrame(() => {
+    const r = menu.getBoundingClientRect();
+    if (r.right  > window.innerWidth)  menu.style.left = (window.innerWidth  - r.width  - 4) + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top  = (window.innerHeight - r.height - 4) + 'px';
+  });
+}
+
+function hideCtxMenu() {
+  document.getElementById('ctx-menu').classList.remove('visible');
+  ctxRow = null;
+}
+
+document.getElementById('ctx-tsv').addEventListener('click', () => {
+  if (ctxRow === null) return;
+  const tsv = rowDataValues(ctxRow).map(({ val }) => val).join('\t');
+  navigator.clipboard.writeText(tsv).catch(e => alert('Copy failed: ' + e));
+  hideCtxMenu();
+});
+
+document.getElementById('ctx-json').addEventListener('click', () => {
+  if (ctxRow === null) return;
+  const obj = {};
+  rowDataValues(ctxRow).forEach(({ col, val }) => { obj[col] = val; });
+  navigator.clipboard.writeText(JSON.stringify(obj, null, 2)).catch(e => alert('Copy failed: ' + e));
+  hideCtxMenu();
+});
+
+document.addEventListener('click', e => {
+  if (!document.getElementById('ctx-menu').contains(e.target)) hideCtxMenu();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
 
 // ── init ──────────────────────────────────────────────────────────────────────
 async function init() {
