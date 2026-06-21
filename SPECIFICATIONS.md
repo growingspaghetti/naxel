@@ -96,7 +96,7 @@ contact_value
 prop1_value
 ```
 
-ハードコードされたコアフィールドはありません。`notes`・`machine`・`time`・`id`・`schedule`・`contact` をはじめとする全フィールドは、`additional_properties.json` または `additional_mandatory_properties.json` で定義された追加プロパティです。フィールドの表示順は `settings.ini` の `[system] property_order` で制御できます（後述）。
+ハードコードされたコアフィールドはありません。`notes`・`machine`・`time`・`id`・`schedule`・`contact` をはじめとする全フィールドは、`additional_properties.json` または `additional_mandatory_properties.json` で定義された追加プロパティです。フィールドの表示順は `repository.ini` の `[main_collection] property_order` で制御できます（後述）。
 
 #### push 時の検証ルール
 
@@ -134,15 +134,17 @@ prop1_value
 ### systems
 
 ```csv
-system_name, notes, machine_name, time, id, schedule, contact, prop1, prop2
+system_name, notes, machine, time, id, schedule, contact, prop1, prop2
 sys1, ノート内容, m1, 09:00, id1, sche1, cont1, val1, val2
 sys1, , m2, 12:30, id2, sche2, cont2, ,
 ```
 
 - セクションごとに1行出力されます。
+- 先頭列のヘッダーは `repository.ini` の `[main_collection] partitioning_property` の値に `_name` を付けたものです（例: `partitioning_property = system` → `system_name`）。
+- 残りの列名はフィールド名そのままです（リネームなし）。
 - `multiline: true` のフィールド（`notes` など）は複数行がスペースで結合されます。
 - すべてのセクションの全フィールドが空のエントリは出力されません。
-- 列の順序は `[system] property_order` の設定に従います。
+- 列の順序は `repository.ini` の `[main_collection] property_order` の設定に従います。
 - `,` / `"` / 改行を含む値はRFC 4180に従いダブルクォートで囲まれます。
 
 ### schedules
@@ -174,7 +176,9 @@ teamA, value1 value2 value3
 
 ---
 
-## 設定ファイル（settings.ini）
+## 設定ファイル
+
+### settings.ini
 
 | セクション | キー | デフォルト | 説明 |
 |---|---|---|---|
@@ -182,19 +186,42 @@ teamA, value1 value2 value3
 | `[downloads]` | `dir` | `downloads` | 編集ファイルの保存先ディレクトリ |
 | `[cache]` | `dir` | `cache` | リポジトリのローカルキャッシュディレクトリ |
 | `[editor]` | `command` | `mousepad` | `get` / `clear` / `export` で起動するエディタ |
-| `[system]` | `property_order` | （空） | システムドキュメントの先頭に表示するフィールド名（カンマ区切り）。記載したフィールドが先頭に並び、残りはデフォルト順で続く。 |
+
+### repository.ini
+
+リポジトリルート（`{repo_root}/repository.ini`）に配置します。
+
+| セクション | キー | デフォルト | 説明 |
+|---|---|---|---|
+| `[main_collection]` | `collection_name` | `systems` | メインコレクション（gzip圧縮・複数セクション形式）のコレクション名 |
+| `[main_collection]` | `partitioning_property` | `system` | CSVの先頭列ヘッダーのプレフィックス（`{値}_name` が列名になる） |
+| `[main_collection]` | `property_order` | （空） | システムドキュメントの先頭に表示するフィールド名（カンマ区切り）。記載したフィールドが先頭に並び、残りはデフォルト順で続く |
+| `[additional_properties]` | `json` | `additional_properties.json` | 任意プロパティ定義ファイルのパス（リポジトリルートからの相対パス） |
+| `[reference_collections]` | `json` | `additional_mandatory_properties.json` | 動的コレクション定義ファイルのパス（リポジトリルートからの相対パス） |
 
 ### 設定例
 
 ```ini
+# settings.ini
 [repository]
 root = /mnt/nas/repo
 
 [editor]
 command = gedit
+```
 
-[system]
+```ini
+# repository.ini（リポジトリルートに配置）
+[main_collection]
+collection_name = systems
+partitioning_property = system
 property_order = team,notes,id
+
+[additional_properties]
+json = additional_properties.json
+
+[reference_collections]
+json = additional_mandatory_properties.json
 ```
 
 ---
@@ -203,7 +230,7 @@ property_order = team,notes,id
 
 ### 任意プロパティ（additional_properties.json）
 
-リポジトリルートの `additional_properties.json` に、システムの各セクションに追加するフィールドをオブジェクトの配列で記述します。
+`repository.ini` の `[additional_properties] json` で指定したファイル（デフォルト: `additional_properties.json`）に、システムの各セクションに追加するフィールドをオブジェクトの配列で記述します。
 
 ```json
 [
@@ -225,7 +252,7 @@ property_order = team,notes,id
 
 ### 必須プロパティ・動的コレクション（additional_mandatory_properties.json）
 
-リポジトリルートの `additional_mandatory_properties.json` に、動的コレクションの定義を記述します。
+`repository.ini` の `[reference_collections] json` で指定したファイル（デフォルト: `additional_mandatory_properties.json`）に、動的コレクションの定義を記述します。
 
 ```json
 [

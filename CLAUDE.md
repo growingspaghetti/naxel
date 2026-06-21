@@ -6,7 +6,7 @@
 python3 src/app.py
 ```
 
-Reads `settings.ini` from the project root (one level above `src/`).
+Reads `settings.ini` from the project root (one level above `src/`), and `repository.ini` from the repo root.
 
 ## Project layout
 
@@ -15,6 +15,7 @@ src/app.py                        single-file Python application (REPL)
 src/gui.py                        JTable GUI class (tkinter), imported directly by app.py
 settings.ini                      configuration
 dummy-repo/                       local NAS substitute for development
+  repository.ini                  per-repository configuration (main collection, JSON file paths)
   additional_properties.json      JSON array of extra field names for system sections
   additional_mandatory_properties.json  JSON array defining dynamic collections (see below)
   systems/                        .txt.gz files named by base32-encoded system name + version
@@ -37,11 +38,22 @@ cache/                            local mirror of the NAS repo, populated at sta
 | `[downloads]`  | `dir`       | `downloads`  | Where edited files are staged                          |
 | `[cache]`      | `dir`       | `cache`      | Local mirror of the NAS repo                           |
 | `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
-| `[system]`     | `property_order` | *(empty)* | Comma-separated field names that appear first in system documents, in the listed order. Remaining fields follow in their default relative order. Unknown names are silently ignored. |
+
+## repository.ini
+
+Located at `{repo_root}/repository.ini`. Configures the main collection and paths to the JSON definition files.
+
+| Section                   | Key                     | Default                                | Meaning |
+|---------------------------|-------------------------|----------------------------------------|---------|
+| `[main_collection]`       | `collection_name`       | `systems`                              | Name of the main (gzip-compressed, multi-section) collection |
+| `[main_collection]`       | `partitioning_property` | `system`                               | Prefix for the first CSV column header: `{partitioning_property}_name` |
+| `[main_collection]`       | `property_order`        | *(empty)*                              | Comma-separated field names that appear first in main-collection documents, in the listed order. Remaining fields follow in their default relative order. Unknown names are silently ignored. |
+| `[additional_properties]` | `json`                  | `additional_properties.json`           | Filename (relative to repo root) of the optional-properties definition |
+| `[reference_collections]` | `json`                  | `additional_mandatory_properties.json` | Filename (relative to repo root) of the dynamic collections definition |
 
 ## additional_properties.json
 
-Located at `{repo_root}/additional_properties.json`. A JSON array of objects defining the optional (non-mandatory) fields appended to each system section:
+Located at `{repo_root}/{filename}` where `filename` is the value of `[additional_properties] json` in `repository.ini` (default: `additional_properties.json`). A JSON array of objects defining the optional (non-mandatory) fields appended to each system section:
 
 ```json
 [
@@ -63,7 +75,7 @@ If the file is absent, no additional properties are used. Non-object entries in 
 
 ## additional_mandatory_properties.json
 
-Located at `{repo_root}/additional_mandatory_properties.json`. A JSON array of objects, each defining a **dynamic collection**:
+Located at `{repo_root}/{filename}` where `filename` is the value of `[reference_collections] json` in `repository.ini` (default: `additional_mandatory_properties.json`). A JSON array of objects, each defining a **dynamic collection**:
 
 ```json
 [
@@ -200,7 +212,7 @@ prop1_value
 prop2_value
 ```
 
-There are no hardcoded core fields. All fields — including `notes`, `machine`, `time`, `id`, `schedule`, and `contact` — are additional properties loaded from config. Fields from `additional_properties.json` come first (in declaration order), followed by fields from `additional_mandatory_properties.json`. The full order is controlled by `[system] property_order` in `settings.ini` — any field listed there moves to the front. All fields must still be present; only the order changes. If `property_order` is empty the default order is used.
+There are no hardcoded core fields. All fields — including `notes`, `machine`, `time`, `id`, `schedule`, and `contact` — are additional properties loaded from config. Fields from `additional_properties.json` come first (in declaration order), followed by fields from `additional_mandatory_properties.json`. The full order is controlled by `[main_collection] property_order` in `repository.ini` — any field listed there moves to the front. All fields must still be present; only the order changes. If `property_order` is empty the default order is used.
 
 Validation rules enforced on `push` (applied to the 👉👈 text before conversion):
 - Every section must begin with the exact separator.
@@ -235,12 +247,12 @@ Empty template: empty string.
 ### systems
 
 ```csv
-system_name, notes, machine_name, time, id, schedule, contact, prop1, prop2
+system_name, notes, machine, time, id, schedule, contact, prop1, prop2
 sys1, foobarbaz, m1, 09:00, id1, sche3, cont1, val1, val2
 sys1, , m2, 12:30, id2, sche7, cont2, , 
 ```
 
-One row per section. Multiline fields (`multiline: true` in `additional_properties.json`) are joined with a space. Documents where every field in every section is blank are excluded from the CSV. Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[system] property_order`; `machine` is renamed to `machine_name` in the header. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
+One row per section. Multiline fields (`multiline: true` in `additional_properties.json`) are joined with a space. Documents where every field in every section is blank are excluded from the CSV. The first column header is `{partitioning_property}_name` from `repository.ini`. Remaining column headers are the field names as declared (no renaming). Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[main_collection] property_order` in `repository.ini`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules
 
@@ -279,9 +291,11 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - Systems are stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
 - `_validate_system` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_system_sections` is lenient and used only for mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
 - There are **no hardcoded core fields**. Every system field — including `notes`, `machine`, `time`, `id`, `schedule`, `contact` — is an additional property declared in `additional_properties.json` or `additional_mandatory_properties.json`. `notes` is declared in `additional_properties.json` with `"multiline": true`. `id` is not unique — multiple sections or systems can share the same id value.
-- `load_additional_properties` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `main()` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch system text; JTable receives it as `multiline_cols`.
+- `load_repository_config(repo_root)` reads `repository.ini` and returns a 5-tuple: `(collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file)`, with fallbacks to the previous defaults. `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals set by `main()` from this call; `COLLECTIONS` and `REPO_SUFFIX` are updated in-place when `collection_name` differs from the default `"systems"`.
+- `load_additional_properties(repo_root, filename)` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `main()` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch system text; JTable receives it as `multiline_cols`.
+- `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals (defaulting to `"systems"` / `"system"`) set in `main()` from `repository.ini`. All `collection == "systems"` comparisons use `MAIN_COLLECTION`; the CSV first-column header is built as `f"{PARTITIONING_PROPERTY}_name"`.
 - `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `schedule` and `contact` are loaded from `additional_mandatory_properties.json` like any other field, appended to `additional_props`, and included in `mandatory_ref_props` with non-empty + collection-existence checks. `mandatory_prop_names` (the `frozenset` passed to `_validate_system`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to `schedule` and `contact` when declared.
-- `field_order` is a `tuple[str, ...]` of all system field names in the display/validation order dictated by `[system] property_order`. It is computed once in `main()` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
+- `field_order` is a `tuple[str, ...]` of all system field names in the display/validation order dictated by `[main_collection] property_order` in `repository.ini`. It is computed once in `main()` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
 
 ## JTable GUI (`src/gui.py`)
 
