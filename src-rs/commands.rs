@@ -154,7 +154,11 @@ pub fn cmd_cat(
             });
         }
     }
-    // Plain cat
+    // Plain cat — lock stdout for the whole write+flush so rustyline's
+    // next prompt cannot interleave before our content is rendered.
+    use std::io::Write;
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
     if collection == state.main_collection {
         let bytes = std::fs::read(&filepath).unwrap_or_default();
         let sections: Vec<serde_json::Value> = gzip_decompress(&bytes)
@@ -162,15 +166,20 @@ pub fn cmd_cat(
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
         let field_order = state.field_order.as_deref().unwrap_or(&state.additional_props);
-        print!("{}", sections_to_text(&sections, field_order));
+        let text = sections_to_text(&sections, field_order);
+        let _ = write!(out, "{text}");
     } else {
         match std::fs::read_to_string(&filepath) {
-            Ok(s) => print!("{s}"),
+            Ok(s) => {
+                let _ = write!(out, "{s}");
+                if !s.ends_with('\n') {
+                    let _ = writeln!(out);
+                }
+            }
             Err(e) => eprintln!("error: {e}"),
         }
     }
-    use std::io::Write;
-    let _ = std::io::stdout().flush();
+    let _ = out.flush();
     None
 }
 
