@@ -65,11 +65,11 @@ The binary runs in two modes selected by the first argument:
 | Variant      | Used by |
 |--------------|---------|
 | `Csv`        | `export --jtable` |
-| `MainText`   | `cat --jtable` (readonly) and `get --jtable` (editable) on the main collection |
-| `Ref`        | `cat --jtable` / `get --jtable` on reference collections |
+| `MainText`   | `cat --jtable` (readonly) and `get --jtable` / `clear --jtable` (editable) on the main collection |
+| `Ref`        | `cat --jtable` / `get --jtable` / `clear --jtable` on reference collections |
 | `Diff`       | `diff --jtable` |
 
-`MainText` and `Ref` carry an optional `PushInfo` field containing all repo state needed for push (repo root, downloads dir, validation config, mandatory ref props, …). This is populated by `cmd_get` when building editable windows and left `None` for readonly windows (`cat --jtable`). The `save_and_push` Tauri command in `gui/mod.rs` reconstructs a minimal `RepoState` from `PushInfo` and calls `cmd_push` after saving.
+`MainText` and `Ref` carry an optional `PushInfo` field containing all repo state needed for push (repo root, downloads dir, validation config, mandatory ref props, …). This is populated by `cmd_get` and `cmd_clear` when building editable windows and left `None` for readonly windows (`cat --jtable`). The `save_and_push` Tauri command in `gui/mod.rs` reconstructs a minimal `RepoState` from `PushInfo` and calls `cmd_push` after saving.
 
 ## Project layout
 
@@ -226,6 +226,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `get <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open editable JTable window. Main collection: Save & Push / Add Row / Duplicate Row / Delete Row. Reference collections: Save & Push / Add Row / Delete Row. |
 | `get <collection> <name> -`             | Write stdin to `downloads/{collection}/` (same filename as `get`) without opening an editor; intended for use with `-c` batch mode pipelines |
 | `clear <collection> <name>`             | Write empty document template to `downloads/{collection}/` (same filename as `get`), open with editor |
+| `clear <collection> <name> --jtable`   | Same as `clear` but opens the empty template in an editable JTable window instead of the editor |
 | `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for the main collection, comma-separated entries for all others) |
 | `push <collection> <name>`              | Validate latest `.txt` in `downloads/{collection}/`, write as next version in repo |
 | `export <collection> <file.csv>`                      | Sync cache, build CSV from latest versions, save to `downloads/`, open with editor |
@@ -412,7 +413,7 @@ Errors if the JSON file does not exist, the destination is not a directory, the 
 - `load_additional_properties(repo_root, filename)` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `initialize_repo` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch main-collection text; JTable receives it as `multiline_cols`.
 - `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `mandatory_prop_names` (the `frozenset` passed to `_validate_main_collection`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to every declared reference prop.
 - `field_order` is a `tuple[str, ...]` of all main-collection field names in the display/validation order dictated by `[main_collection] property_order` in `repository.ini`. It is computed once in `initialize_repo` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
-- The "Save & Push" button in editable JTable windows (`get --jtable`) saves the downloads file and immediately runs the equivalent of `push`. In the Python version (`gui.py`) this is a `push_callback` closure threaded from `dispatch` into `JTable`. In the Tauri version, `cmd_get` serialises all necessary repo state into a `PushInfo` struct stored in `TableData::MainText`/`TableData::Ref`; the table subprocess exposes a `save_and_push` Tauri command that reconstructs a minimal `RepoState` from `PushInfo` and calls `cmd_push`. Push output (success/rejection messages) goes to the terminal in both versions.
+- The "Save & Push" button in editable JTable windows (`get --jtable`, `clear --jtable`) saves the downloads file and immediately runs the equivalent of `push`. In the Python version (`gui.py`) this is a `push_callback` closure threaded from `dispatch` into `JTable`. In the Tauri version, `cmd_get` and `cmd_clear` serialise all necessary repo state into a `PushInfo` struct stored in `TableData::MainText`/`TableData::Ref`; the table subprocess exposes a `save_and_push` Tauri command that reconstructs a minimal `RepoState` from `PushInfo` and calls `cmd_push`. Push output (success/rejection messages) goes to the terminal in both versions.
 
 ## JTable GUI (`src/gui.py`)
 
@@ -428,7 +429,7 @@ JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None,
 | `path`         | File to display (CSV or 👉👈 `.txt`) |
 | `mode`         | `"csv"` — parse as CSV (export); `"main_text"` — parse 👉👈 format (main collection); `"ref"` — parse comma-separated `.txt` as a single-column `"values"` table (reference collections) |
 | `readonly`     | `True` suppresses Save & Push/row-edit buttons (`cat --jtable`) |
-| `push_callback` | Callable invoked after saving; when set, the save button is labelled "Save & Push" and calls this after writing the file. Passed from `dispatch` in `app.py` for `get --jtable`. |
+| `push_callback` | Callable invoked after saving; when set, the save button is labelled "Save & Push" and calls this after writing the file. Passed from `dispatch` in `app.py` for `get --jtable` and `clear --jtable`. |
 | `diff_data`    | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
 | `title`        | Window title (defaults to filename or `"diff"`) |
 | `multiline_cols` | `frozenset[str]` of column names whose cells open a modal text-editor dialog on double-click instead of an inline entry. Passed from `multiline_props` in `app.py`. |
