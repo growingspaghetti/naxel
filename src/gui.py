@@ -262,12 +262,14 @@ class JTable:
         self._build()
 
     def _build(self):
-        if self._mode == "systems" and not self._readonly:
+        if self._mode in ("systems", "ref") and not self._readonly:
             btn_frame = tk.Frame(self._root)
             btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 4))
-            tk.Button(btn_frame, text="Save", command=self._save).pack(side=tk.RIGHT)
+            save_cmd = self._save if self._mode == "systems" else self._save_ref
+            tk.Button(btn_frame, text="Save", command=save_cmd).pack(side=tk.RIGHT)
             tk.Button(btn_frame, text="Delete Row", command=self._delete_row).pack(side=tk.LEFT, padx=(0, 2))
-            tk.Button(btn_frame, text="Duplicate Row", command=self._duplicate_row).pack(side=tk.LEFT, padx=(0, 2))
+            if self._mode == "systems":
+                tk.Button(btn_frame, text="Duplicate Row", command=self._duplicate_row).pack(side=tk.LEFT, padx=(0, 2))
             tk.Button(btn_frame, text="Add Row", command=self._add_row).pack(side=tk.LEFT)
 
         if self._diff_data is None and (self._readonly or self._mode == "csv"):
@@ -301,13 +303,15 @@ class JTable:
 
         self._tree.tag_configure("odd", background="#f5f5f5")
 
-        if self._mode == "systems" and not self._readonly:
+        if self._mode in ("systems", "ref") and not self._readonly:
             self._tree.bind("<Double-1>", self._on_double_click)
 
         if self._diff_data is not None:
             self._load_diff()
         elif self._mode == "systems":
             self._load_systems()
+        elif self._mode == "ref":
+            self._load_ref()
         else:
             self._load_csv()
 
@@ -375,6 +379,32 @@ class JTable:
             data_rows.append(tuple(display))
         if self._search_var is not None:
             self._finish_load(data_rows)
+
+    def _load_ref(self):
+        content = self._path.read_text(encoding="utf-8").strip()
+        values = [v.strip() for v in content.split(",") if v.strip()] if content else []
+        self._columns = ["values"]
+        self._tree["columns"] = ["values"]
+        self._tree["show"] = "headings"
+        self._tree.heading("values", text="values", anchor="w",
+                           command=lambda: self._sort("values", False))
+        self._tree.column("values", width=280, minwidth=80, anchor="w", stretch=True)
+        data_rows: list[tuple] = []
+        for i, val in enumerate(values):
+            tag = "odd" if i % 2 else ""
+            iid = self._tree.insert("", tk.END, values=[val], tags=(tag,))
+            self._original[iid] = {"values": val}
+            data_rows.append((val,))
+        if self._search_var is not None:
+            self._finish_load(data_rows)
+
+    def _save_ref(self):
+        values = [str(self._tree.item(item)["values"][0])
+                  for item in self._tree.get_children("")
+                  if self._tree.item(item)["values"]]
+        values = [v for v in values if v]
+        self._path.write_text(",".join(values) + "\n" if values else "", encoding="utf-8")
+        print(f"saved: {self._path}", flush=True)
 
     def _finish_load(self, data_rows: list[tuple]):
         self._all_rows = data_rows

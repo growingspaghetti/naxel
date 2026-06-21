@@ -447,16 +447,22 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
         print(f"error: not found: {name}")
         return
     if jtable:
-        sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
-        dl_name = filepath.name[:-3]  # strip .gz
         dl_dir = downloads_dir / collection
         dl_dir.mkdir(parents=True, exist_ok=True)
-        dest = dl_dir / dl_name
-        dest.write_text(_main_collection_sections_to_text(sections, additional_props,
-                                                  field_order=field_order))
-        print(f"saved: {dest}")
-        JTable(dest, mode="systems", readonly=True, multiline_cols=multiline_props,
-               ref_data=ref_data).run()
+        if collection == MAIN_COLLECTION:
+            sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
+            dl_name = filepath.name[:-3]  # strip .gz
+            dest = dl_dir / dl_name
+            dest.write_text(_main_collection_sections_to_text(sections, additional_props,
+                                                      field_order=field_order))
+            print(f"saved: {dest}")
+            JTable(dest, mode="systems", readonly=True, multiline_cols=multiline_props,
+                   ref_data=ref_data).run()
+        else:
+            dest = dl_dir / filepath.name
+            dest.write_text(filepath.read_text())
+            print(f"saved: {dest}")
+            JTable(dest, mode="ref", readonly=True, title=f"{collection} {name}").run()
         return
     if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
@@ -513,7 +519,10 @@ def cmd_get(repo_root: Path, collection: str, name: str,
         dest.write_text(filepath.read_text())
     print(f"saved: {dest}")
     if jtable:
-        JTable(dest, mode="systems", multiline_cols=multiline_props).run()
+        if collection == MAIN_COLLECTION:
+            JTable(dest, mode="systems", multiline_cols=multiline_props).run()
+        else:
+            JTable(dest, mode="ref", title=f"{collection} {name}").run()
     else:
         subprocess.Popen([editor, str(dest)])
 
@@ -870,8 +879,8 @@ def usage_string() -> str:
         "commands:\n"
         "  ls <collection>\n"
         "  add <collection> <name>\n"
-        f"  cat {MAIN_COLLECTION} <name> [--jtable]\n"
-        f"  get {MAIN_COLLECTION} <name> [--jtable]\n"
+        "  cat <collection> <name> [--jtable]\n"
+        "  get <collection> <name> [--jtable]\n"
         "  clear <collection> <name>\n"
         "  len <collection> <name>\n"
         "  push <collection> <name>\n"
@@ -921,10 +930,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         cat_parts = [p for p in parts if p != "--jtable"]
         if len(cat_parts) != 3:
             print("usage: cat <collection> <name> [--jtable]")
-        elif jtable and collection != MAIN_COLLECTION:
-            print(f"error: --jtable is only supported for {MAIN_COLLECTION}")
         else:
-            ref = build_ref_data(cache_dir, mandatory_ref_props) if jtable else None
+            ref = build_ref_data(cache_dir, mandatory_ref_props) if jtable and collection == MAIN_COLLECTION else None
             cmd_cat(repo_root, collection, cat_parts[2], additional_props,
                     downloads_dir=downloads_dir, jtable=jtable, field_order=field_order,
                     multiline_props=multiline_props, ref_data=ref)
@@ -934,8 +941,6 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         get_parts = [p for p in parts if p != "--jtable"]
         if len(get_parts) != 3:
             print("usage: get <collection> <name> [--jtable]")
-        elif jtable and collection != MAIN_COLLECTION:
-            print(f"error: --jtable is only supported for {MAIN_COLLECTION}")
         else:
             cmd_get(repo_root, collection, get_parts[2], downloads_dir, editor,
                     additional_props, jtable=jtable, field_order=field_order,
