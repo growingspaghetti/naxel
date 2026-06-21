@@ -151,13 +151,15 @@ def find_latest_file(repo_root: Path, collection: str, name: str) -> Path | None
 # ── validation ────────────────────────────────────────────────────────────────
 
 _SEPARATOR = "\U0001f3d4" * 20
-_DATE_SEG = r"\d{4}/\d{2}/\d{2}"
-_SCHEDULE_RE = re.compile(rf"^{_DATE_SEG}(,{_DATE_SEG})*\n?$")
-_CONTACT_SEG = r"[0-9\-\+]+"
-_CONTACT_RE = re.compile(rf"^{_CONTACT_SEG}(,{_CONTACT_SEG})*\n?$")
+_FULL_DATE_SEG = r"\d{4}/\d{2}/\d{2}"
+_FULL_DATE_RE = re.compile(rf"^{_FULL_DATE_SEG}(,{_FULL_DATE_SEG})*\n?$")
+_PHONE_NUMBER_SEG = r"[0-9\-\+]+"
+_PHONE_NUMBER_RE = re.compile(rf"^{_PHONE_NUMBER_SEG}(,{_PHONE_NUMBER_SEG})*\n?$")
 _EMAIL_SEG = r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
 _EMAIL_RE = re.compile(rf"^{_EMAIL_SEG}(,{_EMAIL_SEG})*\n?$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
+_MMDD_RE = re.compile(r"^\d{2}/\d{2}$")
+_INT_RE = re.compile(r"^[0-9]+$")
 _CORE_LABELS: frozenset[str] = frozenset()
 _DEFAULT_CORE: tuple[str, ...] = ()
 _DEFAULT_CORE_SET: frozenset[str] = frozenset()
@@ -300,6 +302,10 @@ def _validate_main_collection(content: str, additional_props: tuple[str, ...] = 
                         return False, f"line {i + 1}: value for {key!r} is required"
                     elif vtype == "HH:MM" and not _TIME_RE.match(lines[i]):
                         return False, f"line {i + 1}: value for {key!r} must be HH:MM (got {lines[i]!r})"
+                    elif vtype == "MM/DD" and not _MMDD_RE.match(lines[i]):
+                        return False, f"line {i + 1}: value for {key!r} must be MM/DD (got {lines[i]!r})"
+                    elif vtype == "INT" and not _INT_RE.match(lines[i]):
+                        return False, f"line {i + 1}: value for {key!r} must be an integer (got {lines[i]!r})"
                     elif vtype.startswith("RE:"):
                         pattern = vtype[3:]
                         if not re.fullmatch(pattern, lines[i]):
@@ -314,13 +320,13 @@ def _validate_main_collection(content: str, additional_props: tuple[str, ...] = 
 
 
 def _validate_dates(content: str) -> tuple[bool, str]:
-    if _SCHEDULE_RE.match(content):
+    if _FULL_DATE_RE.match(content):
         return True, ""
     return False, "expected: yyyy/mm/dd,yyyy/mm/dd,... (one line)"
 
 
 def _validate_phone_numbers(content: str) -> tuple[bool, str]:
-    if _CONTACT_RE.match(content):
+    if _PHONE_NUMBER_RE.match(content):
         return True, ""
     return False, "expected: digits/dashes/plus signs separated by commas (one line)"
 

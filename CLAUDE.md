@@ -63,7 +63,7 @@ Located at `{repo_root}/{filename}` where `filename` is the value of `[additiona
 | Field             | Meaning |
 |-------------------|---------|
 | `property_name`   | Field name appended to each main-collection section |
-| `validation_type` | `"NONE"` — no validation (value may be empty); `"NOT_EMPTY"` — `push` rejects empty values; `"HH:MM"` — `push` rejects values that don't match `\d{2}:\d{2}`; `"RE:<pattern>"` — `push` rejects values that don't fully match the regex `<pattern>` (via `re.fullmatch`). Defaults to `"NONE"` if omitted. |
+| `validation_type` | `"NONE"` — no validation (value may be empty); `"NOT_EMPTY"` — `push` rejects empty values; `"HH:MM"` — `push` rejects values that don't match `\d{2}:\d{2}`; `"MM/DD"` — `push` rejects values that don't match `\d{2}/\d{2}`; `"INT"` — `push` rejects values that don't match `[0-9]+`; `"RE:<pattern>"` — `push` rejects values that don't fully match the regex `<pattern>` (via `re.fullmatch`). Defaults to `"NONE"` if omitted. |
 | `multiline`       | `true` — field value spans multiple lines until the next label; stored with `"\n"` in JSON, joined with `" "` in CSV export. `false` or absent — single-line field. In JTable editable mode, double-clicking a multiline cell opens a modal text-editor dialog instead of an inline entry. |
 
 If the file is absent, no additional properties are used. Non-object entries in the array are silently ignored.
