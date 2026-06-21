@@ -6,6 +6,7 @@ import json
 import os
 import re
 import readline  # noqa: F401 — enables up/down arrow history in input()
+import shutil
 import subprocess
 import sys
 import threading
@@ -785,8 +786,7 @@ def _csv_row(*fields: str) -> str:
 
 def cmd_export(repo_root: Path, collection: str, filename: str,
                downloads_dir: Path, cache_dir: Path, editor: str,
-               additional_props: tuple[str, ...] = (), jtable: bool = False,
-               onefile: bool = False, *,
+               additional_props: tuple[str, ...] = (), jtable: bool = False, *,
                field_order: tuple[str, ...] | None = None,
                multiline_props: frozenset[str] = frozenset(),
                mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = ()):
@@ -824,33 +824,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                     for f in cols:
                         record[f] = sec.get(f, "")
                     records.append(record)
-            if onefile:
-                output: dict = {collection: records}
-                for _, cname, _ in mandatory_ref_props:
-                    ref_col_path = cache_dir / cname
-                    ref_seen: dict[str, str] = {}
-                    try:
-                        for rfname in sorted(os.listdir(ref_col_path)):
-                            if not rfname.endswith(".txt"):
-                                continue
-                            rstem = rfname[:-4]
-                            rparts = rstem.split(".")
-                            if len(rparts) == 2 and rparts[1].isdigit() and len(rparts[1]) == 4:
-                                ref_seen[rparts[0]] = rfname
-                    except FileNotFoundError:
-                        pass
-                    ref_records: list[dict] = []
-                    for rencoded, rfname in sorted(ref_seen.items()):
-                        entry_name = decode_name(rencoded) or rencoded
-                        content = (ref_col_path / rfname).read_text().strip()
-                        if not content:
-                            continue
-                        values = [v.strip() for v in content.split(",") if v.strip()]
-                        ref_records.append({"name": entry_name, "values": values})
-                    output[cname] = ref_records
-                dest.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
-            else:
-                dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n")
+            dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n")
         else:
             for encoded, fname in sorted(seen.items()):
                 entry_name = decode_name(encoded) or encoded
@@ -910,6 +884,151 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
         _launch_jtable(path=dest, ref_data=ref)
     else:
         subprocess.Popen([editor, str(dest)])
+
+
+def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
+    dest_base = Path(destination).resolve()
+    if not dest_base.is_dir():
+        print(f"error: not a directory: {dest_base}")
+        return
+
+    repo_name = repo_root.name
+
+    if not json_mode:
+        dest_dir = dest_base / repo_name
+        if dest_dir.exists():
+            print(f"error: already exists: {dest_dir}")
+            return
+        shutil.copytree(repo_root, dest_dir)
+        print(f"copied: {dest_dir}")
+        return
+
+    # JSON mode — embed config + latest-version data only (no history)
+    repo_ini_cfg = configparser.ConfigParser()
+    repo_ini_cfg.read(repo_root / "repository.ini")
+    additional_props_file = repo_ini_cfg.get("additional_properties", "json",
+                                              fallback="additional_properties.json")
+    ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
+                                             fallback="additional_mandatory_properties.json")
+
+    repo_ini_path = repo_root / "repository.ini"
+    repo_ini_text = repo_ini_path.read_text() if repo_ini_path.exists() else ""
+
+    try:
+        additional_props_data = json.loads((repo_root / additional_props_file).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        additional_props_data = []
+
+    try:
+        ref_collections_data = json.loads((repo_root / ref_collections_file).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        ref_collections_data = []
+
+    data_section: dict[str, dict] = {}
+    for collection in sorted(COLLECTIONS):
+        col_path = collection_path(repo_root, collection)
+        if not col_path.is_dir():
+            continue
+        suffix = _repo_suffix(collection)
+        seen: dict[str, str] = {}
+        try:
+            for fname in sorted(os.listdir(col_path)):
+                if not fname.endswith(suffix):
+                    continue
+                stem = fname[: -len(suffix)]
+                parts = stem.split(".")
+                if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 4:
+                    seen[parts[0]] = fname
+        except FileNotFoundError:
+            pass
+        col_data: dict = {}
+        for encoded, fname in sorted(seen.items()):
+            name = decode_name(encoded) or encoded
+            if collection == MAIN_COLLECTION:
+                col_data[name] = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
+            else:
+                col_data[name] = (col_path / fname).read_text()
+        data_section[collection] = col_data
+
+    output = {
+        "config": {
+            "repository_ini": repo_ini_text,
+            "additional_properties": additional_props_data,
+            "reference_collections": ref_collections_data,
+        },
+        "data": data_section,
+    }
+    dest_file = dest_base / f"{repo_name}.json"
+    if dest_file.exists():
+        print(f"error: already exists: {dest_file}")
+        return
+    dest_file.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
+    print(f"exported: {dest_file}")
+
+
+def cmd_mkrepo(json_file: str, destination: str):
+    json_path = Path(json_file).resolve()
+    if not json_path.exists():
+        print(f"error: not found: {json_path}")
+        return
+
+    try:
+        full_data = json.loads(json_path.read_text())
+    except Exception as e:
+        print(f"error: could not parse {json_path}: {e}")
+        return
+
+    if not isinstance(full_data, dict) or "config" not in full_data or "data" not in full_data:
+        print("error: invalid fullcopy JSON (missing 'config' or 'data')")
+        return
+
+    dest_base = Path(destination).resolve()
+    if not dest_base.is_dir():
+        print(f"error: not a directory: {dest_base}")
+        return
+
+    repo_name = json_path.stem
+    repo_dir = dest_base / repo_name
+    if repo_dir.exists():
+        print(f"error: already exists: {repo_dir}")
+        return
+
+    config = full_data["config"]
+    data = full_data["data"]
+
+    repo_ini_text = config.get("repository_ini", "")
+    repo_ini_cfg = configparser.ConfigParser()
+    repo_ini_cfg.read_string(repo_ini_text)
+    main_coll = repo_ini_cfg.get("main_collection", "collection_name", fallback="systems")
+    additional_props_file = repo_ini_cfg.get("additional_properties", "json",
+                                              fallback="additional_properties.json")
+    ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
+                                             fallback="additional_mandatory_properties.json")
+
+    repo_dir.mkdir()
+    (repo_dir / "repository.ini").write_text(repo_ini_text)
+    (repo_dir / additional_props_file).write_text(
+        json.dumps(config.get("additional_properties", []), ensure_ascii=False, indent=2) + "\n"
+    )
+    (repo_dir / ref_collections_file).write_text(
+        json.dumps(config.get("reference_collections", []), ensure_ascii=False, indent=2) + "\n"
+    )
+
+    for collection_name, entries in data.items():
+        col_dir = repo_dir / collection_name
+        col_dir.mkdir(exist_ok=True)
+        is_main = (collection_name == main_coll)
+        suffix = ".txt.gz" if is_main else ".txt"
+        for entry_name, entry_data in entries.items():
+            encoded = encode_name(entry_name)
+            dest_file = col_dir / f"{encoded}.0000{suffix}"
+            if is_main:
+                body = json.dumps(entry_data, ensure_ascii=False, indent=2) + "\n"
+                dest_file.write_bytes(gzip.compress(body.encode()))
+            else:
+                dest_file.write_text(entry_data)
+
+    print(f"created: {repo_dir}")
 
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
@@ -987,8 +1106,10 @@ def usage_string() -> str:
         "  len <collection> <name>\n"
         "  push <collection> <name>\n"
         "  export <collection> <file.csv> [--jtable]\n"
-        "  export <collection> <file.json> [--onefile]\n"
+        "  export <collection> <file.json>\n"
         "  diff <collection> <name> [--jtable]\n"
+        "  fullcopy <destination-directory> [--json]\n"
+        "  mkrepo <json-file> <destination-directory>\n"
         "  exit"
         f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
     )
@@ -1074,15 +1195,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
 
     elif cmd == "export":
         jtable = "--jtable" in parts
-        onefile = "--onefile" in parts
-        export_parts = [p for p in parts if p not in ("--jtable", "--onefile")]
+        export_parts = [p for p in parts if p != "--jtable"]
         if len(export_parts) != 3:
-            print("usage: export <collection> <file.csv> [--jtable] | export <collection> <file.json> [--onefile]")
-        elif onefile and not export_parts[2].endswith(".json"):
-            print("error: --onefile is only supported for .json export")
+            print("usage: export <collection> <file.csv> [--jtable] | export <collection> <file.json>")
         else:
             cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir,
-                       editor, additional_props, jtable=jtable, onefile=onefile,
+                       editor, additional_props, jtable=jtable,
                        field_order=field_order, multiline_props=multiline_props,
                        mandatory_ref_props=mandatory_ref_props)
 
@@ -1094,6 +1212,20 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         else:
             cmd_diff(repo_root, collection, diff_parts[2], additional_props,
                      jtable=jtable, field_order=field_order)
+
+    elif cmd == "fullcopy":
+        json_mode = "--json" in parts
+        fullcopy_parts = [p for p in parts if p != "--json"]
+        if len(fullcopy_parts) != 2:
+            print("usage: fullcopy <destination-directory> [--json]")
+        else:
+            cmd_fullcopy(repo_root, fullcopy_parts[1], json_mode)
+
+    elif cmd == "mkrepo":
+        if len(parts) != 3:
+            print("usage: mkrepo <json-file> <destination-directory>")
+        else:
+            cmd_mkrepo(parts[1], parts[2])
 
     else:
         print(f"unknown command: {cmd!r}")
