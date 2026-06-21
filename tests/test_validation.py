@@ -4,7 +4,7 @@ from pathlib import Path
 import app
 from app import (
     _validate_main_collection, _validate_dates, _validate_phone_numbers, _validate_email,
-    validate, _parse_main_collection_sections,
+    _validate_years, validate, _parse_main_collection_sections,
     _csv_field, _csv_row, _empty_main_collection_document,
     _text_to_main_collection_json, _main_collection_sections_to_text, _empty_main_collection_json,
     load_additional_properties,
@@ -13,10 +13,11 @@ from app import (
 
 @pytest.fixture(autouse=True)
 def _collection_types():
-    app.COLLECTION_TYPE.update({"schedules": "DATE", "contacts": "PHONE_NUMBER"})
+    app.COLLECTION_TYPE.update({"schedules": "DATE", "contacts": "PHONE_NUMBER", "years": "YEAR"})
     yield
     app.COLLECTION_TYPE.pop("schedules", None)
     app.COLLECTION_TYPE.pop("contacts", None)
+    app.COLLECTION_TYPE.pop("years", None)
 
 SEP = "🏔" * 20
 M = "👉machine👈"
@@ -235,6 +236,44 @@ class TestValidateEmail:
         assert not ok
 
 
+class TestValidateYears:
+    def test_single_year_valid(self):
+        ok, _ = _validate_years("2024")
+        assert ok
+
+    def test_multiple_years_valid(self):
+        ok, _ = _validate_years("2000,2024,1999")
+        assert ok
+
+    def test_trailing_newline_valid(self):
+        ok, _ = _validate_years("2024\n")
+        assert ok
+
+    def test_empty_rejected(self):
+        ok, _ = _validate_years("")
+        assert not ok
+
+    def test_three_digit_year_rejected(self):
+        ok, _ = _validate_years("999")
+        assert not ok
+
+    def test_five_digit_year_rejected(self):
+        ok, _ = _validate_years("20241")
+        assert not ok
+
+    def test_slash_separator_rejected(self):
+        ok, _ = _validate_years("2024/2025")
+        assert not ok
+
+    def test_space_separator_rejected(self):
+        ok, _ = _validate_years("2024 2025")
+        assert not ok
+
+    def test_plain_text_rejected(self):
+        ok, _ = _validate_years("year")
+        assert not ok
+
+
 class TestValidateDispatch:
     def test_systems_routes_correctly(self):
         ok, _ = validate(
@@ -246,6 +285,10 @@ class TestValidateDispatch:
 
     def test_schedules_routes_correctly(self):
         ok, _ = validate("schedules", "2000/01/01")
+        assert ok
+
+    def test_years_routes_correctly(self):
+        ok, _ = validate("years", "2024")
         assert ok
 
     def test_unknown_collection_passes(self):
@@ -447,6 +490,35 @@ class TestAdditionalPropsValidation:
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", ""), ("schedule", "s1"), ("contact", "cont1")])
         ok, _ = _validate_main_collection(doc, NMTISC_PROPS, prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
+        assert not ok
+
+    def test_yyyy_type_accepts_valid_year(self):
+        doc = sys_doc(("m1", "12:00", "notes"),
+                      props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", "2024"), ("p2", "")])
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
+                                 prop_validation_types={**MTISC_VALIDATION, "p1": "YYYY"})
+        assert ok
+
+    def test_yyyy_type_rejects_invalid_year(self):
+        doc = sys_doc(("m1", "12:00", "notes"),
+                      props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", "24"), ("p2", "")])
+        ok, msg = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
+                                   prop_validation_types={**MTISC_VALIDATION, "p1": "YYYY"})
+        assert not ok
+        assert "YYYY" in msg
+
+    def test_yyyy_type_rejects_empty_value(self):
+        doc = sys_doc(("m1", "12:00", "notes"),
+                      props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", ""), ("p2", "")])
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
+                                 prop_validation_types={**MTISC_VALIDATION, "p1": "YYYY"})
+        assert not ok
+
+    def test_yyyy_type_rejects_five_digit_year(self):
+        doc = sys_doc(("m1", "12:00", "notes"),
+                      props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", "20241"), ("p2", "")])
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
+                                 prop_validation_types={**MTISC_VALIDATION, "p1": "YYYY"})
         assert not ok
 
 
