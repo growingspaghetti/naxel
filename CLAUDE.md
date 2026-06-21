@@ -16,17 +16,12 @@ src/gui.py                        JTable GUI class (tkinter), imported directly 
 settings.ini                      configuration
 dummy-repo/                       local NAS substitute for development
   repository.ini                  per-repository configuration (main collection, JSON file paths)
-  additional_properties.json      JSON array of extra field names for system sections
-  additional_mandatory_properties.json  JSON array defining dynamic collections (see below)
-  systems/                        .txt.gz files named by base32-encoded system name + version
-  schedules/                      .txt files named by base32-encoded schedule name + version
-  contacts/                       .txt files named by base32-encoded contact name + version
-  <collection>/                   .txt files for each dynamic collection
+  additional_properties.json      JSON array of optional fields for main-collection sections
+  additional_mandatory_properties.json  JSON array defining all reference collections
+  <main-collection>/              .txt.gz files named by base32-encoded name + version
+  <reference-collection>/         .txt files named by base32-encoded name + version
 downloads/                        files staged for editing, organised by collection
-  systems/                        plain .txt files for system entries
-  schedules/                      plain .txt files for schedule entries
-  contacts/                       plain .txt files for contact entries
-  <collection>/                   plain .txt files for each dynamic collection
+  <collection>/                   plain .txt files for each collection
 cache/                            local mirror of the NAS repo, populated at startup and on export
 ```
 
@@ -53,7 +48,7 @@ Located at `{repo_root}/repository.ini`. Configures the main collection and path
 
 ## additional_properties.json
 
-Located at `{repo_root}/{filename}` where `filename` is the value of `[additional_properties] json` in `repository.ini` (default: `additional_properties.json`). A JSON array of objects defining the optional (non-mandatory) fields appended to each system section:
+Located at `{repo_root}/{filename}` where `filename` is the value of `[additional_properties] json` in `repository.ini` (default: `additional_properties.json`). A JSON array of objects defining the optional (non-mandatory) fields appended to each main-collection section:
 
 ```json
 [
@@ -67,7 +62,7 @@ Located at `{repo_root}/{filename}` where `filename` is the value of `[additiona
 
 | Field             | Meaning |
 |-------------------|---------|
-| `property_name`   | Field name appended to each system section |
+| `property_name`   | Field name appended to each main-collection section |
 | `validation_type` | `"NONE"` — no validation (value may be empty); `"NOT_EMPTY"` — `push` rejects empty values; `"HH:MM"` — `push` rejects values that don't match `\d{2}:\d{2}`; `"RE:<pattern>"` — `push` rejects values that don't fully match the regex `<pattern>` (via `re.fullmatch`). Defaults to `"NONE"` if omitted. |
 | `multiline`       | `true` — field value spans multiple lines until the next label; stored with `"\n"` in JSON, joined with `" "` in CSV export. `false` or absent — single-line field. In JTable editable mode, double-clicking a multiline cell opens a modal text-editor dialog instead of an inline entry. |
 
@@ -88,23 +83,22 @@ Located at `{repo_root}/{filename}` where `filename` is the value of `[reference
 | Field             | Meaning |
 |-------------------|---------|
 | `collection_name` | Directory name in the repo (e.g. `teams/`); also the collection name used in commands |
-| `property_name`   | The system-section field that references this collection; validated on push |
+| `property_name`   | The main-collection field that references this collection; validated on push |
 | `type`            | Content validation applied on `push`: `"DATE"` — comma-separated `yyyy/mm/dd` dates; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+` strings; `"EMAIL"` — comma-separated `user@domain.tld` addresses; `"NOTE"` or absent — no content validation. |
 | `whitelist`       | Optional JSON array of string values accepted without checking the collection (e.g. `["everyday", "weekends"]`). Omit or use `[]` for no whitelist. |
 
 At startup the app reads this file and for each entry:
-- Adds `collection_name` to the valid collection set
-- Registers `.txt` as its repo file suffix
+- Adds `collection_name` to `COLLECTIONS`
 - Creates the collection directory in both the repo root and the local cache if absent
 - Appends `property_name` to `additional_props`, making it a required document field
 
-`schedule` and `contact` must be declared in `additional_mandatory_properties.json` to be required. When declared, they are appended to `additional_props` and validated like any other mandatory ref prop (non-empty check + collection-existence check).
+All reference collections use plain `.txt` storage, no format validation on push, and comma-separated values for `len`/`diff`/`export`. The `export` CSV uses `name, values` column headers. If the file is absent, no reference collections are loaded.
 
-Dynamic collections behave like the built-in `schedules`/`contacts`: plain `.txt` storage, no format validation on push, comma-separated values for `len`/`diff`/`export`. The `export` CSV uses `name, values` column headers. If the file is absent, no dynamic collections are loaded.
+There are no built-in reference collections. `schedules`, `contacts`, and any other reference collection must be declared here. `schedule` and `contact` are appended to `additional_props` and validated as mandatory ref props only when they appear in this file.
 
-**Mandatory property behaviour in systems:**
+**Mandatory property behaviour in the main collection:**
 
-All `property_name` values are appended to `additional_props` at startup and are therefore included in system document templates, the 👉👈 text format, and JSON storage. On `push`, they are validated more strictly than optional properties:
+All `property_name` values are appended to `additional_props` at startup and are therefore included in main-collection document templates, the 👉👈 text format, and JSON storage. On `push`, they are validated more strictly than optional properties:
 - The label (`👉property_name👈`) must be present (same as optional props).
 - The value must be **non-empty**.
 - The value must exist as an entry in the corresponding `collection_name` collection (one `os.listdir` call per distinct collection per push, reusing the list across all sections).
@@ -117,7 +111,7 @@ Every file in the repo is named `{base32(name)}.{version}.{ext}` where:
 
 - `base32(name)` — Python `base64.b32encode`, `=` padding stripped (uppercase letters + digits 2–7, safe for all filesystems)
 - `version` — zero-padded 4-digit integer (`0000`–`9999`)
-- `ext` — `.txt.gz` for systems, `.txt` for schedules, contacts, and dynamic collections
+- `ext` — `.txt.gz` for the main collection, `.txt` for all reference collections
 
 `ls`, `cat`, `get`, `clear`, and `push` all resolve to the **highest version** file for a given name (lexicographic sort of `os.listdir`, no per-file stat calls).
 
@@ -128,10 +122,10 @@ Every file in the repo is named `{base32(name)}.{version}.{ext}` where:
 
 ## Compression
 
-- **systems** files are gzip-compressed in the repo (`.txt.gz`).  
-  `get` decompresses to plain `.txt` in `downloads/systems/`. `push` re-compresses before writing to the repo.  
-  `clear` writes the plain-text empty template to `downloads/systems/` (no compression).
-- **schedules**, **contacts**, and **dynamic collections** are stored as plain `.txt` throughout.
+- The **main collection** is gzip-compressed in the repo (`.txt.gz`).  
+  `get` decompresses to plain `.txt` in `downloads/{main-collection}/`. `push` re-compresses before writing to the repo.  
+  `clear` writes the plain-text empty template to `downloads/{main-collection}/` (no compression).
+- All **reference collections** are stored as plain `.txt` throughout.
 
 ## Downloads
 
@@ -153,12 +147,12 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 |------------------------------------------|-------------|
 | `ls <collection>`                        | Print decoded names (one per line, latest-version files only, deduped) |
 | `add <collection> <name>`                | Create `{encoded}.0000{ext}` with the empty document template |
-| `cat <collection> <name>`               | Print latest version content to stdout (decompresses systems) |
-| `cat systems <name> --jtable`            | Save to `downloads/systems/`, open read-only JTable window |
+| `cat <collection> <name>`               | Print latest version content to stdout (decompresses the main collection) |
+| `cat <main-collection> <name> --jtable` | Save to `downloads/{main-collection}/`, open read-only JTable window |
 | `get <collection> <name>`               | Copy latest version to `downloads/{collection}/` as `.txt`, open with editor |
-| `get systems <name> --jtable`            | Save to `downloads/systems/`, open editable JTable window with Save / Add Row / Duplicate Row / Delete Row buttons |
+| `get <main-collection> <name> --jtable` | Save to `downloads/{main-collection}/`, open editable JTable window with Save / Add Row / Duplicate Row / Delete Row buttons |
 | `clear <collection> <name>`             | Write empty document template to `downloads/{collection}/` (same filename as `get`), open with editor |
-| `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for systems, comma-separated entries for all others) |
+| `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for the main collection, comma-separated entries for all others) |
 | `push <collection> <name>`              | Validate latest `.txt` in `downloads/{collection}/`, write as next version in repo |
 | `export <collection> <file>`            | Sync cache, build CSV from latest versions, save to `downloads/`, open with editor |
 | `export <collection> <file> --jtable`   | Same as `export` but opens the CSV in a JTable window instead of the editor |
@@ -166,15 +160,15 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `diff <collection> <name> --jtable`     | Same comparison but opens a JTable window: deleted rows in red with `−`, added rows in green with `+` |
 | `exit`                                   | Quit |
 
-Built-in collections: `systems`, `schedules`, `contacts`. Dynamic collections are added at startup from `additional_mandatory_properties.json`.
+All collections are fully dynamic. The main collection is configured in `repository.ini [main_collection]`; all reference collections come from the file named by `[reference_collections] json`. There are no built-in collections.
 
-`--jtable` on `cat`/`get` is only supported for `systems`.
+`--jtable` on `cat`/`get` is only supported for the main collection.
 
 ## Document formats
 
-### systems — repo storage (JSON)
+### main collection — repo storage (JSON)
 
-Systems files in the repo are stored as a JSON array of section objects, compressed with gzip. All values are strings.
+Main-collection files in the repo are stored as a JSON array of section objects, compressed with gzip. All values are strings.
 
 ```json
 [
@@ -185,7 +179,7 @@ Systems files in the repo are stored as a JSON array of section objects, compres
 
 The empty template written by `add` is a single-element array with all blank string values.
 
-### systems — user-facing text (👉👈 format)
+### main collection — user-facing text (👉👈 format)
 
 `get`, `cat`, and `clear` present the 👉👈 separator format. `push` accepts it and converts back to JSON before writing to the repo.
 
@@ -218,33 +212,26 @@ Validation rules enforced on `push` (applied to the 👉👈 text before convers
 - Every section must begin with the exact separator.
 - Each optional additional property label (`additional_properties.json`) must be present; its value is validated according to its `validation_type`: `NONE` — any value (including empty); `NOT_EMPTY` — rejects empty; `HH:MM` — rejects values not matching `\d{2}:\d{2}`; `RE:<pattern>` — rejects values that don't fully match the regex pattern. Multiline fields (`multiline: true`) consume all lines until the next label or separator.
 - Each mandatory property label (`additional_mandatory_properties.json` `property_name`, including `schedule` and `contact` when declared there) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection, or appear in the `"whitelist"` array for that prop. One `os.listdir` call per distinct collection per push.
-- **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), **or if the file content is empty/whitespace** (e.g. all rows deleted via the JTable GUI), the push is accepted without validation and the empty template (`_empty_system_json`) is written to the repo.
+- **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), **or if the file content is empty/whitespace** (e.g. all rows deleted via the JTable GUI), the push is accepted without validation and the empty template (`_empty_main_collection_json`) is written to the repo.
 
 Empty template (written by `clear`): separator + all configured additional property labels, each with a blank value line.
 
-### schedules
+### reference collections
 
-One line (optional trailing newline) of `yyyy/mm/dd` dates separated by commas:
+All reference collections share the same plain `.txt` format: comma-separated values on a single line (optional trailing newline).
 
-```
-1234/12/31,2000/06/01
-```
+Content validation on `push` is determined by the `type` field in `additional_mandatory_properties.json`:
 
-Empty template: empty string.
-
-### contacts
-
-One line (optional trailing newline) of phone/contact strings matching `[0-9\-\+]+`, separated by commas:
-
-```
-03-1234-5678,09012345678,+81-0100-0331
-```
+- `"DATE"` (`yyyy/mm/dd` dates): `1234/12/31,2000/06/01`
+- `"PHONE_NUMBER"` (`[0-9\-\+]+`): `03-1234-5678,09012345678,+81-0100-0331`
+- `"EMAIL"` (`user@domain.tld`): `foo@example.com,bar@example.org`
+- `"NOTE"` or absent: no format validation
 
 Empty template: empty string.
 
 ## CSV export format
 
-### systems
+### main collection
 
 ```csv
 system_name, notes, machine, time, id, schedule, contact, prop1, prop2
@@ -268,16 +255,15 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 ## Key implementation decisions
 
 - `os.listdir()` is used for all directory reads (not `glob` or `iterdir`) to issue a single syscall per directory — important on NAS with many files.
-- The NAS `systems/` and `schedules/` directories contain no subdirectories, so flat `listdir` is sufficient.
-- `push` looks for the latest `.txt` in `downloads/{collection}/`; the repo suffix is determined by `REPO_SUFFIX[collection]`.
-- Systems are stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
-- `_validate_system` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_system_sections` is lenient and used only for mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
-- There are **no hardcoded core fields**. Every system field — including `notes`, `machine`, `time`, `id`, `schedule`, `contact` — is an additional property declared in `additional_properties.json` or `additional_mandatory_properties.json`. `notes` is declared in `additional_properties.json` with `"multiline": true`. `id` is not unique — multiple sections or systems can share the same id value.
-- `load_repository_config(repo_root)` reads `repository.ini` and returns a 5-tuple: `(collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file)`, with fallbacks to the previous defaults. `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals set by `main()` from this call; `COLLECTIONS` and `REPO_SUFFIX` are updated in-place when `collection_name` differs from the default `"systems"`.
-- `load_additional_properties(repo_root, filename)` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `main()` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch system text; JTable receives it as `multiline_cols`.
-- `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals (defaulting to `"systems"` / `"system"`) set in `main()` from `repository.ini`. All `collection == "systems"` comparisons use `MAIN_COLLECTION`; the CSV first-column header is built as `f"{PARTITIONING_PROPERTY}_name"`.
-- `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `schedule` and `contact` are loaded from `additional_mandatory_properties.json` like any other field, appended to `additional_props`, and included in `mandatory_ref_props` with non-empty + collection-existence checks. `mandatory_prop_names` (the `frozenset` passed to `_validate_system`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to `schedule` and `contact` when declared.
-- `field_order` is a `tuple[str, ...]` of all system field names in the display/validation order dictated by `[main_collection] property_order` in `repository.ini`. It is computed once in `main()` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
+- Collection directories contain no subdirectories, so flat `listdir` is sufficient.
+- `push` looks for the latest `.txt` in `downloads/{collection}/`; the repo suffix is determined by `_repo_suffix(collection)` — returns `.txt.gz` when `collection == MAIN_COLLECTION`, `.txt` for all others.
+- The main collection is stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
+- `_validate_main_collection` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_main_collection_sections` is lenient and used only for mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
+- There are **no hardcoded core fields**. Every main-collection field — including `notes`, `machine`, `time`, `id`, `schedule`, `contact` — is an additional property declared in `additional_properties.json` or `additional_mandatory_properties.json`. `notes` is declared in `additional_properties.json` with `"multiline": true`. `id` is not unique — multiple sections or documents can share the same id value.
+- `load_repository_config(repo_root)` reads `repository.ini` and returns a 5-tuple: `(collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file)`. `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals (start as `None`) set by `main()` from this call. `COLLECTIONS` starts as an empty `set[str]` and is populated in `main()` — first with the main collection, then with each reference collection. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time.
+- `load_additional_properties(repo_root, filename)` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `main()` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch main-collection text; JTable receives it as `multiline_cols`.
+- `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `mandatory_prop_names` (the `frozenset` passed to `_validate_main_collection`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to every declared reference prop.
+- `field_order` is a `tuple[str, ...]` of all main-collection field names in the display/validation order dictated by `[main_collection] property_order` in `repository.ini`. It is computed once in `main()` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
 
 ## JTable GUI (`src/gui.py`)
 
@@ -290,12 +276,12 @@ JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None, multil
 | Parameter      | Values / meaning |
 |----------------|-----------------|
 | `path`         | File to display (CSV or 👉👈 `.txt`) |
-| `mode`         | `"csv"` — parse as CSV (export); `"systems"` — parse 👉👈 format |
+| `mode`         | `"csv"` — parse as CSV (export); `"systems"` — parse 👉👈 format (used for the main collection) |
 | `readonly`     | `True` suppresses Save/row-edit buttons (`cat --jtable`) |
 | `diff_data`    | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
 | `title`        | Window title (defaults to filename or `"diff"`) |
 | `multiline_cols` | `frozenset[str]` of column names whose cells open a modal text-editor dialog on double-click instead of an inline entry. Passed from `multiline_props` in `app.py`. |
 
-**Systems editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save.
+**Main-collection editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save.
 
 **Diff mode** (`diff_data` provided): read-only, deleted rows shown in red with `−`, added rows in green with `+`. Data columns are sortable.
