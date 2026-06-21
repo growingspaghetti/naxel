@@ -1,4 +1,5 @@
 import csv
+import re
 import sys
 import tkinter as tk
 from tkinter import ttk
@@ -54,24 +55,134 @@ def _sections_to_text(sections: list[dict]) -> str:
     return "\n".join(parts) + "\n"
 
 
+def _like_to_regex(pattern: str) -> re.Pattern:
+    parts = re.split(r"(%|_)", pattern)
+    return re.compile(
+        "^" + "".join(
+            ".*" if p == "%" else "." if p == "_" else re.escape(p)
+            for p in parts
+        ) + "$",
+        re.IGNORECASE | re.DOTALL,
+    )
+
+
+def _tokenize_where(clause: str) -> list:
+    tokens: list = []
+    i, n = 0, len(clause)
+    while i < n:
+        while i < n and clause[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        rest = clause[i:]
+        m_kw = re.match(r"(and|or)(?=\s|$)", rest, re.IGNORECASE)
+        if m_kw:
+            tokens.append((m_kw.group(1).upper(),))
+            i += m_kw.end()
+            continue
+        m = re.match(r"(\w+)\s*(=|like)\s*(?:'([^']*)'|\"([^\"]*)\")", rest, re.IGNORECASE)
+        if m:
+            value = m.group(3) if m.group(3) is not None else m.group(4)
+            tokens.append(("COND", m.group(1), m.group(2).lower(), value))
+            i += m.end()
+        else:
+            i += 1
+    return tokens
+
+
+def _parse_or_expr(tokens: list, columns: list[str], pos: int) -> tuple:
+    fn, pos = _parse_and_expr(tokens, columns, pos)
+    while pos < len(tokens) and tokens[pos][0] == "OR":
+        pos += 1
+        rf, pos = _parse_and_expr(tokens, columns, pos)
+        lf = fn
+        fn = lambda orig, exp, l=lf, r=rf: l(orig, exp) or r(orig, exp)
+    return fn, pos
+
+
+def _parse_and_expr(tokens: list, columns: list[str], pos: int) -> tuple:
+    fn, pos = _parse_factor(tokens, columns, pos)
+    while pos < len(tokens) and tokens[pos][0] == "AND":
+        pos += 1
+        rf, pos = _parse_factor(tokens, columns, pos)
+        lf = fn
+        fn = lambda orig, exp, l=lf, r=rf: l(orig, exp) and r(orig, exp)
+    return fn, pos
+
+
+def _parse_factor(tokens: list, columns: list[str], pos: int) -> tuple:
+    if pos >= len(tokens) or tokens[pos][0] != "COND":
+        return (lambda orig, exp: False), pos
+    _, col_name, op, value = tokens[pos]
+    pos += 1
+    col_idx = next((i for i, c in enumerate(columns) if c.lower() == col_name.lower()), None)
+    if col_idx is None:
+        return (lambda orig, exp: False), pos
+    if op == "=":
+        def fn(orig, exp, idx=col_idx, val=value):
+            return idx < len(orig) and orig[idx].lower() == val.lower()
+    else:  # like — match against expanded row for deep ref search
+        pat = _like_to_regex(value)
+        def fn(orig, exp, idx=col_idx, p=pat):
+            return idx < len(exp) and bool(p.match(exp[idx]))
+    return fn, pos
+
+
+_QUERY_PREFIX_RE = re.compile(r"^(?:select\s+(\*|count)\s+)?where\s+", re.IGNORECASE)
+
+
+def _parse_query(query: str, columns: list[str]) -> tuple:
+    """
+    Returns (filter_fn, count_only).
+      filter_fn : (orig_row, exp_row) -> bool
+                  orig = original cell values; exp = ref-expanded values for deep search
+      count_only: show count in label only, do not filter treeview
+
+    Supported syntax (case-insensitive keywords):
+      plain text                        — substring match across all expanded columns
+      [select *] where col = 'val'      — exact match on cell value (no ref expansion)
+      [select *] where col like 'pat'   — SQL LIKE (% / _ wildcards) on expanded value
+      ... and/or ...                    — boolean combinations; AND binds tighter than OR
+      select count where ...            — count matching rows; treeview unchanged
+    """
+    q = query.strip()
+    if not q:
+        return (lambda orig, exp: True), False
+    m = _QUERY_PREFIX_RE.match(q)
+    if m:
+        count_only = ((m.group(1) or "*").lower() == "count")
+        fn, _ = _parse_or_expr(_tokenize_where(q[m.end():]), columns, 0)
+        return fn, count_only
+    lower_q = q.lower()
+    return (lambda orig, exp: any(lower_q in cell.lower() for cell in exp)), False
+
+
 class JTable:
     def __init__(self, path: str | Path | None = None, mode: str = "csv",
                  readonly: bool = False, diff_data: dict | None = None,
-                 title: str | None = None, multiline_cols: frozenset = frozenset()):
+                 title: str | None = None, multiline_cols: frozenset = frozenset(),
+                 ref_data: dict | None = None):
         """
         mode          : "csv" for CSV files, "systems" for 👉👈 text files
         readonly      : hide Save button and disable editing (cat --jtable)
         diff_data     : {"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}
                         when provided the table shows a read-only diff view
         multiline_cols: set of column names that open a multiline dialog on double-click
+        ref_data      : {property_name: {entry_name: content}} for deep reference search
+                        (only used when readonly=True)
         """
         self._path = Path(path) if path else None
         self._mode = mode
         self._readonly = readonly
         self._diff_data = diff_data
         self._multiline_cols = multiline_cols
+        self._ref_data: dict[str, dict[str, str]] = ref_data or {}
         self._columns: list[str] = []
         self._original: dict[str, dict] = {}   # item_id → original section dict
+        self._all_rows: list[tuple] = []        # every data row (original display values)
+        self._expanded_rows: list[tuple] = []   # ref columns expanded with content for deep search
+        self._search_var: tk.StringVar | None = None
+        self._count_label: tk.Label | None = None
 
         self._root = tk.Tk()
         self._root.title(title or (self._path.name if self._path else "diff"))
@@ -86,6 +197,17 @@ class JTable:
             tk.Button(btn_frame, text="Delete Row", command=self._delete_row).pack(side=tk.LEFT, padx=(0, 2))
             tk.Button(btn_frame, text="Duplicate Row", command=self._duplicate_row).pack(side=tk.LEFT, padx=(0, 2))
             tk.Button(btn_frame, text="Add Row", command=self._add_row).pack(side=tk.LEFT)
+
+        if self._diff_data is None and (self._readonly or self._mode == "csv"):
+            search_frame = tk.Frame(self._root)
+            search_frame.pack(side=tk.TOP, fill=tk.X, padx=4, pady=(4, 0))
+            tk.Label(search_frame, text="Search:").pack(side=tk.LEFT)
+            self._search_var = tk.StringVar()
+            self._search_var.trace_add("write", self._on_search_changed)
+            ttk.Entry(search_frame, textvariable=self._search_var).pack(
+                side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+            self._count_label = tk.Label(search_frame, text="", anchor="e", width=18)
+            self._count_label.pack(side=tk.RIGHT, padx=(4, 0))
 
         frame = tk.Frame(self._root)
         frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
@@ -152,10 +274,14 @@ class JTable:
             self._tree.heading(col, text=col, anchor="w",
                                command=lambda c=col: self._sort(c, False))
             self._tree.column(col, width=140, minwidth=50, anchor="w", stretch=True)
+        data_rows: list[tuple] = []
         for i, row in enumerate(rows[1:]):
             values = [v.strip() for v in row]
             tag = "odd" if i % 2 else ""
             self._tree.insert("", tk.END, values=values, tags=(tag,))
+            data_rows.append(tuple(values))
+        if self._search_var is not None:
+            self._finish_load(data_rows)
 
     def _load_systems(self):
         sections = _parse_sections(self._path.read_text(encoding="utf-8"), self._multiline_cols)
@@ -168,11 +294,56 @@ class JTable:
             self._tree.heading(col, text=col, anchor="w",
                                command=lambda c=col: self._sort(c, False))
             self._tree.column(col, width=140, minwidth=50, anchor="w", stretch=True)
+        data_rows: list[tuple] = []
         for i, sec in enumerate(sections):
             display = [v.replace("\n", " ") for v in sec.values()]
             tag = "odd" if i % 2 else ""
             iid = self._tree.insert("", tk.END, values=display, tags=(tag,))
             self._original[iid] = sec
+            data_rows.append(tuple(display))
+        if self._search_var is not None:
+            self._finish_load(data_rows)
+
+    def _finish_load(self, data_rows: list[tuple]):
+        self._all_rows = data_rows
+        if self._ref_data:
+            self._expanded_rows = [self._expand_row(r) for r in data_rows]
+        else:
+            self._expanded_rows = data_rows
+        if self._count_label is not None:
+            self._count_label.config(text=f"{len(data_rows)} rows")
+
+    def _expand_row(self, row: tuple) -> tuple:
+        expanded = []
+        for i, col in enumerate(self._columns):
+            val = row[i] if i < len(row) else ""
+            ref_content = self._ref_data.get(col, {}).get(val, "") if self._ref_data else ""
+            expanded.append(f"{val} {ref_content}" if ref_content else val)
+        return tuple(expanded)
+
+    def _on_search_changed(self, *_):
+        q = self._search_var.get() if self._search_var else ""
+        filter_fn, count_only = _parse_query(q, self._columns)
+        matched = [
+            i for i, (orig, exp) in enumerate(zip(self._all_rows, self._expanded_rows))
+            if filter_fn(orig, exp)
+        ]
+
+        total = len(self._all_rows)
+        n = len(matched)
+        if self._count_label is not None:
+            if count_only:
+                self._count_label.config(text=f"count: {n} / {total}")
+            elif n == total:
+                self._count_label.config(text=f"{total} rows")
+            else:
+                self._count_label.config(text=f"{n} / {total} rows")
+
+        if not count_only:
+            self._tree.delete(*self._tree.get_children(""))
+            for rank, idx in enumerate(matched):
+                tag = "odd" if rank % 2 else ""
+                self._tree.insert("", tk.END, values=list(self._all_rows[idx]), tags=(tag,))
 
     def _sort(self, col: str, reverse: bool):
         items = [(self._tree.set(k, col), k) for k in self._tree.get_children("")]
