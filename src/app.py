@@ -1163,7 +1163,7 @@ def main():
 
     while True:
         try:
-            line = input("> ").strip()
+            line = input(f"{state.repo_root.name} > ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
