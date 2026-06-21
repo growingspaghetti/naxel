@@ -756,6 +756,37 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
         if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 4:
             seen[parts[0]] = fname
 
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    dest = downloads_dir / filename
+
+    if filename.endswith(".json"):
+        records: list[dict] = []
+        if collection == MAIN_COLLECTION:
+            cols = list(field_order) if field_order is not None else list(additional_props)
+            name_col = f"{PARTITIONING_PROPERTY}_name"
+            for encoded, fname in sorted(seen.items()):
+                system_name = decode_name(encoded) or encoded
+                sections = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
+                if all(not any(v for v in s.values()) for s in sections):
+                    continue
+                for sec in sections:
+                    record: dict[str, str] = {name_col: system_name}
+                    for f in cols:
+                        record[f] = sec.get(f, "")
+                    records.append(record)
+        else:
+            for encoded, fname in sorted(seen.items()):
+                entry_name = decode_name(encoded) or encoded
+                content = (col_path / fname).read_text().strip()
+                if not content:
+                    continue
+                values = [v.strip() for v in content.split(",") if v.strip()]
+                records.append({"name": entry_name, "values": values})
+        dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n")
+        print(f"exported: {dest}")
+        subprocess.Popen([editor, str(dest)])
+        return
+
     rows = []
     if collection == MAIN_COLLECTION:
         csv_name_col = f"{PARTITIONING_PROPERTY}_name"
@@ -795,8 +826,6 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
             values = " ".join(content.split(","))
             rows.append(_csv_row(entry_name, values))
 
-    downloads_dir.mkdir(parents=True, exist_ok=True)
-    dest = downloads_dir / filename
     dest.write_text("\n".join(rows) + "\n")
     print(f"exported: {dest}")
     if jtable:
@@ -819,6 +848,7 @@ def usage_string() -> str:
         "  len <collection> <name>\n"
         "  push <collection> <name>\n"
         "  export <collection> <file.csv> [--jtable]\n"
+        "  export <collection> <file.json>\n"
         "  diff <collection> <name> [--jtable]\n"
         "  exit"
         f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
@@ -909,7 +939,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         jtable = "--jtable" in parts
         export_parts = [p for p in parts if p != "--jtable"]
         if len(export_parts) != 3:
-            print("usage: export <collection> <file.csv> [--jtable]")
+            print("usage: export <collection> <file.csv> [--jtable] | export <collection> <file.json>")
         else:
             cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir,
                        editor, additional_props, jtable=jtable, field_order=field_order,
