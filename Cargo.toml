@@ -3,16 +3,15 @@ name = "repo-manipulator"
 version = "0.1.0"
 edition = "2021"
 
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [[bin]]
 name = "repo-manipulator"
 path = "src-rs/main.rs"
 
-[[bin]]
-name = "repo-manipulator-table"
-path = "src-rs/table_main.rs"
-
 [dependencies]
-iced = "0.13"
+tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 flate2 = "1"

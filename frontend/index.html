@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Table</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; font-size: 13px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+
+#toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid #ccc; background: #f5f5f5; flex-shrink: 0; }
+#search { flex: 1; padding: 3px 6px; font-size: 13px; border: 1px solid #aaa; border-radius: 3px; }
+#row-count { font-size: 12px; color: #666; white-space: nowrap; min-width: 80px; text-align: right; }
+
+#table-wrap { flex: 1; overflow: auto; position: relative; }
+table { border-collapse: collapse; table-layout: fixed; }
+th {
+  position: sticky; top: 0; background: #e8e8e8;
+  cursor: pointer; user-select: none;
+  font-weight: 600; padding: 3px 6px;
+  border: 1px solid #bbb; border-top: none;
+  white-space: nowrap; font-size: 12px;
+  min-width: 160px; max-width: 160px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+th:hover { background: #d8d8d8; }
+th.diff-sym-th { min-width: 32px; max-width: 32px; cursor: default; }
+td {
+  padding: 2px 6px; border: 1px solid #ddd;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 12px; min-width: 160px; max-width: 160px;
+  height: 24px; line-height: 20px;
+}
+td.diff-sym-td { min-width: 32px; max-width: 32px; text-align: center; font-weight: bold; }
+tr.even td { background: #fff; }
+tr.odd  td { background: #f2f2f7; }
+tr.sel td  { background: #d4e8ff !important; }
+tr.del td  { background: #ffe0e0 !important; }
+tr.add td  { background: #e0ffe0 !important; }
+
+td.cell-editing { padding: 0; overflow: visible; }
+td.cell-editing input {
+  width: 100%; height: 100%; box-sizing: border-box;
+  border: 2px solid #4a9eff; padding: 1px 4px;
+  font-size: 12px; outline: none; background: #fff;
+}
+td.ml-cell { cursor: pointer; }
+td.ml-cell:hover { text-decoration: underline dotted; }
+
+#buttons { display: flex; gap: 6px; padding: 4px 8px; border-top: 1px solid #ccc; background: #f5f5f5; flex-shrink: 0; }
+button { padding: 4px 12px; font-size: 13px; cursor: pointer; border: 1px solid #aaa; border-radius: 3px; background: #fff; }
+button:hover { background: #e8e8e8; }
+button.primary { background: #4a9eff; color: #fff; border-color: #3a8eef; }
+button.primary:hover { background: #3a8eef; }
+
+#ml-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4); z-index: 100;
+  align-items: center; justify-content: center;
+}
+#ml-overlay.visible { display: flex; }
+#ml-dialog {
+  background: #fff; border: 1px solid #999; border-radius: 4px;
+  padding: 12px; width: 520px; display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+#ml-title { font-size: 14px; font-weight: 600; }
+#ml-textarea { width: 100%; height: 200px; font-size: 13px; border: 1px solid #aaa; padding: 4px; resize: vertical; font-family: inherit; }
+#ml-btns { display: flex; gap: 6px; justify-content: flex-end; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <input id="search" type="text" placeholder="Search…">
+  <span id="row-count"></span>
+</div>
+
+<div id="table-wrap">
+  <table id="tbl">
+    <thead><tr id="thead-row"></tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div id="buttons" style="display:none">
+  <button id="btn-add">Add Row</button>
+  <button id="btn-dup" style="display:none">Duplicate Row</button>
+  <button id="btn-del">Delete Row</button>
+  <button id="btn-save" class="primary">Save</button>
+</div>
+
+<div id="ml-overlay">
+  <div id="ml-dialog">
+    <div id="ml-title">Edit field</div>
+    <textarea id="ml-textarea"></textarea>
+    <div id="ml-btns">
+      <button id="ml-cancel">Cancel</button>
+      <button id="ml-ok" class="primary">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── constants ─────────────────────────────────────────────────────────────────
+const SEPARATOR = '🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔';
+
+// ── state ─────────────────────────────────────────────────────────────────────
+let mode = 'csv';        // csv | main_text | ref | diff
+let readonly = true;
+let filePath = null;
+let columns = [];        // string[]
+let rows = [];           // string[][]  (display values; multiline collapsed)
+let rowMeta = [];        // {deleted,added}[]
+let origML = {};         // "r,c" -> original string (with \n)
+let mlCols = new Set();  // column names that are multiline
+let refData = {};        // {col:{entry:content}}
+let expanded = [];       // same shape as rows but ref content appended
+
+let visible = [];        // indices into rows[]
+let sortColIdx = null;
+let sortAsc = true;
+let searchStr = '';
+let editing = null;      // {r,c}
+let editVal = '';
+let selRow = null;
+let lookupDisp = null;   // {label,values} | null
+let mlEdit = null;       // {r,c}
+
+// ── query parser (mirrors Rust query.rs) ─────────────────────────────────────
+function likeRe(pat) {
+  let s = '^';
+  for (const c of pat) {
+    if (c === '%') s += '.*';
+    else if (c === '_') s += '.';
+    else s += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  s += '$';
+  return new RegExp(s, 'i');
+}
+
+function tokenize(clause) {
+  const toks = [];
+  let rest = clause.trimStart();
+  const andOrRe = /^(and|or)(?=\s|$)/i;
+  const inRe    = /^(?:'([^']*)'|"([^"]*)")\s+in\s+(\w+)(?:\.(contents))?/i;
+  const condRe  = /^(\w+)(?:\.(contents))?\s*(=|like)\s*(?:'([^']*)'|"([^"]*)")/i;
+  while (rest) {
+    rest = rest.trimStart();
+    let m;
+    if ((m = rest.match(andOrRe))) {
+      toks.push({ t: m[1].toLowerCase() });
+      rest = rest.slice(m[0].length);
+    } else if ((m = rest.match(inRe))) {
+      toks.push({ t:'cond', col:m[3].toLowerCase(), op:'in', val:m[1]??m[2], isC:!!m[4] });
+      rest = rest.slice(m[0].length);
+    } else if ((m = rest.match(condRe))) {
+      toks.push({ t:'cond', col:m[1].toLowerCase(), op:m[3].toLowerCase()==='like'?'like':'eq', val:m[4]??m[5], isC:!!m[2] });
+      rest = rest.slice(m[0].length);
+    } else {
+      rest = rest.slice(1);
+    }
+  }
+  return toks;
+}
+
+function colIdx(col) { return columns.findIndex(c => c.toLowerCase() === col); }
+
+function makeFactor(toks, pos) {
+  if (pos >= toks.length || toks[pos].t !== 'cond') return [()=>false, pos+1];
+  const { col, op, val, isC } = toks[pos];
+  const ci = colIdx(col);
+  if (ci < 0) return [()=>false, pos+1];
+  let fn;
+  if (op === 'eq') {
+    const v = val.toLowerCase();
+    if (isC) fn = (o,_) => { const e=o[ci]||''; return ((refData[col]||{})[e]||'').toLowerCase()===v; };
+    else     fn = (o,_) => (o[ci]||'').toLowerCase()===v;
+  } else if (op === 'like') {
+    const re = likeRe(val);
+    if (isC) fn = (o,_) => { const e=o[ci]||''; return re.test((refData[col]||{})[e]||''); };
+    else     fn = (_,x) => re.test(x[ci]||'');
+  } else { // in
+    if (isC) {
+      const check = (val.includes('%')||val.includes('_')) ? t=>likeRe(val).test(t) : t=>t.toLowerCase()===val.toLowerCase();
+      fn = (o,_) => { const e=o[ci]||''; return ((refData[col]||{})[e]||'').split(',').some(t=>check(t.trim())); };
+    } else {
+      const check = (val.includes('%')||val.includes('_')) ? t=>likeRe(val).test(t) : t=>t.toLowerCase()===val.toLowerCase();
+      fn = (o,_) => (o[ci]||'').split(',').some(t=>check(t.trim()));
+    }
+  }
+  return [fn, pos+1];
+}
+
+function makeAnd(toks, pos) {
+  let [L, p] = makeFactor(toks, pos);
+  while (p < toks.length && toks[p].t === 'and') {
+    p++;
+    let [R, np] = makeFactor(toks, p); p = np;
+    const l=L,r=R; L=(o,x)=>l(o,x)&&r(o,x);
+  }
+  return [L, p];
+}
+
+function makeOr(toks, pos) {
+  let [L, p] = makeAnd(toks, pos);
+  while (p < toks.length && toks[p].t === 'or') {
+    p++;
+    let [R, np] = makeAnd(toks, p); p = np;
+    const l=L,r=R; L=(o,x)=>l(o,x)||r(o,x);
+  }
+  return [L, p];
+}
+
+function parseQuery(q) {
+  q = q.trim();
+  if (!q) return { type:'filter', fn:()=>true, countOnly:false };
+
+  // select prop.entry.contents
+  const lookM = q.match(/^select\s+(\w+)\.([^\s.]+)\.contents\s*$/i);
+  if (lookM) {
+    const prop=lookM[1].toLowerCase(), entry=lookM[2];
+    const raw = (refData[prop]||{})[entry]||'';
+    return { type:'lookup', prop, entry, values: raw?raw.split(',').map(v=>v.trim()).filter(Boolean):[] };
+  }
+
+  // [select */count] where ...
+  const whereM = q.match(/^(?:select\s+(\*|count)\s+)?where\s+/i);
+  if (whereM) {
+    const countOnly = !!(whereM[1] && whereM[1].toLowerCase()==='count');
+    const clause = q.slice(whereM[0].length);
+    const toks = tokenize(clause);
+    const [fn] = makeOr(toks, 0);
+    return { type:'filter', fn, countOnly };
+  }
+
+  // plain text
+  const lo = q.toLowerCase();
+  return { type:'filter', fn:(_,x)=>x.some(c=>c.toLowerCase().includes(lo)), countOnly:false };
+}
+
+// ── expand rows for deep ref search ──────────────────────────────────────────
+function buildExpanded() {
+  expanded = rows.map(row =>
+    columns.map((col,i) => {
+      const v = row[i]||'';
+      const c = (refData[col]||{})[v];
+      return c ? v+' '+c : v;
+    })
+  );
+}
+
+// ── apply search → update visible ─────────────────────────────────────────────
+function applySearch() {
+  const res = parseQuery(searchStr);
+  if (res.type === 'lookup') {
+    lookupDisp = { label:`${res.prop}.${res.entry}`, values:res.values };
+    visible = res.values.map((_,i)=>i);
+    return res;
+  }
+  lookupDisp = null;
+  const offset = columns[0]==='_diff' ? 1 : 0;
+  visible = [];
+  for (let i=0; i<rows.length; i++) {
+    if (res.fn(rows[i].slice(offset), (expanded[i]||rows[i]).slice(offset))) visible.push(i);
+  }
+  return res;
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+function render() {
+  const res = applySearch();
+  renderHeader();
+  renderBody(res);
+  renderCount(res);
+}
+
+function renderHeader() {
+  const tr = document.getElementById('thead-row');
+  tr.innerHTML = '';
+  if (lookupDisp) {
+    const th = document.createElement('th');
+    th.style.minWidth = th.style.maxWidth = '480px';
+    th.textContent = lookupDisp.label;
+    tr.appendChild(th);
+    return;
+  }
+  columns.forEach((col,i) => {
+    const th = document.createElement('th');
+    if (col === '_diff') {
+      th.className = 'diff-sym-th'; th.textContent = '';
+    } else {
+      let label = col;
+      if (sortColIdx === i) label += sortAsc ? ' ▲' : ' ▼';
+      th.textContent = label;
+      th.addEventListener('click', () => doSort(i));
+    }
+    tr.appendChild(th);
+  });
+}
+
+function renderBody(res) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+
+  if (lookupDisp) {
+    lookupDisp.values.forEach((v,i) => {
+      const tr = document.createElement('tr');
+      tr.className = i%2===0?'even':'odd';
+      const td = document.createElement('td');
+      td.style.minWidth = td.style.maxWidth = '480px';
+      td.textContent = v;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    });
+    return;
+  }
+
+  const dispRows = res.countOnly ? [] : visible;
+
+  dispRows.forEach(ri => {
+    const row = rows[ri];
+    const meta = rowMeta[ri]||{};
+    const tr = document.createElement('tr');
+    tr.dataset.ri = ri;
+
+    if (meta.deleted)       tr.className = 'del';
+    else if (meta.added)    tr.className = 'add';
+    else if (ri === selRow) tr.className = 'sel';
+    else                    tr.className = ri%2===0?'even':'odd';
+
+    tr.addEventListener('click', e => {
+      if (e.target.tagName === 'INPUT') return;
+      selRow = ri;
+      commitEdit();
+      render();
+    });
+
+    columns.forEach((col,ci) => {
+      let td;
+      if (editing && editing.r===ri && editing.c===ci) {
+        td = document.createElement('td');
+        td.className = 'cell-editing';
+        const inp = document.createElement('input');
+        inp.value = editVal;
+        inp.addEventListener('input', e => { editVal = e.target.value; });
+        inp.addEventListener('keydown', e => {
+          if (e.key==='Enter')  { commitEdit(); render(); }
+          else if (e.key==='Escape') { editing=null; render(); }
+          else if (e.key==='Tab') {
+            e.preventDefault();
+            commitEdit();
+            if (ci+1 < columns.length) startEdit(ri, ci+1);
+            render();
+          }
+        });
+        td.appendChild(inp);
+        requestAnimationFrame(() => inp.focus());
+      } else {
+        td = document.createElement('td');
+        const v = row[ci]||'';
+        if (col === '_diff') {
+          td.className = 'diff-sym-td';
+          td.textContent = v;
+          td.style.color = meta.deleted ? '#990000' : '#006600';
+        } else {
+          td.textContent = v.replace(/\n/g,' ');
+          const isML = mlCols.has(col);
+          const editable = !readonly && !meta.deleted && !meta.added && mode!=='diff' && mode!=='csv';
+          if (editable) {
+            if (isML) {
+              td.className = 'ml-cell';
+              td.title = 'Double-click to edit';
+              td.addEventListener('dblclick', () => openML(ri, ci, col));
+            } else {
+              td.addEventListener('dblclick', () => { startEdit(ri,ci); render(); });
+            }
+          }
+        }
+      }
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+function renderCount(res) {
+  const el = document.getElementById('row-count');
+  if (lookupDisp) {
+    el.textContent = `${lookupDisp.values.length} — ${lookupDisp.label}`;
+  } else if (res.countOnly) {
+    el.textContent = `count: ${visible.length} / ${rows.length}`;
+  } else {
+    const v=visible.length, t=rows.length;
+    el.textContent = v===t ? `${t} rows` : `${v} / ${t} rows`;
+  }
+}
+
+// ── cell editing ──────────────────────────────────────────────────────────────
+function startEdit(r, c) {
+  if (readonly) return;
+  commitEdit();
+  selRow = r; editing = {r,c}; editVal = rows[r][c]||'';
+}
+
+function commitEdit() {
+  if (!editing) return;
+  rows[editing.r][editing.c] = editVal;
+  buildExpanded();
+  editing = null; editVal = '';
+}
+
+// ── sort ──────────────────────────────────────────────────────────────────────
+function doSort(ci) {
+  if (mode==='diff') return;
+  if (sortColIdx===ci) sortAsc = !sortAsc;
+  else { sortColIdx=ci; sortAsc=true; }
+  commitEdit();
+
+  const idx = rows.map((_,i)=>i);
+  idx.sort((a,b) => {
+    const va=rows[a][ci]||'', vb=rows[b][ci]||'';
+    return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+
+  rows    = idx.map(i=>rows[i]);
+  rowMeta = idx.map(i=>rowMeta[i]);
+  const newML={};
+  for (const [k,v] of Object.entries(origML)) {
+    const [r,c]=k.split(',').map(Number);
+    newML[`${idx.indexOf(r)},${c}`]=v;
+  }
+  origML = newML;
+  buildExpanded();
+  render();
+}
+
+// ── multiline modal ───────────────────────────────────────────────────────────
+function openML(r, c, col) {
+  mlEdit = {r,c};
+  const key=`${r},${c}`;
+  const val = origML[key] !== undefined ? origML[key] : (rows[r][c]||'');
+  document.getElementById('ml-title').textContent = `Edit: ${col}`;
+  document.getElementById('ml-textarea').value = val;
+  document.getElementById('ml-overlay').classList.add('visible');
+  requestAnimationFrame(() => document.getElementById('ml-textarea').focus());
+}
+
+function closeML(save) {
+  if (save && mlEdit) {
+    const {r,c} = mlEdit;
+    const val = document.getElementById('ml-textarea').value.replace(/\n$/, '');
+    origML[`${r},${c}`] = val;
+    rows[r][c] = val.replace(/\n/g,' ');
+    buildExpanded();
+  }
+  mlEdit = null;
+  document.getElementById('ml-overlay').classList.remove('visible');
+  render();
+}
+
+document.getElementById('ml-ok').addEventListener('click', () => closeML(true));
+document.getElementById('ml-cancel').addEventListener('click', () => closeML(false));
+document.getElementById('ml-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('ml-overlay')) closeML(false);
+});
+
+// ── row operations ────────────────────────────────────────────────────────────
+function shiftML(threshold, delta) {
+  const newML={};
+  for (const [k,v] of Object.entries(origML)) {
+    const [r,c]=k.split(',').map(Number);
+    const nr = r>=threshold ? r+delta : r;
+    if (nr>=0) newML[`${nr},${c}`]=v;
+  }
+  origML=newML;
+}
+
+document.getElementById('btn-add').addEventListener('click', () => {
+  commitEdit();
+  const at = selRow!==null ? selRow+1 : rows.length;
+  rows.splice(at, 0, columns.map(()=>''));
+  rowMeta.splice(at, 0, {});
+  shiftML(at, 1);
+  selRow=at; searchStr=''; document.getElementById('search').value='';
+  buildExpanded(); render();
+});
+
+document.getElementById('btn-dup').addEventListener('click', () => {
+  if (selRow===null) return;
+  commitEdit();
+  const src=selRow, at=src+1;
+  rows.splice(at, 0, [...rows[src]]);
+  rowMeta.splice(at, 0, {});
+  shiftML(at, 1);
+  // copy multiline originals from src
+  for (let c=0; c<columns.length; c++) {
+    if (origML[`${src},${c}`]!==undefined) origML[`${at},${c}`]=origML[`${src},${c}`];
+  }
+  selRow=at; searchStr=''; document.getElementById('search').value='';
+  buildExpanded(); render();
+});
+
+document.getElementById('btn-del').addEventListener('click', () => {
+  if (selRow===null || selRow>=rows.length) return;
+  commitEdit();
+  const sel=selRow;
+  rows.splice(sel,1); rowMeta.splice(sel,1);
+  shiftML(sel+1, -1);
+  // remove entries at sel
+  for (let c=0; c<columns.length; c++) delete origML[`${sel},${c}`];
+  selRow = rows.length===0 ? null : Math.min(sel, rows.length-1);
+  buildExpanded(); render();
+});
+
+// ── save ──────────────────────────────────────────────────────────────────────
+document.getElementById('btn-save').addEventListener('click', async () => {
+  commitEdit();
+  let content='';
+  if (mode==='main_text') {
+    for (let r=0; r<rows.length; r++) {
+      content += SEPARATOR+'\n';
+      columns.forEach((col,c) => {
+        content += `\u{1F449}${col}\u{1F448}\n`;
+        if (mlCols.has(col)) {
+          const key=`${r},${c}`;
+          const orig = origML[key];
+          const disp = rows[r][c]||'';
+          if (orig !== undefined) {
+            content += (disp===orig.replace(/\n/g,' ') ? orig : disp)+'\n';
+          } else {
+            content += disp+'\n';
+          }
+        } else {
+          content += (rows[r][c]||'')+'\n';
+        }
+      });
+    }
+  } else if (mode==='ref') {
+    const vals = rows.map(r=>r[0]||'').filter(Boolean);
+    content = vals.length ? vals.join(',')+'\n' : '';
+  }
+  try {
+    await window.__TAURI__.core.invoke('save_file', { path: filePath, content });
+  } catch(e) {
+    alert('Save failed: '+e);
+  }
+});
+
+// ── search bar ────────────────────────────────────────────────────────────────
+document.getElementById('search').addEventListener('input', e => {
+  searchStr = e.target.value;
+  commitEdit();
+  render();
+});
+
+// ── CSV parser ────────────────────────────────────────────────────────────────
+function parseCsvLine(line) {
+  const out=[]; let cur='', inQ=false, i=0;
+  while (i<line.length) {
+    const c=line[i];
+    if (inQ) {
+      if (c==='"' && line[i+1]==='"') { cur+='"'; i+=2; }
+      else if (c==='"') { inQ=false; i++; }
+      else { cur+=c; i++; }
+    } else {
+      if (c==='"') { inQ=true; i++; }
+      else if (c===',') { out.push(cur); cur=''; i++; }
+      else { cur+=c; i++; }
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function loadCsvText(text) {
+  let headers=null;
+  for (const raw of text.split('\n')) {
+    const line=raw.trim(); if (!line) continue;
+    const fields=parseCsvLine(line);
+    if (!headers) { headers=fields.map(f=>f.trim()); columns=headers; }
+    else {
+      while (fields.length<columns.length) fields.push('');
+      rows.push(fields.slice(0,columns.length).map(f=>f.trim()));
+      rowMeta.push({});
+    }
+  }
+}
+
+// ── 👉👈 text parser ──────────────────────────────────────────────────────────
+function isLabel(line) { return line.startsWith('\u{1F449}') && line.endsWith('\u{1F448}'); }
+function labelName(line) { return line.slice(2,line.length-2); }
+
+function loadMainText(text) {
+  const lines=text.split('\n');
+  const sections=[], colOrder=[], colSeen=new Set();
+  let i=0;
+  while (i<lines.length) {
+    if (lines[i]!==SEPARATOR) { i++; continue; }
+    i++;
+    const sec={};
+    while (i<lines.length && lines[i]!==SEPARATOR) {
+      if (isLabel(lines[i])) {
+        const key=labelName(lines[i]); i++;
+        if (!colSeen.has(key)) { colOrder.push(key); colSeen.add(key); }
+        if (mlCols.has(key)) {
+          const ml=[];
+          while (i<lines.length && lines[i]!==SEPARATOR && !isLabel(lines[i])) { ml.push(lines[i]); i++; }
+          sec[key]=ml.join('\n');
+        } else {
+          sec[key] = i<lines.length ? lines[i] : '';
+          if (i<lines.length) i++;
+        }
+      } else { i++; }
+    }
+    if (Object.keys(sec).length) sections.push(sec);
+  }
+  columns=colOrder;
+  sections.forEach((sec,ri) => {
+    const row=columns.map((col,ci) => {
+      const v=sec[col]||'';
+      if (mlCols.has(col)) { origML[`${ri},${ci}`]=v; return v.replace(/\n/g,' '); }
+      return v;
+    });
+    rows.push(row); rowMeta.push({});
+  });
+}
+
+function loadRefText(text) {
+  columns=['values'];
+  const t=text.trim();
+  if (t) t.split(',').forEach(v=>{ v=v.trim(); if(v){rows.push([v]);rowMeta.push({});} });
+}
+
+// ── init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  let data;
+  try {
+    data = await window.__TAURI__.core.invoke('get_table_data');
+  } catch(e) {
+    document.body.innerHTML = '<pre style="padding:12px;color:red">Error loading data:\n'+e+'</pre>';
+    return;
+  }
+  if (!data) { document.body.innerHTML='<pre style="padding:12px">No data</pre>'; return; }
+
+  const variant = Object.keys(data)[0];
+  const p = data[variant];
+
+  if (variant === 'Diff') {
+    mode='diff'; readonly=true;
+    columns=['_diff',...p.columns];
+    p.deleted.forEach(r=>{ rows.push(['−',...r]); rowMeta.push({deleted:true,added:false}); });
+    p.added.forEach(r=>{ rows.push(['+',...r]); rowMeta.push({deleted:false,added:true}); });
+    buildExpanded(); finishLoad(); return;
+  }
+
+  filePath = typeof p.path === 'object' ? p.path : p.path;
+  // normalize path (PathBuf serializes as string on Linux)
+  const pathStr = String(p.path);
+
+  if (variant === 'Csv') {
+    mode='csv'; readonly=true;
+    refData=p.ref_data||{};
+  } else if (variant === 'MainText') {
+    mode='main_text'; readonly=!!p.readonly;
+    mlCols=new Set(p.multiline_cols||[]);
+    refData=p.ref_data||{};
+  } else if (variant === 'Ref') {
+    mode='ref'; readonly=!!p.readonly;
+  }
+
+  filePath = pathStr;
+
+  let text='';
+  try {
+    text = await window.__TAURI__.core.invoke('read_file', { path: pathStr });
+  } catch(e) {
+    document.body.innerHTML='<pre style="padding:12px;color:red">Cannot read file:\n'+e+'</pre>';
+    return;
+  }
+
+  if (variant==='Csv')      loadCsvText(text);
+  else if (variant==='MainText') loadMainText(text);
+  else if (variant==='Ref') loadRefText(text);
+
+  buildExpanded();
+  finishLoad();
+}
+
+function finishLoad() {
+  visible = rows.map((_,i)=>i);
+  if (!readonly && mode!=='diff' && mode!=='csv') {
+    document.getElementById('buttons').style.display='flex';
+    if (mode==='main_text') document.getElementById('btn-dup').style.display='';
+  }
+  render();
+}
+
+init();
+</script>
+</body>
+</html>

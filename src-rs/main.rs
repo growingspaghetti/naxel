@@ -5,6 +5,7 @@ mod repo;
 mod validation;
 mod commands;
 mod table_spec;
+mod gui;
 
 use std::path::Path;
 
@@ -51,9 +52,7 @@ fn do_cd(
 
 fn spawn_table(td: TableData) {
     let exe = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("repo-manipulator-table")))
-        .unwrap_or_else(|| std::path::PathBuf::from("repo-manipulator-table"));
+        .unwrap_or_else(|_| std::path::PathBuf::from("repo-manipulator"));
     let json = match serde_json::to_string(&td) {
         Ok(j) => j,
         Err(e) => { eprintln!("error: failed to serialize table data: {e}"); return; }
@@ -61,11 +60,12 @@ fn spawn_table(td: TableData) {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let mut child = match Command::new(&exe)
+        .arg("--table")
         .stdin(Stdio::piped())
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => { eprintln!("error: failed to spawn {}: {e}", exe.display()); return; }
+        Err(e) => { eprintln!("error: failed to spawn table window: {e}"); return; }
     };
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(json.as_bytes());
@@ -204,6 +204,20 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
 }
 
 fn main() {
+    // Table-window mode: re-spawned by the REPL with --table, reads TableData JSON from stdin.
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    if raw_args.first().map(|s| s == "--table").unwrap_or(false) {
+        use std::io::Read;
+        let mut json = String::new();
+        std::io::stdin().read_to_string(&mut json).expect("read stdin");
+        let data: table_spec::TableData = match serde_json::from_str(&json) {
+            Ok(d) => d,
+            Err(e) => { eprintln!("error: invalid table data: {e}"); std::process::exit(1); }
+        };
+        gui::show_table(data);
+        return;
+    }
+
     let script_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -232,7 +246,7 @@ fn main() {
 
     let mut state = initialize_repo(&cfg.repo_root, &downloads_base, &cache_base);
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args = raw_args;
     if args.first().map(|s| s == "-c").unwrap_or(false) {
         if args.len() < 2 {
             eprintln!("error: -c requires a command string");
