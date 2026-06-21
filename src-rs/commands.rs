@@ -169,6 +169,8 @@ pub fn cmd_cat(
             Err(e) => eprintln!("error: {e}"),
         }
     }
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
     None
 }
 
