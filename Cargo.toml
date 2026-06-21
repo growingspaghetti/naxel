@@ -1,0 +1,25 @@
+[package]
+name = "repo-manipulator"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "repo-manipulator"
+path = "src-rs/main.rs"
+
+[[bin]]
+name = "repo-manipulator-table"
+path = "src-rs/table_main.rs"
+
+[dependencies]
+iced = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+flate2 = "1"
+configparser = "3"
+data-encoding = "2"
+regex = "1"
+csv = "1"
+md5 = "0.7"
+rustyline = "14"
+anyhow = "1"
