@@ -11,7 +11,7 @@ def _is_label(line: str) -> bool:
     return line.startswith("👉") and line.endswith("👈") and line != _SEP
 
 
-def _parse_sections(text: str) -> list[dict]:
+def _parse_sections(text: str, multiline_cols: frozenset[str] = frozenset()) -> list[dict]:
     """Parse 👉👈 text into a list of ordered dicts."""
     lines = text.splitlines()
     n, i, sections = len(lines), 0, []
@@ -26,12 +26,12 @@ def _parse_sections(text: str) -> list[dict]:
             if _is_label(line):
                 key = line[1:-1]
                 i += 1
-                if key == "notes":
-                    note_lines: list[str] = []
+                if key in multiline_cols:
+                    ml_lines: list[str] = []
                     while i < n and lines[i] != _SEP and not _is_label(lines[i]):
-                        note_lines.append(lines[i])
+                        ml_lines.append(lines[i])
                         i += 1
-                    section[key] = "\n".join(note_lines)
+                    section[key] = "\n".join(ml_lines)
                 else:
                     section[key] = lines[i] if i < n else ""
                     if i < n:
@@ -57,17 +57,19 @@ def _sections_to_text(sections: list[dict]) -> str:
 class JTable:
     def __init__(self, path: str | Path | None = None, mode: str = "csv",
                  readonly: bool = False, diff_data: dict | None = None,
-                 title: str | None = None):
+                 title: str | None = None, multiline_cols: frozenset = frozenset()):
         """
-        mode      : "csv" for CSV files, "systems" for 👉👈 text files
-        readonly  : hide Save button and disable editing (cat --jtable)
-        diff_data : {"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}
-                    when provided the table shows a read-only diff view
+        mode          : "csv" for CSV files, "systems" for 👉👈 text files
+        readonly      : hide Save button and disable editing (cat --jtable)
+        diff_data     : {"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}
+                        when provided the table shows a read-only diff view
+        multiline_cols: set of column names that open a multiline dialog on double-click
         """
         self._path = Path(path) if path else None
         self._mode = mode
         self._readonly = readonly
         self._diff_data = diff_data
+        self._multiline_cols = multiline_cols
         self._columns: list[str] = []
         self._original: dict[str, dict] = {}   # item_id → original section dict
 
@@ -156,7 +158,7 @@ class JTable:
             self._tree.insert("", tk.END, values=values, tags=(tag,))
 
     def _load_systems(self):
-        sections = _parse_sections(self._path.read_text(encoding="utf-8"))
+        sections = _parse_sections(self._path.read_text(encoding="utf-8"), self._multiline_cols)
         if not sections:
             return
         self._columns = list(sections[0].keys())
@@ -190,8 +192,8 @@ class JTable:
         if not row_id:
             return
         col_name = self._tree["columns"][int(col_id[1:]) - 1]
-        if col_name == "notes":
-            self._open_notes_dialog(row_id)
+        if col_name in self._multiline_cols:
+            self._open_multiline_dialog(row_id, col_name)
             return
         bbox = self._tree.bbox(row_id, col_id)
         if not bbox:
@@ -214,11 +216,11 @@ class JTable:
         entry.bind("<FocusOut>", confirm)
         entry.bind("<Escape>", lambda e: entry.destroy())
 
-    def _open_notes_dialog(self, row_id: str):
-        original_notes = self._original.get(row_id, {}).get("notes", "")
+    def _open_multiline_dialog(self, row_id: str, col_name: str):
+        original_val = self._original.get(row_id, {}).get(col_name, "")
 
         dlg = tk.Toplevel(self._root)
-        dlg.title("Edit notes")
+        dlg.title(f"Edit {col_name}")
         dlg.geometry("480x300")
         dlg.transient(self._root)
         dlg.wait_visibility()
@@ -232,14 +234,14 @@ class JTable:
         txt.configure(yscrollcommand=vsb.set)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         txt.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 0))
-        txt.insert("1.0", original_notes)
+        txt.insert("1.0", original_val)
         txt.focus()
 
         def ok():
             new_val = txt.get("1.0", "end-1c")
-            self._tree.set(row_id, "notes", new_val.replace("\n", " "))
+            self._tree.set(row_id, col_name, new_val.replace("\n", " "))
             if row_id in self._original:
-                self._original[row_id]["notes"] = new_val
+                self._original[row_id][col_name] = new_val
             dlg.destroy()
 
         tk.Button(btn_frame, text="OK", width=8, command=ok).pack(side=tk.RIGHT, padx=(2, 0))
@@ -290,8 +292,8 @@ class JTable:
             for j, col in enumerate(self._columns):
                 display_val = str(values[j]) if j < len(values) else ""
                 orig_val = original.get(col, "")
-                # Restore original multiline notes when the cell wasn't edited
-                if col == "notes" and display_val == orig_val.replace("\n", " "):
+                # Restore original multiline value when the cell wasn't edited
+                if col in self._multiline_cols and display_val == orig_val.replace("\n", " "):
                     section[col] = orig_val
                 else:
                     section[col] = display_val

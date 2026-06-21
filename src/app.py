@@ -41,11 +41,19 @@ def get_property_order(config) -> tuple[str, ...]:
     return tuple(s.strip() for s in raw.split(",") if s.strip())
 
 
-def load_additional_properties(repo_root: Path) -> tuple[str, ...]:
+def load_additional_properties(repo_root: Path) -> tuple[tuple[str, str, bool], ...]:
     path = repo_root / "additional_properties.json"
     try:
         data = json.loads(path.read_text())
-        return tuple(str(s) for s in data if s)
+        result = []
+        for item in data:
+            if isinstance(item, dict):
+                name = str(item.get("property_name", "")).strip()
+                vtype = str(item.get("validation_type", "NONE")).strip()
+                multiline = bool(item.get("multiline", False))
+                if name:
+                    result.append((name, vtype, multiline))
+        return tuple(result)
     except FileNotFoundError:
         return ()
     except Exception as e:
@@ -142,15 +150,9 @@ _CONTACT_RE = re.compile(rf"^{_CONTACT_SEG}(,{_CONTACT_SEG})*\n?$")
 _EMAIL_SEG = r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
 _EMAIL_RE = re.compile(rf"^{_EMAIL_SEG}(,{_EMAIL_SEG})*\n?$")
 _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
-_CORE_LABELS = frozenset({
-    "\U0001f449machine\U0001f448",
-    "\U0001f449id\U0001f448",
-    "\U0001f449time\U0001f448",
-    "\U0001f449notes\U0001f448",
-})
-
-_DEFAULT_CORE = ("machine", "id", "time", "notes")
-_DEFAULT_CORE_SET = frozenset(_DEFAULT_CORE)
+_CORE_LABELS: frozenset[str] = frozenset()
+_DEFAULT_CORE: tuple[str, ...] = ()
+_DEFAULT_CORE_SET: frozenset[str] = frozenset()
 
 # CSV column name overrides for core fields
 _CSV_FIELD_NAME: dict[str, str] = {
@@ -210,7 +212,8 @@ def _system_sections_to_text(sections: list[dict], additional_props: tuple[str, 
 
 
 def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *,
-                          field_order: tuple[str, ...] | None = None) -> str:
+                          field_order: tuple[str, ...] | None = None,
+                          multiline_props: frozenset[str] = frozenset()) -> str:
     """Convert 👉👈 separator text (from downloads) to a JSON string for repo storage."""
     lines = content.splitlines()
     n, i, sections = len(lines), 0, []
@@ -227,65 +230,52 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *
                     section = {}
                     break
                 i += 1
-                if key == "notes":
-                    note_lines: list[str] = []
+                if key in multiline_props:
+                    ml_lines: list[str] = []
                     while i < n and lines[i] != _SEPARATOR and not _is_any_label(lines[i]):
-                        note_lines.append(lines[i])
+                        ml_lines.append(lines[i])
                         i += 1
-                    section["notes"] = "\n".join(note_lines)
+                    section[key] = "\n".join(ml_lines)
                 else:
                     section[key] = lines[i].strip() if i < n else ""
                     i += 1
             if len(section) == len(field_order):
                 sections.append(section)
         else:
-            for key in ("machine", "id", "time", "notes"):
-                label = f"\U0001f449{key}\U0001f448"
-                if i >= n or lines[i] != label:
-                    section = {}
-                    break
-                i += 1
-                if key == "notes":
-                    note_lines = []
-                    while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
-                        note_lines.append(lines[i])
-                        i += 1
-                    section["notes"] = "\n".join(note_lines)
-                else:
-                    section[key] = lines[i].strip() if i < n else ""
+            found: dict[str, str] = {}
+            while i < n and lines[i] != _SEPARATOR:
+                line = lines[i]
+                if _is_any_label(line):
+                    prop_name = line[1:-1]
                     i += 1
-            if len(section) == 4:
-                found: dict[str, str] = {}
-                while i < n and lines[i] != _SEPARATOR:
-                    line = lines[i]
-                    if _is_prop_label(line):
-                        prop_name = line[1:-1]
-                        i += 1
+                    if prop_name in multiline_props:
+                        ml_lines = []
+                        while i < n and lines[i] != _SEPARATOR and not _is_any_label(lines[i]):
+                            ml_lines.append(lines[i])
+                            i += 1
+                        found[prop_name] = "\n".join(ml_lines)
+                    else:
                         found[prop_name] = lines[i].strip() if i < n else ""
                         if i < n:
                             i += 1
-                    else:
-                        i += 1
-                for p in additional_props:
-                    section[p] = found.get(p, "")
-                sections.append(section)
+                else:
+                    i += 1
+            for p in additional_props:
+                section[p] = found.get(p, "")
+            sections.append(section)
     return json.dumps(sections, ensure_ascii=False, indent=2) + "\n"
 
 
 def _validate_system(content: str, additional_props: tuple[str, ...] = (),
                      mandatory_prop_names: frozenset[str] = frozenset(), *,
-                     field_order: tuple[str, ...] | None = None) -> tuple[bool, str]:
+                     field_order: tuple[str, ...] | None = None,
+                     prop_validation_types: dict[str, str] = {},
+                     multiline_props: frozenset[str] = frozenset()) -> tuple[bool, str]:
     lines = content.splitlines()
     n = len(lines)
     i = 0
     section_count = 0
-
-    if field_order is not None:
-        order = field_order
-        use_any_label = True
-    else:
-        order = _DEFAULT_CORE + additional_props
-        use_any_label = False
+    order = field_order if field_order is not None else additional_props
 
     while i < n:
         if lines[i] != _SEPARATOR:
@@ -297,35 +287,25 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
             if i >= n or lines[i] != label:
                 return False, f"line {i + 1}: expected {label!r}"
             i += 1
-            if key == "notes":
-                if use_any_label:
-                    while i < n and lines[i] != _SEPARATOR and not _is_any_label(lines[i]):
-                        i += 1
-                else:
-                    while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
-                        i += 1
-            elif key == "machine":
-                if i >= n or not lines[i].strip():
-                    return False, f"line {i + 1}: value after {label!r} is missing"
-                i += 1
-            elif key == "id":
-                if i >= n or not lines[i].strip():
-                    return False, f"line {i + 1}: value after {label!r} is missing"
-                if lines[i].startswith("#"):
-                    return False, f"line {i + 1}: id must not start with '#' (got {lines[i]!r})"
-                i += 1
-            elif key == "time":
-                if i >= n or not lines[i].strip():
-                    return False, f"line {i + 1}: value after {label!r} is missing"
-                if not _TIME_RE.match(lines[i]):
-                    return False, f"line {i + 1}: time must be dd:dd (got {lines[i]!r})"
-                i += 1
+            if key in multiline_props:
+                while i < n and lines[i] != _SEPARATOR and not _is_any_label(lines[i]):
+                    i += 1
             else:
-                # Extra prop
                 if i >= n:
                     return False, f"line {i + 1}: missing value line for {key!r}"
-                if key in mandatory_prop_names and not lines[i].strip():
-                    return False, f"line {i + 1}: value for {key!r} is required"
+                if key in mandatory_prop_names:
+                    if not lines[i].strip():
+                        return False, f"line {i + 1}: value for {key!r} is required"
+                else:
+                    vtype = prop_validation_types.get(key, "NONE")
+                    if vtype == "NOT_EMPTY" and not lines[i].strip():
+                        return False, f"line {i + 1}: value for {key!r} is required"
+                    elif vtype == "HH:MM" and not _TIME_RE.match(lines[i]):
+                        return False, f"line {i + 1}: value for {key!r} must be HH:MM (got {lines[i]!r})"
+                    elif vtype.startswith("RE:"):
+                        pattern = vtype[3:]
+                        if not re.fullmatch(pattern, lines[i]):
+                            return False, f"line {i + 1}: value for {key!r} must match /{pattern}/ (got {lines[i]!r})"
                 i += 1
 
         section_count += 1
@@ -355,10 +335,14 @@ def _validate_email(content: str) -> tuple[bool, str]:
 
 def validate(collection: str, content: str, additional_props: tuple[str, ...] = (),
              mandatory_prop_names: frozenset[str] = frozenset(), *,
-             field_order: tuple[str, ...] | None = None) -> tuple[bool, str]:
+             field_order: tuple[str, ...] | None = None,
+             prop_validation_types: dict[str, str] = {},
+             multiline_props: frozenset[str] = frozenset()) -> tuple[bool, str]:
     if collection == "systems":
         return _validate_system(content, additional_props, mandatory_prop_names,
-                                field_order=field_order)
+                                field_order=field_order,
+                                prop_validation_types=prop_validation_types,
+                                multiline_props=multiline_props)
     ctype = COLLECTION_TYPE.get(collection, "")
     if ctype == "DATE":
         return _validate_schedule(content)
@@ -418,7 +402,7 @@ def cmd_len(repo_root: Path, collection: str, name: str):
         return
     if collection == "systems":
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
-        print(sum(1 for s in sections if s.get("machine")))
+        print(sum(1 for s in sections if any(v for v in s.values())))
     else:
         content = filepath.read_text().strip()
         print(len(content.split(",")) if content else 0)
@@ -427,7 +411,8 @@ def cmd_len(repo_root: Path, collection: str, name: str):
 def cmd_cat(repo_root: Path, collection: str, name: str,
             additional_props: tuple[str, ...] = (),
             downloads_dir: Path | None = None, jtable: bool = False, *,
-            field_order: tuple[str, ...] | None = None):
+            field_order: tuple[str, ...] | None = None,
+            multiline_props: frozenset[str] = frozenset()):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
@@ -441,7 +426,7 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
         dest.write_text(_system_sections_to_text(sections, additional_props,
                                                   field_order=field_order))
         print(f"saved: {dest}")
-        JTable(dest, mode="systems", readonly=True).run()
+        JTable(dest, mode="systems", readonly=True, multiline_cols=multiline_props).run()
         return
     if collection == "systems" and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
@@ -475,7 +460,8 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
 def cmd_get(repo_root: Path, collection: str, name: str,
             downloads_dir: Path, editor: str,
             additional_props: tuple[str, ...] = (), jtable: bool = False, *,
-            field_order: tuple[str, ...] | None = None):
+            field_order: tuple[str, ...] | None = None,
+            multiline_props: frozenset[str] = frozenset()):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
@@ -497,7 +483,7 @@ def cmd_get(repo_root: Path, collection: str, name: str,
         dest.write_text(filepath.read_text())
     print(f"saved: {dest}")
     if jtable:
-        JTable(dest, mode="systems").run()
+        JTable(dest, mode="systems", multiline_cols=multiline_props).run()
     else:
         subprocess.Popen([editor, str(dest)])
 
@@ -541,7 +527,7 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
         deleted = [s for s in prev_sections if _key(s) not in curr_keys]
         added = [s for s in curr_sections if _key(s) not in prev_keys]
         if jtable:
-            cols = list(field_order) if field_order is not None else (list(_DEFAULT_CORE) + list(additional_props))
+            cols = list(field_order) if field_order is not None else list(additional_props)
             JTable(
                 diff_data={
                     "columns": cols,
@@ -580,7 +566,9 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
 def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
              additional_props: tuple[str, ...] = (),
              mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
-             field_order: tuple[str, ...] | None = None):
+             field_order: tuple[str, ...] | None = None,
+             prop_validation_types: dict[str, str] = {},
+             multiline_props: frozenset[str] = frozenset()):
     encoded = encode_name(name)
     src = latest_in_dir(downloads_dir / collection, encoded, ".txt")
     if src is None:
@@ -588,19 +576,19 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
         return
     content = src.read_text()
     if not (collection == "systems" and _is_initial_state_system(
-            content, additional_props, field_order=field_order)):
-        mandatory_prop_names = frozenset(
-            pname for pname, _, _ in mandatory_ref_props
-            if pname not in _DEFAULT_CORE_SET
-        )
+            content, additional_props, field_order=field_order, multiline_props=multiline_props)):
+        mandatory_prop_names = frozenset(pname for pname, _, _ in mandatory_ref_props)
         ok, reason = validate(collection, content, additional_props, mandatory_prop_names,
-                              field_order=field_order)
+                              field_order=field_order,
+                              prop_validation_types=prop_validation_types,
+                              multiline_props=multiline_props)
         if not ok:
             print(f"rejected: {reason}")
             return
         if collection == "systems" and mandatory_ref_props:
             sections_for_ref = _parse_system_sections(content, additional_props,
-                                                       field_order=field_order)
+                                                       field_order=field_order,
+                                                       multiline_props=multiline_props)
             for pname, cname, whitelist in mandatory_ref_props:
                 ref_suffix = REPO_SUFFIX.get(cname, ".txt")
                 ref_dir = collection_path(repo_root, cname)
@@ -630,7 +618,8 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
         if not content.strip():
             body = _empty_system_json(additional_props, field_order=field_order)
         else:
-            body = _text_to_system_json(content, additional_props, field_order=field_order)
+            body = _text_to_system_json(content, additional_props, field_order=field_order,
+                                         multiline_props=multiline_props)
         dest.write_bytes(gzip.compress(body.encode()))
     else:
         dest.write_text(content)
@@ -638,7 +627,8 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
 
 
 def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (), *,
-                             field_order: tuple[str, ...] | None = None) -> list[dict]:
+                             field_order: tuple[str, ...] | None = None,
+                             multiline_props: frozenset[str] = frozenset()) -> list[dict]:
     lines = content.splitlines()
     n, i, sections = len(lines), 0, []
     while i < n:
@@ -654,65 +644,52 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (),
                     section = {}
                     break
                 i += 1
-                if key == "notes":
-                    note_lines: list[str] = []
+                if key in multiline_props:
+                    ml_lines: list[str] = []
                     while i < n and lines[i] != _SEPARATOR and not _is_any_label(lines[i]):
-                        note_lines.append(lines[i])
+                        ml_lines.append(lines[i])
                         i += 1
-                    section["notes"] = " ".join(note_lines).strip()
+                    section[key] = " ".join(ml_lines).strip()
                 else:
                     section[key] = lines[i].strip() if i < n else ""
                     i += 1
             if len(section) == len(field_order):
                 sections.append(section)
         else:
-            for key in ("machine", "id", "time", "notes"):
-                label = f"\U0001f449{key}\U0001f448"
-                if i >= n or lines[i] != label:
-                    section = {}
-                    break
-                i += 1
-                if key == "notes":
-                    note_lines = []
-                    while i < n and lines[i] != _SEPARATOR and not _is_prop_label(lines[i]):
-                        note_lines.append(lines[i])
-                        i += 1
-                    section["notes"] = " ".join(note_lines).strip()
-                else:
-                    section[key] = lines[i].strip() if i < n else ""
+            found: dict[str, str] = {}
+            while i < n and lines[i] != _SEPARATOR:
+                line = lines[i]
+                if _is_any_label(line):
+                    prop_name = line[1:-1]
                     i += 1
-            if len(section) == 4:
-                # Collect all prop label-value pairs present in the document
-                found: dict[str, str] = {}
-                while i < n and lines[i] != _SEPARATOR:
-                    line = lines[i]
-                    if _is_prop_label(line):
-                        prop_name = line[1:-1]  # strip the single 👉 and 👈 characters
-                        i += 1
+                    if prop_name in multiline_props:
+                        ml_lines = []
+                        while i < n and lines[i] != _SEPARATOR and not _is_any_label(lines[i]):
+                            ml_lines.append(lines[i])
+                            i += 1
+                        found[prop_name] = " ".join(ml_lines).strip()
+                    else:
                         found[prop_name] = lines[i].strip() if i < n else ""
                         if i < n:
                             i += 1
-                    else:
-                        i += 1
-                # Map configured props to found values; default to "" for any mismatch
-                for p in additional_props:
-                    section[p] = found.get(p, "")
-                sections.append(section)
+                else:
+                    i += 1
+            for p in additional_props:
+                section[p] = found.get(p, "")
+            sections.append(section)
     return sections
 
 
 def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = (), *,
-                               field_order: tuple[str, ...] | None = None) -> bool:
+                               field_order: tuple[str, ...] | None = None,
+                               multiline_props: frozenset[str] = frozenset()) -> bool:
     if not content.strip():
         return True  # all rows deleted via GUI → treat as cleared
-    sections = _parse_system_sections(content, additional_props, field_order=field_order)
-    extra_to_check = (
-        tuple(k for k in field_order if k not in _DEFAULT_CORE_SET)
-        if field_order is not None else additional_props
-    )
+    sections = _parse_system_sections(content, additional_props, field_order=field_order,
+                                       multiline_props=multiline_props)
+    extra_to_check = tuple(field_order) if field_order is not None else additional_props
     return bool(sections) and all(
-        not s["machine"] and not s["id"] and not s["time"] and not s["notes"]
-        and all(not s.get(p) for p in extra_to_check)
+        all(not s.get(p) for p in extra_to_check)
         for s in sections
     )
 
@@ -730,7 +707,8 @@ def _csv_row(*fields: str) -> str:
 def cmd_export(repo_root: Path, collection: str, filename: str,
                downloads_dir: Path, cache_dir: Path, editor: str,
                additional_props: tuple[str, ...] = (), jtable: bool = False, *,
-               field_order: tuple[str, ...] | None = None):
+               field_order: tuple[str, ...] | None = None,
+               multiline_props: frozenset[str] = frozenset()):
     sync_cache(repo_root, cache_dir)
     col_path = cache_dir / collection
     if not col_path.is_dir():
@@ -753,28 +731,30 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
             csv_col_names = [_CSV_FIELD_NAME.get(f, f) for f in field_order]
             rows.append(_csv_row("system_name", *csv_col_names))
         else:
-            rows.append(_csv_row("system_name", "id", "machine_name", "time", "notes",
+            rows.append(_csv_row("system_name",
                                   *[_CSV_FIELD_NAME.get(p, p) for p in additional_props]))
         for encoded, fname in sorted(seen.items()):
             system_name = decode_name(encoded) or encoded
             sections = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
-            if all(not s.get("machine") for s in sections):
+            if all(not any(v for v in s.values()) for s in sections):
                 continue  # initial state: no meaningful data yet
             for sec in sections:
                 if field_order is not None:
                     vals: list[str] = []
                     for f in field_order:
-                        if f == "notes":
-                            vals.append(" ".join(sec.get("notes", "").splitlines()).strip())
+                        if f in multiline_props:
+                            vals.append(" ".join(sec.get(f, "").splitlines()).strip())
                         else:
                             vals.append(sec.get(f, ""))
                     rows.append(_csv_row(system_name, *vals))
                 else:
-                    notes_str = " ".join(sec.get("notes", "").splitlines()).strip()
-                    rows.append(_csv_row(
-                        system_name, sec.get("id", ""), sec.get("machine", ""),
-                        sec.get("time", ""), notes_str,
-                        *[sec.get(p, "") for p in additional_props]))
+                    vals = []
+                    for p in additional_props:
+                        v = sec.get(p, "")
+                        if p in multiline_props:
+                            v = " ".join(v.splitlines()).strip()
+                        vals.append(v)
+                    rows.append(_csv_row(system_name, *vals))
     elif collection == "schedules":
         rows.append(_csv_row("schedule_name", "dates"))
         for encoded, fname in sorted(seen.items()):
@@ -837,7 +817,9 @@ def usage_string() -> str:
 def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
              cache_dir: Path, editor: str, additional_props: tuple[str, ...] = (),
              mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
-             field_order: tuple[str, ...] | None = None) -> bool:
+             field_order: tuple[str, ...] | None = None,
+             prop_validation_types: dict[str, str] = {},
+             multiline_props: frozenset[str] = frozenset()) -> bool:
     """Return False to exit."""
     cmd = parts[0]
 
@@ -874,7 +856,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("error: --jtable is only supported for systems")
         else:
             cmd_cat(repo_root, collection, cat_parts[2], additional_props,
-                    downloads_dir=downloads_dir, jtable=jtable, field_order=field_order)
+                    downloads_dir=downloads_dir, jtable=jtable, field_order=field_order,
+                    multiline_props=multiline_props)
 
     elif cmd == "get":
         jtable = "--jtable" in parts
@@ -885,7 +868,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("error: --jtable is only supported for systems")
         else:
             cmd_get(repo_root, collection, get_parts[2], downloads_dir, editor,
-                    additional_props, jtable=jtable, field_order=field_order)
+                    additional_props, jtable=jtable, field_order=field_order,
+                    multiline_props=multiline_props)
 
     elif cmd == "clear":
         if len(parts) != 3:
@@ -905,7 +889,9 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: push <collection> <name>")
         else:
             cmd_push(repo_root, collection, parts[2], downloads_dir,
-                     additional_props, mandatory_ref_props, field_order=field_order)
+                     additional_props, mandatory_ref_props, field_order=field_order,
+                     prop_validation_types=prop_validation_types,
+                     multiline_props=multiline_props)
 
     elif cmd == "export":
         jtable = "--jtable" in parts
@@ -914,7 +900,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: export <collection> <file.csv> [--jtable]")
         else:
             cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir,
-                       editor, additional_props, jtable=jtable, field_order=field_order)
+                       editor, additional_props, jtable=jtable, field_order=field_order,
+                       multiline_props=multiline_props)
 
     elif cmd == "diff":
         jtable = "--jtable" in parts
@@ -938,7 +925,12 @@ def main():
     downloads_dir = get_downloads_dir(config)
     cache_dir = get_cache_dir(config)
     editor = get_editor(config)
-    optional_props = load_additional_properties(repo_root)
+    optional_prop_pairs = load_additional_properties(repo_root)
+    optional_props = tuple(name for name, _, _ in optional_prop_pairs)
+    prop_validation_types: dict[str, str] = {
+        name: vtype for name, vtype, _ in optional_prop_pairs if vtype != "NONE"
+    }
+    multiline_props: frozenset[str] = frozenset(name for name, _, ml in optional_prop_pairs if ml)
 
     dynamic_colls = load_dynamic_collections(repo_root)
     for dc in dynamic_colls:
@@ -954,9 +946,7 @@ def main():
         for dc in dynamic_colls
         if dc.get("property_name")
     )
-    all_props = optional_props + tuple(
-        pname for pname, _, _ in mandatory_ref_props if pname not in _DEFAULT_CORE_SET
-    )
+    all_props = optional_props + tuple(pname for pname, _, _ in mandatory_ref_props)
 
     # Compute full field order respecting property_order from settings.ini.
     # Fields listed in property_order come first (core or extra); remaining fields
@@ -993,7 +983,9 @@ def main():
         parts = line.split()
         if not dispatch(parts, repo_root, downloads_dir, cache_dir, editor,
                         additional_props, mandatory_ref_props,
-                        field_order=field_order):
+                        field_order=field_order,
+                        prop_validation_types=prop_validation_types,
+                        multiline_props=multiline_props):
             break
 
 
