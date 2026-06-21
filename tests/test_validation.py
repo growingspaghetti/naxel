@@ -538,31 +538,31 @@ class TestLoadAdditionalProperties:
         (tmp_path / "additional_properties.json").write_text(
             '[{"property_name":"p1","validation_type":"NOT_EMPTY"},{"property_name":"p2","validation_type":"HH:MM"}]'
         )
-        assert load_additional_properties(tmp_path) == (("p1", "NOT_EMPTY", False), ("p2", "HH:MM", False))
+        assert load_additional_properties(tmp_path, "additional_properties.json") == (("p1", "NOT_EMPTY", False), ("p2", "HH:MM", False))
 
     def test_missing_validation_type_defaults_to_none(self, tmp_path):
         (tmp_path / "additional_properties.json").write_text('[{"property_name":"p1"}]')
-        assert load_additional_properties(tmp_path) == (("p1", "NONE", False),)
+        assert load_additional_properties(tmp_path, "additional_properties.json") == (("p1", "NONE", False),)
 
     def test_non_object_entries_are_skipped(self, tmp_path):
         (tmp_path / "additional_properties.json").write_text('["p1", {"property_name":"p2","validation_type":"NONE"}]')
-        assert load_additional_properties(tmp_path) == (("p2", "NONE", False),)
+        assert load_additional_properties(tmp_path, "additional_properties.json") == (("p2", "NONE", False),)
 
     def test_missing_file_returns_empty(self, tmp_path):
-        assert load_additional_properties(tmp_path) == ()
+        assert load_additional_properties(tmp_path, "additional_properties.json") == ()
 
     def test_empty_array_returns_empty(self, tmp_path):
         (tmp_path / "additional_properties.json").write_text("[]")
-        assert load_additional_properties(tmp_path) == ()
+        assert load_additional_properties(tmp_path, "additional_properties.json") == ()
 
     def test_re_validation_type_stored_correctly(self, tmp_path):
         (tmp_path / "additional_properties.json").write_text(
             '[{"property_name":"id","validation_type":"RE:[^#]+"}]'
         )
-        assert load_additional_properties(tmp_path) == (("id", "RE:[^#]+", False),)
+        assert load_additional_properties(tmp_path, "additional_properties.json") == (("id", "RE:[^#]+", False),)
 
     def test_multiline_attribute_read(self, tmp_path):
         (tmp_path / "additional_properties.json").write_text(
             '[{"property_name":"notes","validation_type":"NONE","multiline":true}]'
         )
-        assert load_additional_properties(tmp_path) == (("notes", "NONE", True),)
+        assert load_additional_properties(tmp_path, "additional_properties.json") == (("notes", "NONE", True),)

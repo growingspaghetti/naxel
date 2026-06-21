@@ -36,13 +36,20 @@ def get_editor(config):
     return config.get("editor", "command", fallback="mousepad")
 
 
-def get_property_order(config) -> tuple[str, ...]:
-    raw = config.get("system", "property_order", fallback="")
-    return tuple(s.strip() for s in raw.split(",") if s.strip())
+def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], str, str]:
+    repo_ini = configparser.ConfigParser()
+    repo_ini.read(repo_root / "repository.ini")
+    collection_name = repo_ini.get("main_collection", "collection_name", fallback="systems")
+    partitioning_property = repo_ini.get("main_collection", "partitioning_property", fallback="system")
+    raw = repo_ini.get("main_collection", "property_order", fallback="")
+    property_order = tuple(s.strip() for s in raw.split(",") if s.strip())
+    additional_props_file = repo_ini.get("additional_properties", "json", fallback="additional_properties.json")
+    ref_collections_file = repo_ini.get("reference_collections", "json", fallback="additional_mandatory_properties.json")
+    return collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file
 
 
-def load_additional_properties(repo_root: Path) -> tuple[tuple[str, str, bool], ...]:
-    path = repo_root / "additional_properties.json"
+def load_additional_properties(repo_root: Path, filename: str) -> tuple[tuple[str, str, bool], ...]:
+    path = repo_root / filename
     try:
         data = json.loads(path.read_text())
         result = []
@@ -57,19 +64,19 @@ def load_additional_properties(repo_root: Path) -> tuple[tuple[str, str, bool], 
     except FileNotFoundError:
         return ()
     except Exception as e:
-        print(f"warning: could not read additional_properties.json: {e}")
+        print(f"warning: could not read {filename}: {e}")
         return ()
 
 
-def load_dynamic_collections(repo_root: Path) -> list[dict]:
-    path = repo_root / "additional_mandatory_properties.json"
+def load_dynamic_collections(repo_root: Path, filename: str) -> list[dict]:
+    path = repo_root / filename
     try:
         data = json.loads(path.read_text())
         return [d for d in data if isinstance(d, dict) and d.get("collection_name")]
     except FileNotFoundError:
         return []
     except Exception as e:
-        print(f"warning: could not read additional_mandatory_properties.json: {e}")
+        print(f"warning: could not read {filename}: {e}")
         return []
 
 
@@ -89,6 +96,9 @@ def sync_cache(repo_root: Path, cache_dir: Path):
     if copied:
         print(f"cache: synced {copied} file(s)")
 
+
+MAIN_COLLECTION: str = "systems"
+PARTITIONING_PROPERTY: str = "system"
 
 COLLECTIONS: set[str] = {"systems", "schedules", "contacts"}
 
@@ -153,11 +163,6 @@ _TIME_RE = re.compile(r"^\d{2}:\d{2}$")
 _CORE_LABELS: frozenset[str] = frozenset()
 _DEFAULT_CORE: tuple[str, ...] = ()
 _DEFAULT_CORE_SET: frozenset[str] = frozenset()
-
-# CSV column name overrides for core fields
-_CSV_FIELD_NAME: dict[str, str] = {
-    "machine": "machine_name",
-}
 
 
 def _is_prop_label(line: str) -> bool:
@@ -338,7 +343,7 @@ def validate(collection: str, content: str, additional_props: tuple[str, ...] = 
              field_order: tuple[str, ...] | None = None,
              prop_validation_types: dict[str, str] = {},
              multiline_props: frozenset[str] = frozenset()) -> tuple[bool, str]:
-    if collection == "systems":
+    if collection == MAIN_COLLECTION:
         return _validate_system(content, additional_props, mandatory_prop_names,
                                 field_order=field_order,
                                 prop_validation_types=prop_validation_types,
@@ -400,7 +405,7 @@ def cmd_len(repo_root: Path, collection: str, name: str):
     if filepath is None:
         print(f"error: not found: {name}")
         return
-    if collection == "systems":
+    if collection == MAIN_COLLECTION:
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         print(sum(1 for s in sections if any(v for v in s.values())))
     else:
@@ -428,7 +433,7 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
         print(f"saved: {dest}")
         JTable(dest, mode="systems", readonly=True, multiline_cols=multiline_props).run()
         return
-    if collection == "systems" and filepath.name.endswith(".gz"):
+    if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         print(_system_sections_to_text(sections, additional_props, field_order=field_order), end="")
     elif filepath.name.endswith(".gz"):
@@ -448,7 +453,7 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
     dl_dir.mkdir(parents=True, exist_ok=True)
     dl_name = filepath.name[:-3] if filepath.name.endswith(".gz") else filepath.name
     dest = dl_dir / dl_name
-    if collection == "systems":
+    if collection == MAIN_COLLECTION:
         template = _empty_system_document(additional_props, field_order=field_order)
     else:
         template = _EMPTY_DOCUMENTS.get(collection, "")
@@ -468,7 +473,7 @@ def cmd_get(repo_root: Path, collection: str, name: str,
         return
     dl_dir = downloads_dir / collection
     dl_dir.mkdir(parents=True, exist_ok=True)
-    if collection == "systems" and filepath.name.endswith(".gz"):
+    if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
         dl_name = filepath.name[:-3]
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         dest = dl_dir / dl_name
@@ -515,7 +520,7 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
         print(f"error: only one version exists for: {name}")
         return
 
-    if collection == "systems":
+    if collection == MAIN_COLLECTION:
         prev_sections = json.loads(gzip.decompress((col_path / matches[-2]).read_bytes()).decode())
         curr_sections = json.loads(gzip.decompress((col_path / matches[-1]).read_bytes()).decode())
 
@@ -534,7 +539,7 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
                     "deleted": [[s.get(k, "") for k in cols] for s in deleted],
                     "added":   [[s.get(k, "") for k in cols] for s in added],
                 },
-                title=f"diff systems {name}",
+                title=f"diff {collection} {name}",
             ).run()
             return
     else:
@@ -575,7 +580,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
         print(f"error: not found in downloads: {name}")
         return
     content = src.read_text()
-    if not (collection == "systems" and _is_initial_state_system(
+    if not (collection == MAIN_COLLECTION and _is_initial_state_system(
             content, additional_props, field_order=field_order, multiline_props=multiline_props)):
         mandatory_prop_names = frozenset(pname for pname, _, _ in mandatory_ref_props)
         ok, reason = validate(collection, content, additional_props, mandatory_prop_names,
@@ -585,7 +590,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
         if not ok:
             print(f"rejected: {reason}")
             return
-        if collection == "systems" and mandatory_ref_props:
+        if collection == MAIN_COLLECTION and mandatory_ref_props:
             sections_for_ref = _parse_system_sections(content, additional_props,
                                                        field_order=field_order,
                                                        multiline_props=multiline_props)
@@ -726,13 +731,12 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
             seen[parts[0]] = fname
 
     rows = []
-    if collection == "systems":
+    if collection == MAIN_COLLECTION:
+        csv_name_col = f"{PARTITIONING_PROPERTY}_name"
         if field_order is not None:
-            csv_col_names = [_CSV_FIELD_NAME.get(f, f) for f in field_order]
-            rows.append(_csv_row("system_name", *csv_col_names))
+            rows.append(_csv_row(csv_name_col, *field_order))
         else:
-            rows.append(_csv_row("system_name",
-                                  *[_CSV_FIELD_NAME.get(p, p) for p in additional_props]))
+            rows.append(_csv_row(csv_name_col, *additional_props))
         for encoded, fname in sorted(seen.items()):
             system_name = decode_name(encoded) or encoded
             sections = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
@@ -795,23 +799,21 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
 
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
-_USAGE_COMMANDS = (
-    "commands:\n"
-    "  ls <collection>\n"
-    "  add <collection> <name>\n"
-    "  cat systems <name> [--jtable]\n"
-    "  get systems <name> [--jtable]\n"
-    "  clear <collection> <name>\n"
-    "  len <collection> <name>\n"
-    "  push <collection> <name>\n"
-    "  export <collection> <file.csv> [--jtable]\n"
-    "  diff <collection> <name> [--jtable]\n"
-    "  exit"
-)
-
-
 def usage_string() -> str:
-    return _USAGE_COMMANDS + f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
+    return (
+        "commands:\n"
+        "  ls <collection>\n"
+        "  add <collection> <name>\n"
+        f"  cat {MAIN_COLLECTION} <name> [--jtable]\n"
+        f"  get {MAIN_COLLECTION} <name> [--jtable]\n"
+        "  clear <collection> <name>\n"
+        "  len <collection> <name>\n"
+        "  push <collection> <name>\n"
+        "  export <collection> <file.csv> [--jtable]\n"
+        "  diff <collection> <name> [--jtable]\n"
+        "  exit"
+        f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
+    )
 
 
 def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
@@ -852,8 +854,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         cat_parts = [p for p in parts if p != "--jtable"]
         if len(cat_parts) != 3:
             print("usage: cat <collection> <name> [--jtable]")
-        elif jtable and collection != "systems":
-            print("error: --jtable is only supported for systems")
+        elif jtable and collection != MAIN_COLLECTION:
+            print(f"error: --jtable is only supported for {MAIN_COLLECTION}")
         else:
             cmd_cat(repo_root, collection, cat_parts[2], additional_props,
                     downloads_dir=downloads_dir, jtable=jtable, field_order=field_order,
@@ -864,8 +866,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         get_parts = [p for p in parts if p != "--jtable"]
         if len(get_parts) != 3:
             print("usage: get <collection> <name> [--jtable]")
-        elif jtable and collection != "systems":
-            print("error: --jtable is only supported for systems")
+        elif jtable and collection != MAIN_COLLECTION:
+            print(f"error: --jtable is only supported for {MAIN_COLLECTION}")
         else:
             cmd_get(repo_root, collection, get_parts[2], downloads_dir, editor,
                     additional_props, jtable=jtable, field_order=field_order,
@@ -920,19 +922,29 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
 
 
 def main():
+    global MAIN_COLLECTION, PARTITIONING_PROPERTY
     config = load_config()
     repo_root = get_repo_root(config)
     downloads_dir = get_downloads_dir(config)
     cache_dir = get_cache_dir(config)
     editor = get_editor(config)
-    optional_prop_pairs = load_additional_properties(repo_root)
+
+    main_coll, partition_prop, property_order, additional_props_file, ref_collections_file = load_repository_config(repo_root)
+    if main_coll != MAIN_COLLECTION:
+        COLLECTIONS.discard(MAIN_COLLECTION)
+        COLLECTIONS.add(main_coll)
+        REPO_SUFFIX[main_coll] = REPO_SUFFIX.pop(MAIN_COLLECTION, ".txt.gz")
+    MAIN_COLLECTION = main_coll
+    PARTITIONING_PROPERTY = partition_prop
+
+    optional_prop_pairs = load_additional_properties(repo_root, additional_props_file)
     optional_props = tuple(name for name, _, _ in optional_prop_pairs)
     prop_validation_types: dict[str, str] = {
         name: vtype for name, vtype, _ in optional_prop_pairs if vtype != "NONE"
     }
     multiline_props: frozenset[str] = frozenset(name for name, _, ml in optional_prop_pairs if ml)
 
-    dynamic_colls = load_dynamic_collections(repo_root)
+    dynamic_colls = load_dynamic_collections(repo_root, ref_collections_file)
     for dc in dynamic_colls:
         cname = dc["collection_name"]
         COLLECTIONS.add(cname)
@@ -948,10 +960,6 @@ def main():
     )
     all_props = optional_props + tuple(pname for pname, _, _ in mandatory_ref_props)
 
-    # Compute full field order respecting property_order from settings.ini.
-    # Fields listed in property_order come first (core or extra); remaining fields
-    # follow in their default relative order (core fields, then extra props).
-    property_order = get_property_order(config)
     all_fields_set = _DEFAULT_CORE_SET | set(all_props)
     ordered_front = [p for p in property_order if p in all_fields_set]
     ordered_front_set = set(ordered_front)
