@@ -502,25 +502,27 @@ def cmd_get(repo_root: Path, collection: str, name: str,
             downloads_dir: Path, editor: str,
             additional_props: tuple[str, ...] = (), jtable: bool = False, *,
             field_order: tuple[str, ...] | None = None,
-            multiline_props: frozenset[str] = frozenset()):
+            multiline_props: frozenset[str] = frozenset(),
+            stdin_content: str | None = None):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
         return
     dl_dir = downloads_dir / collection
     dl_dir.mkdir(parents=True, exist_ok=True)
+    dl_name = filepath.name[:-3] if filepath.name.endswith(".gz") else filepath.name
+    dest = dl_dir / dl_name
+    if stdin_content is not None:
+        dest.write_text(stdin_content)
+        print(f"saved: {dest}")
+        return
     if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
-        dl_name = filepath.name[:-3]
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
-        dest = dl_dir / dl_name
         dest.write_text(_main_collection_sections_to_text(sections, additional_props,
                                                   field_order=field_order))
     elif filepath.name.endswith(".gz"):
-        dl_name = filepath.name[:-3]
-        dest = dl_dir / dl_name
         dest.write_text(gzip.decompress(filepath.read_bytes()).decode())
     else:
-        dest = dl_dir / filepath.name
         dest.write_text(filepath.read_text())
     print(f"saved: {dest}")
     if jtable:
@@ -943,13 +945,15 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
 
     elif cmd == "get":
         jtable = "--jtable" in parts
-        get_parts = [p for p in parts if p != "--jtable"]
+        stdin_flag = "-" in parts
+        get_parts = [p for p in parts if p not in ("--jtable", "-")]
         if len(get_parts) != 3:
-            print("usage: get <collection> <name> [--jtable]")
+            print("usage: get <collection> <name> [--jtable] [-]")
         else:
+            stdin_content = sys.stdin.read() if stdin_flag else None
             cmd_get(repo_root, collection, get_parts[2], downloads_dir, editor,
                     additional_props, jtable=jtable, field_order=field_order,
-                    multiline_props=multiline_props)
+                    multiline_props=multiline_props, stdin_content=stdin_content)
 
     elif cmd == "clear":
         if len(parts) != 3:
@@ -1048,6 +1052,24 @@ def main():
     )
     additional_props = tuple(p for p in (field_order or (_DEFAULT_CORE + all_props))
                               if p not in _DEFAULT_CORE_SET)
+
+    cli_args = sys.argv[1:]
+    if cli_args and cli_args[0] == "-c":
+        if len(cli_args) < 2:
+            print("error: -c requires a command string", file=sys.stderr)
+            sys.exit(1)
+        sync_cache(repo_root, cache_dir)
+        for raw in cli_args[1].split("&&"):
+            raw = raw.strip()
+            if not raw:
+                continue
+            if not dispatch(raw.split(), repo_root, downloads_dir, cache_dir, editor,
+                            additional_props, mandatory_ref_props,
+                            field_order=field_order,
+                            prop_validation_types=prop_validation_types,
+                            multiline_props=multiline_props):
+                break
+        return
 
     print(f"repo-manipulator  repository={repo_root}")
     sync_cache(repo_root, cache_dir)
