@@ -966,6 +966,50 @@ def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
     print(f"exported: {dest_file}")
 
 
+def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: str):
+    dest_base = Path(destination).resolve()
+    if not dest_base.is_dir():
+        print(f"error: not a directory: {dest_base}")
+        return
+
+    repo_name = repo_root.name
+    dest_dir = dest_base / repo_name
+    if dest_dir.exists():
+        print(f"error: already exists: {dest_dir}")
+        return
+
+    dest_dir.mkdir()
+    encoded_target = encode_name(name)
+
+    # Copy root-level config files as-is
+    for entry in os.listdir(repo_root):
+        src = repo_root / entry
+        if src.is_file():
+            shutil.copy2(src, dest_dir / entry)
+
+    # Recreate collection directories; copy matching files, touch the rest
+    for col in sorted(COLLECTIONS):
+        col_src = collection_path(repo_root, col)
+        if not col_src.is_dir():
+            continue
+        col_dst = dest_dir / col
+        col_dst.mkdir()
+        try:
+            files = os.listdir(col_src)
+        except FileNotFoundError:
+            continue
+        for fname in files:
+            dst_file = col_dst / fname
+            if col == collection and fname.startswith(encoded_target + "."):
+                shutil.copy2(col_src / fname, dst_file)
+            elif fname.endswith(".gz"):
+                dst_file.write_bytes(gzip.compress(b"[]"))
+            else:
+                dst_file.touch()
+
+    print(f"created: {dest_dir}")
+
+
 def cmd_mkrepo(json_file: str, destination: str):
     json_path = Path(json_file).resolve()
     if not json_path.exists():
@@ -1110,6 +1154,7 @@ def usage_string() -> str:
         "  diff <collection> <name> [--jtable]\n"
         "  fullcopy <destination-directory> [--json]\n"
         "  mkrepo <json-file> <destination-directory>\n"
+        "  partialcopy <collection> <name> <destination-directory>\n"
         "  exit"
         f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
     )
@@ -1127,7 +1172,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     if cmd == "exit":
         return False
 
-    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export", "diff"):
+    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export", "diff", "partialcopy"):
         if len(parts) < 2:
             print("error: missing collection")
             return True
@@ -1226,6 +1271,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: mkrepo <json-file> <destination-directory>")
         else:
             cmd_mkrepo(parts[1], parts[2])
+
+    elif cmd == "partialcopy":
+        if len(parts) != 4:
+            print("usage: partialcopy <collection> <name> <destination-directory>")
+        else:
+            cmd_partialcopy(repo_root, collection, parts[2], parts[3])
 
     else:
         print(f"unknown command: {cmd!r}")
