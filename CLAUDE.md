@@ -177,9 +177,11 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `export <collection> <file.csv>`                      | Sync cache, build CSV from latest versions, save to `downloads/`, open with editor |
 | `export <collection> <file.csv> --jtable`             | Same as `export` but opens the CSV in a JTable window instead of the editor |
 | `export <collection> <file.json>`                     | Sync cache, build JSON array from latest versions, save to `downloads/`, open with editor |
-| `export <main-collection> <file.json> --onefile`      | Same but wraps main collection and all reference collections into one JSON object: `{ main: [...], ref1: [...], ... }` |
 | `diff <collection> <name>`              | Compare latest and previous repo versions; print JSON with `"deleted"` and `"added"` arrays |
 | `diff <collection> <name> --jtable`     | Same comparison but opens a JTable window: deleted rows in red with `−`, added rows in green with `+` |
+| `fullcopy <destination-directory>`                    | Copy the entire repository (all versions) into `<destination-directory>/<repo-name>/` |
+| `fullcopy <destination-directory> --json`             | Create `<destination-directory>/<repo-name>.json` with config and data sections (latest versions only, no history) |
+| `mkrepo <json-file> <destination-directory>`          | Reconstruct a repository from a `fullcopy --json` file into `<destination-directory>/<stem>/` |
 | `exit`                                   | Quit |
 
 All collections are fully dynamic. The main collection is configured in `repository.ini [main_collection]`; all reference collections come from the file named by `[reference_collections] json`. There are no built-in collections.
@@ -298,19 +300,47 @@ One object per section. The first key is `{partitioning_property}_name`. Remaini
 
 Comma-separated values from the file are split into a JSON array (unlike CSV, which joins with a space). Empty entries are excluded.
 
-### `--onefile` (main collection only)
+## fullcopy / mkrepo
 
-When `--onefile` is passed with a `.json` filename and the collection is the main collection, the output is a single JSON object keyed by collection name:
+### `fullcopy <destination-directory>`
+
+Copies the entire repository tree (all versions of every file plus all config files) into `<destination-directory>/<repo-name>/` via `shutil.copytree`. Errors if the destination does not exist or `<destination-directory>/<repo-name>` already exists.
+
+### `fullcopy <destination-directory> --json`
+
+Creates `<destination-directory>/<repo-name>.json`. History is omitted — only the latest version of each entry is included.
 
 ```json
 {
-  "systems": [ ... ],
-  "teams":   [{"name": "team1", "values": ["val1"]}, ...],
-  "schedules": [{"name": "sche1", "values": ["2024/01/01"]}, ...]
+  "config": {
+    "repository_ini": "...(raw text of repository.ini)...",
+    "additional_properties": [...parsed JSON array...],
+    "reference_collections": [...parsed JSON array...]
+  },
+  "data": {
+    "<main-collection>": {
+      "<entry-name>": [...JSON sections array...],
+      ...
+    },
+    "<ref-collection>": {
+      "<entry-name>": "...(raw comma-separated text)...",
+      ...
+    }
+  }
 }
 ```
 
-The main collection array appears under its collection name. Each reference collection declared in `additional_mandatory_properties.json` appears under its `collection_name`. `--onefile` has no effect when the collection is not the main collection.
+`config.additional_properties` is read from the file named by `[additional_properties] json` in `repository.ini`; `config.reference_collections` from the file named by `[reference_collections] json`. Missing config files produce empty arrays. Errors if the destination does not exist or `<repo-name>.json` already exists.
+
+### `mkrepo <json-file> <destination-directory>`
+
+Reconstructs a repository from a `fullcopy --json` file into `<destination-directory>/<stem>/` (stem = filename without `.json`):
+
+1. Parses `config.repository_ini` text to determine the main collection name and config filenames (`[additional_properties] json`, `[reference_collections] json`).
+2. Writes `repository.ini`, the additional-properties file, and the reference-collections file under the new repo directory.
+3. For each collection in `data`, creates the collection directory and writes each entry at version `0000`: main collection as gzip-compressed JSON (`.txt.gz`), reference collections as plain text (`.txt`).
+
+Errors if the JSON file does not exist, the destination is not a directory, the JSON is not a valid fullcopy payload (missing `config` or `data` keys), or `<destination>/<stem>` already exists.
 
 ## Key implementation decisions
 
