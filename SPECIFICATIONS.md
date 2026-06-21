@@ -96,7 +96,7 @@ contact_value
 prop1_value
 ```
 
-コアフィールドは `notes` のみです。`machine`・`time`・`id`・`schedule`・`contact` などは `additional_properties.json` または `additional_mandatory_properties.json` で定義された追加プロパティとして、`notes` の後に続きます。フィールドの表示順は `settings.ini` の `[system] property_order` で制御できます（後述）。
+ハードコードされたコアフィールドはありません。`notes`・`machine`・`time`・`id`・`schedule`・`contact` をはじめとする全フィールドは、`additional_properties.json` または `additional_mandatory_properties.json` で定義された追加プロパティです。フィールドの表示順は `settings.ini` の `[system] property_order` で制御できます（後述）。
 
 #### push 時の検証ルール
 
@@ -104,8 +104,7 @@ prop1_value
 
 | フィールド | 検証内容 |
 |---|---|
-| `notes` | ラベルが存在すること（値は空でも可） |
-| 追加プロパティ（任意） | ラベルが存在すること。`validation_type` に応じた入力検証が行われる（`NONE` — 制約なし; `NOT_EMPTY` — 空値を拒否; `HH:MM` — `\d{2}:\d{2}` 形式でない値を拒否; `RE:<pattern>` — 正規表現にマッチしない値を拒否）。`machine`・`time` もここで定義（`NOT_EMPTY`・`HH:MM`） |
+| 追加プロパティ（任意） | ラベルが存在すること。`validation_type` に応じた入力検証が行われる（`NONE` — 制約なし; `NOT_EMPTY` — 空値を拒否; `HH:MM` — `\d{2}:\d{2}` 形式でない値を拒否; `RE:<pattern>` — 正規表現にマッチしない値を拒否）。`notes`（`NONE`）・`machine`（`NOT_EMPTY`）・`time`（`HH:MM`）などもここで定義。`multiline: true` のフィールドは次のラベルまでの複数行を値として読み込む |
 | 追加プロパティ（必須） | ラベルが存在し、値が空でないこと、かつ対応するコレクションに存在すること（`schedule`・`contact` も `additional_mandatory_properties.json` で定義した場合はここに含まれる） |
 
 **例外：** すべてのセクションの全フィールドが空（`add` / `clear` 直後の状態）、またはファイル内容が空白のみの場合は検証をスキップして空テンプレートとして登録されます。
@@ -141,8 +140,8 @@ sys1, , m2, 12:30, id2, sche2, cont2, ,
 ```
 
 - セクションごとに1行出力されます。
-- 複数行のノートはスペースで結合されます。
-- すべてのセクションで `machine` が空のエントリは出力されません。
+- `multiline: true` のフィールド（`notes` など）は複数行がスペースで結合されます。
+- すべてのセクションの全フィールドが空のエントリは出力されません。
 - 列の順序は `[system] property_order` の設定に従います。
 - `,` / `"` / 改行を含む値はRFC 4180に従いダブルクォートで囲まれます。
 
@@ -183,7 +182,7 @@ teamA, value1 value2 value3
 | `[downloads]` | `dir` | `downloads` | 編集ファイルの保存先ディレクトリ |
 | `[cache]` | `dir` | `cache` | リポジトリのローカルキャッシュディレクトリ |
 | `[editor]` | `command` | `mousepad` | `get` / `clear` / `export` で起動するエディタ |
-| `[system]` | `property_order` | （空） | システムドキュメントの先頭に表示するフィールド名（カンマ区切り）。コアフィールド・追加フィールドのいずれも指定可。記載したフィールドが先頭に並び、残りはデフォルト順で続く。 |
+| `[system]` | `property_order` | （空） | システムドキュメントの先頭に表示するフィールド名（カンマ区切り）。記載したフィールドが先頭に並び、残りはデフォルト順で続く。 |
 
 ### 設定例
 
@@ -208,6 +207,7 @@ property_order = team,notes,id
 
 ```json
 [
+  {"property_name": "notes", "validation_type": "NONE", "multiline": true},
   {"property_name": "id",    "validation_type": "RE:[^#]+"},
   {"property_name": "prop1", "validation_type": "NONE"},
   {"property_name": "prop2", "validation_type": "NOT_EMPTY"},
@@ -218,7 +218,8 @@ property_order = team,notes,id
 | フィールド | 説明 |
 |---|---|
 | `property_name` | フィールド名 |
-| `validation_type` | `push` 時の入力検証: `"NONE"` — 検証なし（値が空でも可）; `"NOT_EMPTY"` — 空値を拒否; `"HH:MM"` — `\d{2}:\d{2}` 形式でない値を拒否; `"RE:<pattern>"` — 正規表現 `<pattern>` に完全マッチしない値を拒否（`re.fullmatch` 使用）。省略時は `"NONE"` として扱われる |
+| `validation_type` | `push` 時の入力検証: `"NONE"` — 検証なし（値が空でも可）; `"NOT_EMPTY"` — 空値を拒否; `"HH:MM"` — `\d{2}:\d{2}` 形式でない値を拒否; `"RE:<pattern>` — 正規表現 `<pattern>` に完全マッチしない値を拒否（`re.fullmatch` 使用）。省略時は `"NONE"` として扱われる |
+| `multiline` | `true` — 次のラベルまでの複数行を値として読み込む。JSON には `"\n"` 区切りで保存され、CSV エクスポート時はスペースで結合される。JTable の編集モードでダブルクリックするとモーダルテキストエディタが開く。`false` または省略時は1行フィールド |
 
 オブジェクト以外のエントリは無視されます。
 
@@ -242,7 +243,7 @@ property_order = team,notes,id
 | `whitelist` | コレクションへの存在チェックをスキップして受け入れる値のリスト（省略または空配列 `[]` でホワイトリストなし） |
 
 - 定義したコレクションはツール起動時に自動で利用可能になります。
-- `property_name` が `notes` 以外の場合、全システムドキュメントの必須項目として追加されます。`schedule` や `contact` もここで定義することで必須フィールドになります。
+- 全 `property_name` が全システムドキュメントの必須項目として追加されます。`schedule` や `contact` もここで定義することで必須フィールドになります。
 - `push` 時、各 `property_name` の値が空でないこと、かつ対応する `collection_name` コレクションに登録されていること（または `whitelist` に含まれること）が検証されます。
 - `schedule` や `contact` を記載することで、これらのコレクション参照チェックを含む全検証を動的コレクション設定で管理できます。
 - 動的コレクションは組み込みの `schedules` / `contacts` と同様に操作できます。
@@ -262,7 +263,7 @@ property_order = team,notes,id
 ### get systems \<名前\> --jtable（編集可能）
 
 - セルをダブルクリックするとその場で編集できます。
-- `notes` フィールドをダブルクリックすると、複数行入力用のダイアログが開きます。
+- `multiline: true` のフィールド（`notes` など）をダブルクリックすると、複数行入力用のダイアログが開きます。
 - **Save** ボタンで編集内容をファイルに保存します（リポジトリへの登録は別途 `push` が必要です）。
 - **Add Row** で末尾または選択行の後に空行を追加します。
 - **Duplicate Row** で選択行を複製します。
