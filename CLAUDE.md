@@ -317,20 +317,20 @@ JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None,
 | Parameter      | Values / meaning |
 |----------------|-----------------|
 | `path`         | File to display (CSV or 👉👈 `.txt`) |
-| `mode`         | `"csv"` — parse as CSV (export); `"systems"` — parse 👉👈 format (main collection); `"ref"` — parse comma-separated `.txt` as a single-column `"values"` table (reference collections) |
+| `mode`         | `"csv"` — parse as CSV (export); `"main_text"` — parse 👉👈 format (main collection); `"ref"` — parse comma-separated `.txt` as a single-column `"values"` table (reference collections) |
 | `readonly`     | `True` suppresses Save/row-edit buttons (`cat --jtable`) |
 | `diff_data`    | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
 | `title`        | Window title (defaults to filename or `"diff"`) |
 | `multiline_cols` | `frozenset[str]` of column names whose cells open a modal text-editor dialog on double-click instead of an inline entry. Passed from `multiline_props` in `app.py`. |
 | `ref_data`     | `{property_name: {entry_name: content}}` — reference collection data used by the search bar for deep search. Built by `build_ref_data(cache_dir, mandatory_ref_props)` in `app.py` and passed to `cmd_cat` for `cat --jtable`. |
 
-**Main-collection editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save.
+**Main-collection editable mode** (`mode="main_text"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save.
 
 **Reference-collection mode** (`mode="ref"`): displays the comma-separated `.txt` file as a single-column table with header `"values"` — one row per value. Readonly (`cat --jtable`): sortable, search bar shown. Editable (`get --jtable`): double-click a cell to edit inline, Save writes back as `val1,val2,...\n` (empty rows are excluded), Add Row / Delete Row buttons. No Duplicate Row button.
 
 **Diff mode** (`diff_data` provided): read-only, deleted rows shown in red with `−`, added rows in green with `+`. Data columns are sortable.
 
-**Search bar** — shown at the top of the window when `readonly=True` (cat --jtable) or `mode="csv"` (export --jtable); hidden in editable mode (`mode="systems"` or `mode="ref"`) and diff mode. A row-count label sits at the right end of the bar. The search bar is powered by a custom query parser (`_parse_query` in `gui.py`) and supports the following syntax (all keywords case-insensitive):
+**Search bar** — shown at the top of the window when `readonly=True` (cat --jtable) or `mode="csv"` (export --jtable); hidden in editable mode (`mode="main_text"` or `mode="ref"`) and diff mode. A row-count label sits at the right end of the bar. The search bar is powered by a custom query parser (`_parse_query` in `gui.py`) and supports the following syntax (all keywords case-insensitive):
 
 | Query | Behaviour |
 |-------|-----------|

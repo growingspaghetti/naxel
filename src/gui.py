@@ -234,7 +234,7 @@ class JTable:
                  title: str | None = None, multiline_cols: frozenset = frozenset(),
                  ref_data: dict | None = None):
         """
-        mode          : "csv" for CSV files, "systems" for 👉👈 text files
+        mode          : "csv" for CSV files, "main_text" for 👉👈 text files
         readonly      : hide Save button and disable editing (cat --jtable)
         diff_data     : {"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}
                         when provided the table shows a read-only diff view
@@ -262,13 +262,13 @@ class JTable:
         self._build()
 
     def _build(self):
-        if self._mode in ("systems", "ref") and not self._readonly:
+        if self._mode in ("main_text", "ref") and not self._readonly:
             btn_frame = tk.Frame(self._root)
             btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 4))
-            save_cmd = self._save if self._mode == "systems" else self._save_ref
+            save_cmd = self._save if self._mode == "main_text" else self._save_ref
             tk.Button(btn_frame, text="Save", command=save_cmd).pack(side=tk.RIGHT)
             tk.Button(btn_frame, text="Delete Row", command=self._delete_row).pack(side=tk.LEFT, padx=(0, 2))
-            if self._mode == "systems":
+            if self._mode == "main_text":
                 tk.Button(btn_frame, text="Duplicate Row", command=self._duplicate_row).pack(side=tk.LEFT, padx=(0, 2))
             tk.Button(btn_frame, text="Add Row", command=self._add_row).pack(side=tk.LEFT)
 
@@ -303,12 +303,12 @@ class JTable:
 
         self._tree.tag_configure("odd", background="#f5f5f5")
 
-        if self._mode in ("systems", "ref") and not self._readonly:
+        if self._mode in ("main_text", "ref") and not self._readonly:
             self._tree.bind("<Double-1>", self._on_double_click)
 
         if self._diff_data is not None:
             self._load_diff()
-        elif self._mode == "systems":
+        elif self._mode == "main_text":
             self._load_systems()
         elif self._mode == "ref":
             self._load_ref()
@@ -614,5 +614,5 @@ if __name__ == "__main__":
     if len(positional) != 1:
         print(f"usage: {sys.argv[0]} <file> [--systems] [--readonly]")
         sys.exit(1)
-    mode = "systems" if systems else "csv"
+    mode = "main_text" if systems else "csv"
     JTable(positional[0], mode=mode, readonly=readonly).run()

@@ -456,7 +456,7 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
             dest.write_text(_main_collection_sections_to_text(sections, additional_props,
                                                       field_order=field_order))
             print(f"saved: {dest}")
-            JTable(dest, mode="systems", readonly=True, multiline_cols=multiline_props,
+            JTable(dest, mode="main_text", readonly=True, multiline_cols=multiline_props,
                    ref_data=ref_data).run()
         else:
             dest = dl_dir / filepath.name
@@ -520,7 +520,7 @@ def cmd_get(repo_root: Path, collection: str, name: str,
     print(f"saved: {dest}")
     if jtable:
         if collection == MAIN_COLLECTION:
-            JTable(dest, mode="systems", multiline_cols=multiline_props).run()
+            JTable(dest, mode="main_text", multiline_cols=multiline_props).run()
         else:
             JTable(dest, mode="ref", title=f"{collection} {name}").run()
     else:
