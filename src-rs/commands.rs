@@ -294,10 +294,11 @@ pub fn cmd_clear(
     collection: &str,
     name: &str,
     editor: &str,
-) {
+    jtable: bool,
+) -> Option<crate::table_spec::TableData> {
     let filepath = match find_latest(&state.repo_root, &state.main_collection, collection, name) {
         Some(p) => p,
-        None => { eprintln!("error: not found: {name}"); return; }
+        None => { eprintln!("error: not found: {name}"); return None; }
     };
     let dl_dir = state.downloads_dir.join(collection);
     let _ = std::fs::create_dir_all(&dl_dir);
@@ -313,7 +314,47 @@ pub fn cmd_clear(
     };
     let _ = std::fs::write(&dest, &template);
     println!("cleared: {}", dest.display());
+
+    if jtable {
+        let push_info = Some(crate::table_spec::PushInfo {
+            repo_root: state.repo_root.clone(),
+            downloads_dir: state.downloads_dir.clone(),
+            main_collection: state.main_collection.clone(),
+            collection: collection.to_string(),
+            name: name.to_string(),
+            additional_props: state.additional_props.clone(),
+            field_order: state.field_order.clone(),
+            prop_validation_types: state.prop_validation_types.clone(),
+            multiline_props: state.multiline_props.iter().cloned().collect(),
+            mandatory_ref_props: state.mandatory_ref_props.iter().map(|m| {
+                crate::table_spec::SerMandatoryRefProp {
+                    property_name: m.property_name.clone(),
+                    collection_name: m.collection_name.clone(),
+                    whitelist: m.whitelist.iter().cloned().collect(),
+                }
+            }).collect(),
+            collection_type: state.collection_type.clone(),
+        });
+        if collection == state.main_collection {
+            return Some(crate::table_spec::TableData::MainText {
+                path: dest,
+                readonly: false,
+                multiline_cols: state.multiline_props.clone(),
+                ref_data: HashMap::new(),
+                title: format!("{collection} {name}"),
+                push_info,
+            });
+        } else {
+            return Some(crate::table_spec::TableData::Ref {
+                path: dest,
+                readonly: false,
+                title: format!("{collection} {name}"),
+                push_info,
+            });
+        }
+    }
     let _ = std::process::Command::new(editor).arg(&dest).spawn();
+    None
 }
 
 // ── push ───────────────────────────────────────────────────────────────────────

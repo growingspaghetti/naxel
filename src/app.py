@@ -524,8 +524,11 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
 
 
 def cmd_clear(repo_root: Path, collection: str, name: str,
-              downloads_dir: Path, editor: str, additional_props: tuple[str, ...] = (), *,
-              field_order: tuple[str, ...] | None = None):
+              downloads_dir: Path, editor: str, additional_props: tuple[str, ...] = (),
+              jtable: bool = False, *,
+              field_order: tuple[str, ...] | None = None,
+              multiline_props: frozenset[str] = frozenset(),
+              push_callback=None):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
@@ -540,7 +543,15 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
         template = ""
     dest.write_text(template)
     print(f"cleared: {dest}")
-    subprocess.Popen([editor, str(dest)])
+    if jtable:
+        if collection == MAIN_COLLECTION:
+            _launch_jtable(path=dest, mode="main_text", multiline_cols=multiline_props,
+                           push_callback=push_callback)
+        else:
+            _launch_jtable(path=dest, mode="ref", title=f"{collection} {name}",
+                           push_callback=push_callback)
+    else:
+        subprocess.Popen([editor, str(dest)])
 
 
 def cmd_get(repo_root: Path, collection: str, name: str,
@@ -1233,7 +1244,7 @@ def usage_string() -> str:
         "  add <collection> <name>\n"
         "  cat <collection> <name> [--jtable]\n"
         "  get <collection> <name> [--jtable]\n"
-        "  clear <collection> <name>\n"
+        "  clear <collection> <name> [--jtable]\n"
         "  len <collection> <name>\n"
         "  push <collection> <name>\n"
         "  export <collection> <file.csv> [--jtable]\n"
@@ -1317,11 +1328,23 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
                     push_callback=_push_cb)
 
     elif cmd == "clear":
-        if len(parts) != 3:
-            print("usage: clear <collection> <name>")
+        jtable = "--jtable" in parts
+        clear_parts = [p for p in parts if p != "--jtable"]
+        if len(clear_parts) != 3:
+            print("usage: clear <collection> <name> [--jtable]")
         else:
-            cmd_clear(repo_root, collection, parts[2], downloads_dir, editor,
-                      additional_props, field_order=field_order)
+            _name = clear_parts[2]
+            _push_cb = None
+            if jtable:
+                def _push_cb(_coll=collection, _n=_name):
+                    cmd_push(repo_root, _coll, _n, downloads_dir,
+                             additional_props, mandatory_ref_props,
+                             field_order=field_order,
+                             prop_validation_types=prop_validation_types,
+                             multiline_props=multiline_props)
+            cmd_clear(repo_root, collection, _name, downloads_dir, editor,
+                      additional_props, jtable=jtable, field_order=field_order,
+                      multiline_props=multiline_props, push_callback=_push_cb)
 
     elif cmd == "len":
         if len(parts) != 3:

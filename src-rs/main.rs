@@ -18,7 +18,7 @@ fn usage(state: &RepoState) {
     let mut colls: Vec<&str> = state.collections.iter().map(|s| s.as_str()).collect();
     colls.sort();
     println!(
-        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  cat <collection> <name> [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name>\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
+        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  cat <collection> <name> [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
         colls.join(", ")
     );
 }
@@ -144,9 +144,10 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
             }
         }
         "clear" => {
-            if parts.len() != 3 { eprintln!("usage: clear <collection> <name>"); }
-            else { cmd_clear(state, collection, parts[2], editor); }
-            None
+            let jtable = parts.contains(&"--jtable");
+            let real_parts: Vec<&str> = parts.iter().filter(|&&p| p != "--jtable").copied().collect();
+            if real_parts.len() != 3 { eprintln!("usage: clear <collection> <name> [--jtable]"); None }
+            else { cmd_clear(state, collection, real_parts[2], editor, jtable) }
         }
         "len" => {
             if parts.len() != 3 { eprintln!("usage: len <collection> <name>"); }
