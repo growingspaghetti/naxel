@@ -182,6 +182,8 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `fullcopy <destination-directory>`                    | Copy the entire repository (all versions) into `<destination-directory>/<repo-name>/` |
 | `fullcopy <destination-directory> --json`             | Create `<destination-directory>/<repo-name>.json` with config and data sections (latest versions only, no history) |
 | `mkrepo <json-file> <destination-directory>`          | Reconstruct a repository from a `fullcopy --json` file into `<destination-directory>/<stem>/` |
+| `partialcopy <collection> <name> <destination-directory>` | Copy the repository into `<destination-directory>/<repo-name>/` (all versions), but erase all entries except `<collection> <name>`: other `.txt.gz` files are replaced with `gzip.compress(b"[]")`, other `.txt` files are empty. Config files are copied as-is. |
+| `partialcopy <collection> <name> <destination-directory> --json` | Create `<destination-directory>/<repo-name>.json` like `fullcopy --json`, but with only `<collection> <name>` carrying real data; all other main-collection entries are `[]` and reference-collection entries are `""`. |
 | `exit`                                   | Quit |
 
 All collections are fully dynamic. The main collection is configured in `repository.ini [main_collection]`; all reference collections come from the file named by `[reference_collections] json`. There are no built-in collections.

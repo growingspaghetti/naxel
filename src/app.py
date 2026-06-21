@@ -966,6 +966,120 @@ def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
     print(f"exported: {dest_file}")
 
 
+def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: str,
+                    json_mode: bool = False):
+    dest_base = Path(destination).resolve()
+    if not dest_base.is_dir():
+        print(f"error: not a directory: {dest_base}")
+        return
+
+    repo_name = repo_root.name
+    encoded_target = encode_name(name)
+
+    if json_mode:
+        dest_file = dest_base / f"{repo_name}.json"
+        if dest_file.exists():
+            print(f"error: already exists: {dest_file}")
+            return
+
+        repo_ini_cfg = configparser.ConfigParser()
+        repo_ini_cfg.read(repo_root / "repository.ini")
+        additional_props_file = repo_ini_cfg.get("additional_properties", "json",
+                                                  fallback="additional_properties.json")
+        ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
+                                                 fallback="additional_mandatory_properties.json")
+
+        repo_ini_path = repo_root / "repository.ini"
+        repo_ini_text = repo_ini_path.read_text() if repo_ini_path.exists() else ""
+
+        try:
+            additional_props_data = json.loads((repo_root / additional_props_file).read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            additional_props_data = []
+
+        try:
+            ref_collections_data = json.loads((repo_root / ref_collections_file).read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            ref_collections_data = []
+
+        data_section: dict[str, dict] = {}
+        for col in sorted(COLLECTIONS):
+            col_path = collection_path(repo_root, col)
+            if not col_path.is_dir():
+                continue
+            suffix = _repo_suffix(col)
+            seen: dict[str, str] = {}
+            try:
+                for fname in sorted(os.listdir(col_path)):
+                    if not fname.endswith(suffix):
+                        continue
+                    stem = fname[: -len(suffix)]
+                    parts = stem.split(".")
+                    if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 4:
+                        seen[parts[0]] = fname
+            except FileNotFoundError:
+                pass
+            col_data: dict = {}
+            for encoded, fname in sorted(seen.items()):
+                entry_name = decode_name(encoded) or encoded
+                if col == collection and encoded == encoded_target:
+                    if col == MAIN_COLLECTION:
+                        col_data[entry_name] = json.loads(
+                            gzip.decompress((col_path / fname).read_bytes()).decode())
+                    else:
+                        col_data[entry_name] = (col_path / fname).read_text()
+                else:
+                    col_data[entry_name] = [] if col == MAIN_COLLECTION else ""
+            data_section[col] = col_data
+
+        output = {
+            "config": {
+                "repository_ini": repo_ini_text,
+                "additional_properties": additional_props_data,
+                "reference_collections": ref_collections_data,
+            },
+            "data": data_section,
+        }
+        dest_file.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
+        print(f"exported: {dest_file}")
+        return
+
+    dest_dir = dest_base / repo_name
+    if dest_dir.exists():
+        print(f"error: already exists: {dest_dir}")
+        return
+
+    dest_dir.mkdir()
+
+    # Copy root-level config files as-is
+    for entry in os.listdir(repo_root):
+        src = repo_root / entry
+        if src.is_file():
+            shutil.copy2(src, dest_dir / entry)
+
+    # Recreate collection directories; copy matching files, touch the rest
+    for col in sorted(COLLECTIONS):
+        col_src = collection_path(repo_root, col)
+        if not col_src.is_dir():
+            continue
+        col_dst = dest_dir / col
+        col_dst.mkdir()
+        try:
+            files = os.listdir(col_src)
+        except FileNotFoundError:
+            continue
+        for fname in files:
+            dst_file = col_dst / fname
+            if col == collection and fname.startswith(encoded_target + "."):
+                shutil.copy2(col_src / fname, dst_file)
+            elif fname.endswith(".gz"):
+                dst_file.write_bytes(gzip.compress(b"[]"))
+            else:
+                dst_file.touch()
+
+    print(f"created: {dest_dir}")
+
+
 def cmd_mkrepo(json_file: str, destination: str):
     json_path = Path(json_file).resolve()
     if not json_path.exists():
@@ -1110,6 +1224,7 @@ def usage_string() -> str:
         "  diff <collection> <name> [--jtable]\n"
         "  fullcopy <destination-directory> [--json]\n"
         "  mkrepo <json-file> <destination-directory>\n"
+        "  partialcopy <collection> <name> <destination-directory> [--json]\n"
         "  exit"
         f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
     )
@@ -1127,7 +1242,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     if cmd == "exit":
         return False
 
-    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export", "diff"):
+    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export", "diff", "partialcopy"):
         if len(parts) < 2:
             print("error: missing collection")
             return True
@@ -1226,6 +1341,14 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: mkrepo <json-file> <destination-directory>")
         else:
             cmd_mkrepo(parts[1], parts[2])
+
+    elif cmd == "partialcopy":
+        json_mode = "--json" in parts
+        pc_parts = [p for p in parts if p != "--json"]
+        if len(pc_parts) != 4:
+            print("usage: partialcopy <collection> <name> <destination-directory> [--json]")
+        else:
+            cmd_partialcopy(repo_root, collection, pc_parts[2], pc_parts[3], json_mode)
 
     else:
         print(f"unknown command: {cmd!r}")

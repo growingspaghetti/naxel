@@ -7,7 +7,7 @@ import app
 from app import (
     encode_name,
     cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len, cmd_diff,
-    cmd_fullcopy, cmd_mkrepo,
+    cmd_fullcopy, cmd_mkrepo, cmd_partialcopy,
     _empty_main_collection_document, _empty_main_collection_json, _text_to_main_collection_json,
 )
 
@@ -1212,4 +1212,189 @@ class TestCmdMkrepo:
         bad = src / "bad.json"
         bad.write_text(json.dumps({"data": {}}))  # missing "config"
         cmd_mkrepo(str(bad), str(dest))
+        assert "error" in capsys.readouterr().out
+
+
+class TestPartialcopy:
+    def _make_repo(self, path):
+        path.mkdir()
+        (path / "systems").mkdir()
+        (path / "schedules").mkdir()
+        (path / "contacts").mkdir()
+        (path / "repository.ini").write_text("")
+        return path
+
+    def _setup_collections(self, repo):
+        app.MAIN_COLLECTION = "systems"
+        app.COLLECTIONS.clear()
+        app.COLLECTIONS.update({"systems", "schedules", "contacts"})
+        app.COLLECTION_TYPE.clear()
+
+    def test_creates_named_directory(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        cmd_partialcopy(repo, "systems", "sys1", str(dest))
+        assert (dest / "my_repo").is_dir()
+        assert "created" in capsys.readouterr().out
+
+    def test_copies_target_entry_files(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        enc = encode_name("sys1")
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "12:00", "v2")), ("notes",))
+        cmd_partialcopy(repo, "systems", "sys1", str(dest))
+        f0 = dest / "my_repo" / "systems" / f"{enc}.0000.txt.gz"
+        f1 = dest / "my_repo" / "systems" / f"{enc}.0001.txt.gz"
+        assert f0.stat().st_size > 0
+        assert f1.stat().st_size > 0
+
+    def test_other_entries_are_gz_empty(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        enc_other = encode_name("sys2")
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        put_system(repo, "sys2", 0, sys_doc(("m2", "09:00", "x")), ("notes",))
+        cmd_partialcopy(repo, "systems", "sys1", str(dest))
+        other_file = dest / "my_repo" / "systems" / f"{enc_other}.0000.txt.gz"
+        assert other_file.exists()
+        assert gzip.decompress(other_file.read_bytes()) == b"[]"
+
+    def test_ref_collection_target_is_copied(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        enc = encode_name("sc1")
+        put_schedule(repo, "sc1", 0, "2024/01/01")
+        cmd_partialcopy(repo, "schedules", "sc1", str(dest))
+        f = dest / "my_repo" / "schedules" / f"{enc}.0000.txt"
+        assert f.read_text() == "2024/01/01"
+
+    def test_ref_collection_other_entries_are_empty(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        enc_other = encode_name("sc2")
+        put_schedule(repo, "sc1", 0, "2024/01/01")
+        put_schedule(repo, "sc2", 0, "2024/06/15")
+        cmd_partialcopy(repo, "schedules", "sc1", str(dest))
+        other_file = dest / "my_repo" / "schedules" / f"{enc_other}.0000.txt"
+        assert other_file.exists()
+        assert other_file.stat().st_size == 0
+
+    def test_config_files_are_copied(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        (repo / "additional_properties.json").write_text('[{"property_name": "notes"}]')
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        cmd_partialcopy(repo, "systems", "sys1", str(dest))
+        assert (dest / "my_repo" / "repository.ini").exists()
+        assert (dest / "my_repo" / "additional_properties.json").read_text() == '[{"property_name": "notes"}]'
+
+    def test_error_dest_not_directory(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        cmd_partialcopy(repo, "systems", "sys1", str(tmp_path / "nonexistent"))
+        assert "error" in capsys.readouterr().out
+
+    def test_error_already_exists(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "my_repo").mkdir()
+        cmd_partialcopy(repo, "systems", "sys1", str(dest))
+        assert "error" in capsys.readouterr().out
+
+    # ── JSON mode ─────────────────────────────────────────────────────────────
+
+    def test_json_creates_named_json_file(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        cmd_partialcopy(repo, "systems", "sys1", str(dest), json_mode=True)
+        assert (dest / "my_repo.json").exists()
+        assert "exported" in capsys.readouterr().out
+
+    def test_json_target_entry_has_real_data(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        cmd_partialcopy(repo, "systems", "sys1", str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert data["data"]["systems"]["sys1"] != []
+
+    def test_json_other_main_entries_are_empty_list(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        put_system(repo, "sys2", 0, sys_doc(("m2", "09:00", "x")), ("notes",))
+        cmd_partialcopy(repo, "systems", "sys1", str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert data["data"]["systems"]["sys2"] == []
+
+    def test_json_target_ref_entry_has_real_data(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_schedule(repo, "sc1", 0, "2024/01/01")
+        cmd_partialcopy(repo, "schedules", "sc1", str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert data["data"]["schedules"]["sc1"] == "2024/01/01"
+
+    def test_json_other_ref_entries_are_empty_string(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_schedule(repo, "sc1", 0, "2024/01/01")
+        put_schedule(repo, "sc2", 0, "2024/06/15")
+        cmd_partialcopy(repo, "schedules", "sc1", str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert data["data"]["schedules"]["sc2"] == ""
+
+    def test_json_includes_config(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        (repo / "additional_properties.json").write_text('[{"property_name": "notes"}]')
+        (repo / "additional_mandatory_properties.json").write_text("[]")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        cmd_partialcopy(repo, "systems", "sys1", str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert "config" in data
+        assert data["config"]["additional_properties"] == [{"property_name": "notes"}]
+
+    def test_json_error_already_exists(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "my_repo.json").write_text("{}")
+        cmd_partialcopy(repo, "systems", "sys1", str(dest), json_mode=True)
+        assert "error" in capsys.readouterr().out
+
+    def test_json_error_dest_not_directory(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._setup_collections(repo)
+        cmd_partialcopy(repo, "systems", "sys1", str(tmp_path / "nonexistent"), json_mode=True)
         assert "error" in capsys.readouterr().out
