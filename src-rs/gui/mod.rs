@@ -59,7 +59,7 @@ fn do_push(info: &PushInfo) {
         multiline_props: info.multiline_props.iter().cloned().collect(),
         intro_message: String::new(),
     };
-    crate::commands::cmd_push(&mini_state, &info.collection, &info.name);
+    crate::commands::cmd_push(&mini_state, &info.collection, &info.name, false);
 }
 
 pub fn show_table(data: TableData) {

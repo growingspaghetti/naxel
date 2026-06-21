@@ -673,13 +673,22 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
              mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
              field_order: tuple[str, ...] | None = None,
              prop_validation_types: dict[str, str] = {},
-             multiline_props: frozenset[str] = frozenset()):
+             multiline_props: frozenset[str] = frozenset(),
+             json_mode: bool = False):
     encoded = encode_name(name)
     src = latest_in_dir(downloads_dir / collection, encoded, ".txt")
     if src is None:
         print(f"error: not found in downloads: {name}")
         return
-    content = src.read_text()
+    if json_mode:
+        raw = json.loads(src.read_text())
+        if collection == MAIN_COLLECTION:
+            content = _main_collection_sections_to_text(raw, additional_props, field_order=field_order)
+        else:
+            values = [v for v in raw if isinstance(v, str)]
+            content = ",".join(values)
+    else:
+        content = src.read_text()
     if not (collection == MAIN_COLLECTION and _is_initial_state_main_collection(
             content, additional_props, field_order=field_order, multiline_props=multiline_props)):
         mandatory_prop_names = frozenset(pname for pname, _, _ in mandatory_ref_props)
@@ -1353,13 +1362,15 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             cmd_len(repo_root, collection, parts[2])
 
     elif cmd == "push":
-        if len(parts) != 3:
-            print("usage: push <collection> <name>")
+        as_json = "--json" in parts
+        push_parts = [p for p in parts if p != "--json"]
+        if len(push_parts) != 3:
+            print("usage: push <collection> <name> [--json]")
         else:
-            cmd_push(repo_root, collection, parts[2], downloads_dir,
+            cmd_push(repo_root, collection, push_parts[2], downloads_dir,
                      additional_props, mandatory_ref_props, field_order=field_order,
                      prop_validation_types=prop_validation_types,
-                     multiline_props=multiline_props)
+                     multiline_props=multiline_props, json_mode=as_json)
 
     elif cmd == "export":
         jtable = "--jtable" in parts

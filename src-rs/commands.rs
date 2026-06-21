@@ -359,14 +359,31 @@ pub fn cmd_clear(
 
 // ── push ───────────────────────────────────────────────────────────────────────
 
-pub fn cmd_push(state: &RepoState, collection: &str, name: &str) {
+pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool) {
     let encoded = encode_name(name);
+    let field_order = state.field_order.as_deref().unwrap_or(&state.additional_props);
     let src = match latest_in_dir(&state.downloads_dir.join(collection), &encoded, ".txt") {
         Some(p) => p,
         None => { eprintln!("error: not found in downloads: {name}"); return; }
     };
-    let content = std::fs::read_to_string(&src).unwrap_or_default();
-    let field_order = state.field_order.as_deref().unwrap_or(&state.additional_props);
+    let raw_text = std::fs::read_to_string(&src).unwrap_or_default();
+    let content = if json_mode {
+        let parsed: serde_json::Value = match serde_json::from_str(&raw_text) {
+            Ok(v) => v,
+            Err(e) => { eprintln!("error: invalid JSON: {e}"); return; }
+        };
+        if collection == state.main_collection {
+            let sections = parsed.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+            sections_to_text(sections, field_order)
+        } else {
+            let values: Vec<&str> = parsed.as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            values.join(",")
+        }
+    } else {
+        raw_text
+    };
 
     let skip_validation = collection == state.main_collection
         && is_initial_state(&content, field_order, &state.multiline_props);

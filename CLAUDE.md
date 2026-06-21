@@ -229,6 +229,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `clear <collection> <name> --jtable`   | Same as `clear` but opens the empty template in an editable JTable window instead of the editor |
 | `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for the main collection, comma-separated entries for all others) |
 | `push <collection> <name>`              | Validate latest `.txt` in `downloads/{collection}/`, write as next version in repo |
+| `push <collection> <name> --json`      | Same as `push` but treats the `.txt` content as JSON and converts it to text first: main collection JSON array of sections → 👉👈 text; reference collection JSON array of strings → comma-separated text |
 | `export <collection> <file.csv>`                      | Sync cache, build CSV from latest versions, save to `downloads/`, open with editor |
 | `export <collection> <file.csv> --jtable`             | Same as `export` but opens the CSV in a JTable window instead of the editor |
 | `export <collection> <file.json>`                     | Sync cache, build JSON array from latest versions, save to `downloads/`, open with editor |

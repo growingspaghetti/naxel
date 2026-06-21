@@ -155,8 +155,10 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
             None
         }
         "push" => {
-            if parts.len() != 3 { eprintln!("usage: push <collection> <name>"); }
-            else { cmd_push(state, collection, parts[2]); }
+            let as_json = parts.contains(&"--json");
+            let push_parts: Vec<&str> = parts.iter().filter(|&&p| p != "--json").copied().collect();
+            if push_parts.len() != 3 { eprintln!("usage: push <collection> <name> [--json]"); }
+            else { cmd_push(state, collection, push_parts[2], as_json); }
             None
         }
         "export" => {
