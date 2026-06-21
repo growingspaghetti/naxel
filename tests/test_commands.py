@@ -506,7 +506,7 @@ class TestCmdExport:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "schedules", "out.csv", downloads, cache, "mousepad")
         content = (downloads / "out.csv").read_text()
-        assert "schedule_name, dates" in content
+        assert "name, values" in content
         assert "sc1, 2020/01/01 2020/06/15" in content
 
     def test_schedules_excludes_initial_state(self, repo, downloads, cache):

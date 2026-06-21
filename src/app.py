@@ -759,24 +759,6 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                             v = " ".join(v.splitlines()).strip()
                         vals.append(v)
                     rows.append(_csv_row(system_name, *vals))
-    elif collection == "schedules":
-        rows.append(_csv_row("schedule_name", "dates"))
-        for encoded, fname in sorted(seen.items()):
-            schedule_name = decode_name(encoded) or encoded
-            content = (col_path / fname).read_text().strip()
-            if not content:
-                continue  # initial state: empty document
-            dates = " ".join(content.split(","))
-            rows.append(_csv_row(schedule_name, dates))
-    elif collection == "contacts":
-        rows.append(_csv_row("contact_name", "numbers"))
-        for encoded, fname in sorted(seen.items()):
-            contact_name = decode_name(encoded) or encoded
-            content = (col_path / fname).read_text().strip()
-            if not content:
-                continue  # initial state: empty document
-            entries = " ".join(content.split(","))
-            rows.append(_csv_row(contact_name, entries))
     else:
         rows.append(_csv_row("name", "values"))
         for encoded, fname in sorted(seen.items()):

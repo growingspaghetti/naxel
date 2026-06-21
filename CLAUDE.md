@@ -254,32 +254,14 @@ sys1, , m2, 12:30, id2, sche7, cont2, ,
 
 One row per section. Multiline fields (`multiline: true` in `additional_properties.json`) are joined with a space. Documents where every field in every section is blank are excluded from the CSV. The first column header is `{partitioning_property}_name` from `repository.ini`. Remaining column headers are the field names as declared (no renaming). Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[main_collection] property_order` in `repository.ini`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
-### schedules
-
-```csv
-schedule_name, dates
-sche1, 1234/11/12 1234/11/12 1234/12/12
-```
-
-Comma-separated dates from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
-
-### contacts
-
-```csv
-contact_name, numbers
-cont1, 03-1234-5678 09012345678 +81-0100-0331
-```
-
-Comma-separated contact strings from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
-
-### dynamic collections
+### schedules, contacts, and dynamic collections
 
 ```csv
 name, values
-teamA, value1 value2 value3
+sche1, 1234/11/12 1234/11/12 1234/12/12
 ```
 
-Comma-separated values from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
+All non-main collections use the same `name, values` header. Comma-separated values from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
 
 Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 

@@ -147,32 +147,14 @@ sys1, , m2, 12:30, id2, sche2, cont2, ,
 - 列の順序は `repository.ini` の `[main_collection] property_order` の設定に従います。
 - `,` / `"` / 改行を含む値はRFC 4180に従いダブルクォートで囲まれます。
 
-### schedules
-
-```csv
-schedule_name, dates
-sche1, 2024/01/01 2024/06/15 2025/03/20
-```
-
-カンマ区切りの日付がスペース区切りに変換されます。
-
-### contacts
-
-```csv
-contact_name, numbers
-cont1, 03-1234-5678 09012345678 +81-0100-0331
-```
-
-カンマ区切りの連絡先がスペース区切りに変換されます。
-
-### 動的コレクション
+### schedules・contacts・動的コレクション
 
 ```csv
 name, values
-teamA, value1 value2 value3
+sche1, 2024/01/01 2024/06/15 2025/03/20
 ```
 
-カンマ区切りの値がスペース区切りに変換されます。
+メインコレクション以外はすべて `name, values` の共通ヘッダーを使用します。カンマ区切りの値はスペース区切りに変換されます。空のエントリは出力されません。
 
 ---
 
