@@ -252,7 +252,9 @@ class JTable:
         self._original: dict[str, dict] = {}   # item_id → original section dict
         self._all_rows: list[tuple] = []        # every data row (original display values)
         self._expanded_rows: list[tuple] = []   # ref columns expanded with content for deep search
+        self._all_item_ids: list[str] = []      # ordered item ids for all rows (edit mode)
         self._search_var: tk.StringVar | None = None
+        self._edit_search_var: tk.StringVar | None = None
         self._count_label: tk.Label | None = None
         self._original_headings: list[str] | None = None  # saved when in lookup mode
 
@@ -279,6 +281,16 @@ class JTable:
             self._search_var = tk.StringVar()
             self._search_var.trace_add("write", self._on_search_changed)
             ttk.Entry(search_frame, textvariable=self._search_var).pack(
+                side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+            self._count_label = tk.Label(search_frame, text="", anchor="e", width=18)
+            self._count_label.pack(side=tk.RIGHT, padx=(4, 0))
+        elif self._diff_data is None and self._mode in ("main_text", "ref") and not self._readonly:
+            search_frame = tk.Frame(self._root)
+            search_frame.pack(side=tk.TOP, fill=tk.X, padx=4, pady=(4, 0))
+            tk.Label(search_frame, text="Search:").pack(side=tk.LEFT)
+            self._edit_search_var = tk.StringVar()
+            self._edit_search_var.trace_add("write", self._on_edit_search_changed)
+            ttk.Entry(search_frame, textvariable=self._edit_search_var).pack(
                 side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
             self._count_label = tk.Label(search_frame, text="", anchor="e", width=18)
             self._count_label.pack(side=tk.RIGHT, padx=(4, 0))
@@ -377,8 +389,11 @@ class JTable:
             iid = self._tree.insert("", tk.END, values=display, tags=(tag,))
             self._original[iid] = sec
             data_rows.append(tuple(display))
+            self._all_item_ids.append(iid)
         if self._search_var is not None:
             self._finish_load(data_rows)
+        elif self._count_label is not None:
+            self._count_label.config(text=f"{len(self._all_item_ids)} rows")
 
     def _load_ref(self):
         content = self._path.read_text(encoding="utf-8").strip()
@@ -395,12 +410,16 @@ class JTable:
             iid = self._tree.insert("", tk.END, values=[val], tags=(tag,))
             self._original[iid] = {"values": val}
             data_rows.append((val,))
+            self._all_item_ids.append(iid)
         if self._search_var is not None:
             self._finish_load(data_rows)
+        elif self._count_label is not None:
+            self._count_label.config(text=f"{len(self._all_item_ids)} rows")
 
     def _save_ref(self):
+        items = self._all_item_ids or list(self._tree.get_children(""))
         values = [str(self._tree.item(item)["values"][0])
-                  for item in self._tree.get_children("")
+                  for item in items
                   if self._tree.item(item)["values"]]
         values = [v for v in values if v]
         self._path.write_text(",".join(values) + "\n" if values else "", encoding="utf-8")
@@ -474,6 +493,24 @@ class JTable:
             for rank, idx in enumerate(matched):
                 tag = "odd" if rank % 2 else ""
                 self._tree.insert("", tk.END, values=list(self._all_rows[idx]), tags=(tag,))
+
+    def _on_edit_search_changed(self, *_):
+        q = (self._edit_search_var.get() if self._edit_search_var else "").strip().lower()
+        for iid in self._all_item_ids:
+            self._tree.detach(iid)
+        pos = 0
+        for iid in self._all_item_ids:
+            vals = self._tree.item(iid)["values"]
+            if not q or any(q in str(v).lower() for v in vals):
+                self._tree.reattach(iid, "", pos)
+                pos += 1
+        self._restripe()
+        total = len(self._all_item_ids)
+        if self._count_label:
+            if not q or pos == total:
+                self._count_label.config(text=f"{total} rows")
+            else:
+                self._count_label.config(text=f"{pos} / {total} rows")
 
     def _sort(self, col: str, reverse: bool):
         items = [(self._tree.set(k, col), k) for k in self._tree.get_children("")]
@@ -555,10 +592,17 @@ class JTable:
             self._tree.item(item, tags=(tag,))
 
     def _add_row(self):
+        if self._edit_search_var:
+            self._edit_search_var.set("")  # reattach all rows before inserting
         empty = [""] * len(self._columns)
         selected = self._tree.selection()
-        idx = self._tree.index(selected[0]) + 1 if selected else tk.END
-        iid = self._tree.insert("", idx, values=empty)
+        if selected:
+            idx = self._tree.index(selected[0]) + 1
+            iid = self._tree.insert("", idx, values=empty)
+            self._all_item_ids.insert(idx, iid)
+        else:
+            iid = self._tree.insert("", tk.END, values=empty)
+            self._all_item_ids.append(iid)
         self._original[iid] = {col: "" for col in self._columns}
         self._restripe()
         self._tree.selection_set(iid)
@@ -569,9 +613,12 @@ class JTable:
         if not selected:
             return
         src = selected[0]
-        iid = self._tree.insert("", self._tree.index(src) + 1,
-                                values=self._tree.item(src)["values"])
+        if self._edit_search_var:
+            self._edit_search_var.set("")  # reattach all rows before inserting
+        idx = self._tree.index(src) + 1
+        iid = self._tree.insert("", idx, values=self._tree.item(src)["values"])
         self._original[iid] = self._original.get(src, {}).copy()
+        self._all_item_ids.insert(idx, iid)
         self._restripe()
         self._tree.selection_set(iid)
         self._tree.see(iid)
@@ -580,13 +627,26 @@ class JTable:
         selected = self._tree.selection()
         if not selected:
             return
-        self._original.pop(selected[0], None)
-        self._tree.delete(selected[0])
+        iid = selected[0]
+        self._original.pop(iid, None)
+        try:
+            self._all_item_ids.remove(iid)
+        except ValueError:
+            pass
+        self._tree.delete(iid)
         self._restripe()
+        if self._count_label and self._edit_search_var is not None:
+            q = self._edit_search_var.get().strip().lower()
+            total = len(self._all_item_ids)
+            visible = len(self._tree.get_children(""))
+            if not q or visible == total:
+                self._count_label.config(text=f"{total} rows")
+            else:
+                self._count_label.config(text=f"{visible} / {total} rows")
 
     def _save(self):
         new_sections: list[dict] = []
-        for item in self._tree.get_children(""):
+        for item in (self._all_item_ids or list(self._tree.get_children(""))):
             values = self._tree.item(item)["values"]
             original = self._original.get(item, {})
             section: dict[str, str] = {}
