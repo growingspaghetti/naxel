@@ -233,7 +233,7 @@ class JTable:
     def __init__(self, path: str | Path | None = None, mode: str = "csv",
                  readonly: bool = False, diff_data: dict | None = None,
                  title: str | None = None, multiline_cols: frozenset = frozenset(),
-                 ref_data: dict | None = None):
+                 ref_data: dict | None = None, push_callback=None):
         """
         mode          : "csv" for CSV files, "main_text" for 👉👈 text files
         readonly      : hide Save button and disable editing (cat --jtable)
@@ -249,6 +249,7 @@ class JTable:
         self._diff_data = diff_data
         self._multiline_cols = multiline_cols
         self._ref_data: dict[str, dict[str, str]] = ref_data or {}
+        self._push_callback = push_callback
         self._columns: list[str] = []
         self._original: dict[str, dict] = {}   # item_id → original section dict
         self._all_rows: list[tuple] = []        # every data row (original display values)
@@ -269,7 +270,8 @@ class JTable:
             btn_frame = tk.Frame(self._root)
             btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 4))
             save_cmd = self._save if self._mode == "main_text" else self._save_ref
-            tk.Button(btn_frame, text="Save", command=save_cmd).pack(side=tk.RIGHT)
+            btn_label = "Save & Push" if self._push_callback else "Save"
+            tk.Button(btn_frame, text=btn_label, command=save_cmd).pack(side=tk.RIGHT)
             tk.Button(btn_frame, text="Delete Row", command=self._delete_row).pack(side=tk.LEFT, padx=(0, 2))
             if self._mode == "main_text":
                 tk.Button(btn_frame, text="Duplicate Row", command=self._duplicate_row).pack(side=tk.LEFT, padx=(0, 2))
@@ -426,6 +428,8 @@ class JTable:
         values = [v for v in values if v]
         self._path.write_text(",".join(values) + "\n" if values else "", encoding="utf-8")
         print(f"saved: {self._path}", flush=True)
+        if self._push_callback:
+            self._push_callback()
 
     def _finish_load(self, data_rows: list[tuple]):
         self._all_rows = data_rows
@@ -686,6 +690,8 @@ class JTable:
             new_sections.append(section)
         self._path.write_text(_sections_to_text(new_sections), encoding="utf-8")
         print(f"saved: {self._path}", flush=True)
+        if self._push_callback:
+            self._push_callback()
 
     def run(self):
         self._root.mainloop()

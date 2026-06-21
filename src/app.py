@@ -537,7 +537,8 @@ def cmd_get(repo_root: Path, collection: str, name: str,
             additional_props: tuple[str, ...] = (), jtable: bool = False, *,
             field_order: tuple[str, ...] | None = None,
             multiline_props: frozenset[str] = frozenset(),
-            stdin_content: str | None = None):
+            stdin_content: str | None = None,
+            push_callback=None):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
@@ -561,9 +562,11 @@ def cmd_get(repo_root: Path, collection: str, name: str,
     print(f"saved: {dest}")
     if jtable:
         if collection == MAIN_COLLECTION:
-            _launch_jtable(path=dest, mode="main_text", multiline_cols=multiline_props)
+            _launch_jtable(path=dest, mode="main_text", multiline_cols=multiline_props,
+                           push_callback=push_callback)
         else:
-            _launch_jtable(path=dest, mode="ref", title=f"{collection} {name}")
+            _launch_jtable(path=dest, mode="ref", title=f"{collection} {name}",
+                           push_callback=push_callback)
     else:
         subprocess.Popen([editor, str(dest)])
 
@@ -1285,9 +1288,19 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: get <collection> <name> [--jtable] [-]")
         else:
             stdin_content = sys.stdin.read() if stdin_flag else None
-            cmd_get(repo_root, collection, get_parts[2], downloads_dir, editor,
+            _name = get_parts[2]
+            _push_cb = None
+            if jtable:
+                def _push_cb(_coll=collection, _n=_name):
+                    cmd_push(repo_root, _coll, _n, downloads_dir,
+                             additional_props, mandatory_ref_props,
+                             field_order=field_order,
+                             prop_validation_types=prop_validation_types,
+                             multiline_props=multiline_props)
+            cmd_get(repo_root, collection, _name, downloads_dir, editor,
                     additional_props, jtable=jtable, field_order=field_order,
-                    multiline_props=multiline_props, stdin_content=stdin_content)
+                    multiline_props=multiline_props, stdin_content=stdin_content,
+                    push_callback=_push_cb)
 
     elif cmd == "clear":
         if len(parts) != 3:

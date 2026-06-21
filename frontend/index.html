@@ -96,7 +96,7 @@ button.primary:hover { background: #3a8eef; }
   <button id="btn-add">Add Row</button>
   <button id="btn-dup" style="display:none">Duplicate Row</button>
   <button id="btn-del">Delete Row</button>
-  <button id="btn-save" class="primary">Save</button>
+  <button id="btn-save" class="primary">Save &amp; Push</button>
 </div>
 
 <div id="ctx-menu">
@@ -557,7 +557,7 @@ document.getElementById('btn-save').addEventListener('click', async () => {
     content = vals.length ? vals.join(',')+'\n' : '';
   }
   try {
-    await window.__TAURI__.core.invoke('save_file', { path: filePath, content });
+    await window.__TAURI__.core.invoke('save_and_push', { path: filePath, content });
   } catch(e) {
     alert('Save failed: '+e);
   }

@@ -140,6 +140,7 @@ pub fn cmd_cat(
                 multiline_cols: state.multiline_props.clone(),
                 ref_data,
                 title: format!("{collection} {name}"),
+                push_info: None,
             });
         } else {
             let dest = dl_dir.join(filepath.file_name().unwrap());
@@ -149,6 +150,7 @@ pub fn cmd_cat(
                 path: dest,
                 readonly: true,
                 title: format!("{collection} {name}"),
+                push_info: None,
             });
         }
     }
@@ -210,6 +212,25 @@ pub fn cmd_get(
     println!("saved: {}", dest.display());
 
     if jtable {
+        let push_info = Some(crate::table_spec::PushInfo {
+            repo_root: state.repo_root.clone(),
+            downloads_dir: state.downloads_dir.clone(),
+            main_collection: state.main_collection.clone(),
+            collection: collection.to_string(),
+            name: name.to_string(),
+            additional_props: state.additional_props.clone(),
+            field_order: state.field_order.clone(),
+            prop_validation_types: state.prop_validation_types.clone(),
+            multiline_props: state.multiline_props.iter().cloned().collect(),
+            mandatory_ref_props: state.mandatory_ref_props.iter().map(|m| {
+                crate::table_spec::SerMandatoryRefProp {
+                    property_name: m.property_name.clone(),
+                    collection_name: m.collection_name.clone(),
+                    whitelist: m.whitelist.iter().cloned().collect(),
+                }
+            }).collect(),
+            collection_type: state.collection_type.clone(),
+        });
         if collection == state.main_collection {
             return Some(crate::table_spec::TableData::MainText {
                 path: dest,
@@ -217,12 +238,14 @@ pub fn cmd_get(
                 multiline_cols: state.multiline_props.clone(),
                 ref_data: HashMap::new(),
                 title: format!("{collection} {name}"),
+                push_info,
             });
         } else {
             return Some(crate::table_spec::TableData::Ref {
                 path: dest,
                 readonly: false,
                 title: format!("{collection} {name}"),
+                push_info,
             });
         }
     }

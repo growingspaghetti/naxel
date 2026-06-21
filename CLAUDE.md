@@ -18,6 +18,59 @@ Batch mode: runs the `&&`-separated commands sequentially, then exits without en
 cat foo_main.txt | python3 src/app.py -c 'add systems foo && get systems foo - && push systems foo && diff systems foo'
 ```
 
+## Tauri/Rust version
+
+A parallel Rust implementation lives in `src-rs/`. It exposes the same REPL commands and reads the same `settings.ini`, `repository.ini`, and JSON config files. The produced binary is `naxel`.
+
+### How to build and run
+
+```
+cargo build                       # debug build → target/debug/naxel
+cargo build --release             # release build → target/release/naxel
+./target/debug/naxel              # start REPL
+./target/debug/naxel -c 'cmd1 && cmd2 && ...'   # batch mode
+```
+
+### Tauri project layout
+
+```
+src-rs/
+  main.rs           REPL entry point; also handles --table mode for table windows
+  commands.rs       all command implementations (cmd_ls, cmd_get, cmd_push, …)
+  repo.rs           RepoState struct, initialize_repo, sync_cache, build_ref_data
+  config.rs         settings.ini loading (AppConfig)
+  encoding.rs       base32 encode/decode, latest_in_dir, repo_namespace
+  formats.rs        👉👈 ↔ JSON conversion, empty templates
+  validation.rs     validate_main_collection, validate_ref_collection
+  table_spec.rs     TableData enum + PushInfo struct (serialised between REPL and table window)
+  gui/
+    mod.rs          Tauri commands (get_table_data, read_file, save_file, save_and_push), show_table
+    query.rs        query parser (mirrors the JS parser in frontend/index.html)
+frontend/
+  index.html        single-file HTML/JS table UI (loaded by the Tauri webview)
+Cargo.toml
+tauri.conf.json
+build.rs
+```
+
+### Dual-mode binary
+
+The binary runs in two modes selected by the first argument:
+
+- **REPL mode** (default): reads `settings.ini`, initialises the repo, starts a `rustyline` REPL identical in behaviour to `python3 src/app.py`.
+- **Table mode** (`--table`): reads a `TableData` JSON blob from stdin and opens a Tauri webview window. Spawned automatically by the REPL via `spawn_table` whenever a `--jtable` command produces a table to display; the REPL continues immediately (fire-and-forget).
+
+`TableData` (defined in `table_spec.rs`) is the serialisable description passed from the REPL process to the table subprocess:
+
+| Variant      | Used by |
+|--------------|---------|
+| `Csv`        | `export --jtable` |
+| `MainText`   | `cat --jtable` (readonly) and `get --jtable` (editable) on the main collection |
+| `Ref`        | `cat --jtable` / `get --jtable` on reference collections |
+| `Diff`       | `diff --jtable` |
+
+`MainText` and `Ref` carry an optional `PushInfo` field containing all repo state needed for push (repo root, downloads dir, validation config, mandatory ref props, …). This is populated by `cmd_get` when building editable windows and left `None` for readonly windows (`cat --jtable`). The `save_and_push` Tauri command in `gui/mod.rs` reconstructs a minimal `RepoState` from `PushInfo` and calls `cmd_push` after saving.
+
 ## Project layout
 
 ```
@@ -169,7 +222,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `cat <collection> <name>`               | Print latest version content to stdout (decompresses the main collection) |
 | `cat <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open read-only JTable window |
 | `get <collection> <name>`               | Copy latest version to `downloads/{collection}/` as `.txt`, open with editor |
-| `get <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open editable JTable window. Main collection: Save / Add Row / Duplicate Row / Delete Row. Reference collections: Save / Add Row / Delete Row. |
+| `get <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open editable JTable window. Main collection: Save & Push / Add Row / Duplicate Row / Delete Row. Reference collections: Save & Push / Add Row / Delete Row. |
 | `get <collection> <name> -`             | Write stdin to `downloads/{collection}/` (same filename as `get`) without opening an editor; intended for use with `-c` batch mode pipelines |
 | `clear <collection> <name>`             | Write empty document template to `downloads/{collection}/` (same filename as `get`), open with editor |
 | `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for the main collection, comma-separated entries for all others) |
@@ -358,6 +411,7 @@ Errors if the JSON file does not exist, the destination is not a directory, the 
 - `load_additional_properties(repo_root, filename)` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `initialize_repo` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch main-collection text; JTable receives it as `multiline_cols`.
 - `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `mandatory_prop_names` (the `frozenset` passed to `_validate_main_collection`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to every declared reference prop.
 - `field_order` is a `tuple[str, ...]` of all main-collection field names in the display/validation order dictated by `[main_collection] property_order` in `repository.ini`. It is computed once in `initialize_repo` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
+- The "Save & Push" button in editable JTable windows (`get --jtable`) saves the downloads file and immediately runs the equivalent of `push`. In the Python version (`gui.py`) this is a `push_callback` closure threaded from `dispatch` into `JTable`. In the Tauri version, `cmd_get` serialises all necessary repo state into a `PushInfo` struct stored in `TableData::MainText`/`TableData::Ref`; the table subprocess exposes a `save_and_push` Tauri command that reconstructs a minimal `RepoState` from `PushInfo` and calls `cmd_push`. Push output (success/rejection messages) goes to the terminal in both versions.
 
 ## JTable GUI (`src/gui.py`)
 
@@ -365,22 +419,23 @@ Errors if the JSON file does not exist, the destination is not a directory, the 
 
 ```python
 JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None,
-       multiline_cols=frozenset(), ref_data=None).run()
+       multiline_cols=frozenset(), ref_data=None, push_callback=None).run()
 ```
 
 | Parameter      | Values / meaning |
 |----------------|-----------------|
 | `path`         | File to display (CSV or 👉👈 `.txt`) |
 | `mode`         | `"csv"` — parse as CSV (export); `"main_text"` — parse 👉👈 format (main collection); `"ref"` — parse comma-separated `.txt` as a single-column `"values"` table (reference collections) |
-| `readonly`     | `True` suppresses Save/row-edit buttons (`cat --jtable`) |
+| `readonly`     | `True` suppresses Save & Push/row-edit buttons (`cat --jtable`) |
+| `push_callback` | Callable invoked after saving; when set, the save button is labelled "Save & Push" and calls this after writing the file. Passed from `dispatch` in `app.py` for `get --jtable`. |
 | `diff_data`    | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
 | `title`        | Window title (defaults to filename or `"diff"`) |
 | `multiline_cols` | `frozenset[str]` of column names whose cells open a modal text-editor dialog on double-click instead of an inline entry. Passed from `multiline_props` in `app.py`. |
 | `ref_data`     | `{property_name: {entry_name: content}}` — reference collection data used by the search bar for deep search. Built by `build_ref_data(cache_dir, mandatory_ref_props)` in `app.py` and passed to `cmd_cat` for `cat --jtable`. |
 
-**Main-collection editable mode** (`mode="main_text"`, `readonly=False`) features: simple search bar at the top, double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save.
+**Main-collection editable mode** (`mode="main_text"`, `readonly=False`) features: simple search bar at the top, double-click cell to edit inline (Entry overlay), Save & Push button writes 👉👈 format back to the downloads file and immediately calls `push_callback` (if set), Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save & Push.
 
-**Reference-collection mode** (`mode="ref"`): displays the comma-separated `.txt` file as a single-column table with header `"values"` — one row per value. Readonly (`cat --jtable`): sortable, search bar shown. Editable (`get --jtable`): simple search bar at the top, double-click a cell to edit inline, Save writes back as `val1,val2,...\n` (empty rows are excluded), Add Row / Delete Row buttons. No Duplicate Row button.
+**Reference-collection mode** (`mode="ref"`): displays the comma-separated `.txt` file as a single-column table with header `"values"` — one row per value. Readonly (`cat --jtable`): sortable, search bar shown. Editable (`get --jtable`): simple search bar at the top, double-click a cell to edit inline, Save & Push writes back as `val1,val2,...\n` (empty rows are excluded) and immediately calls `push_callback`, Add Row / Delete Row buttons. No Duplicate Row button.
 
 **Diff mode** (`diff_data` provided): read-only, deleted rows shown in red with `−`, added rows in green with `+`. Data columns are sortable. No search bar.
 
