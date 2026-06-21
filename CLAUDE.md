@@ -73,7 +73,7 @@ Located at `{repo_root}/{filename}` where `filename` is the value of `[additiona
 | Field             | Meaning |
 |-------------------|---------|
 | `property_name`   | Field name appended to each main-collection section |
-| `validation_type` | `"NONE"` — no validation (value may be empty); `"NOT_EMPTY"` — `push` rejects empty values; `"HH:MM"` — `push` rejects values that don't match `\d{2}:\d{2}`; `"MM/DD"` — `push` rejects values that don't match `\d{2}/\d{2}`; `"INT"` — `push` rejects values that don't match `[0-9]+`; `"RE:<pattern>"` — `push` rejects values that don't fully match the regex `<pattern>` (via `re.fullmatch`). Defaults to `"NONE"` if omitted. |
+| `validation_type` | `"NONE"` — no validation (value may be empty); `"NOT_EMPTY"` — `push` rejects empty values; `"HH:MM"` — `push` rejects values that don't match `\d{2}:\d{2}`; `"MM/DD"` — `push` rejects values that don't match `\d{2}/\d{2}`; `"INT"` — `push` rejects values that don't match `[0-9]+`; `"YYYY"` — `push` rejects values that don't match `\d{4}`; `"RE:<pattern>"` — `push` rejects values that don't fully match the regex `<pattern>` (via `re.fullmatch`). Defaults to `"NONE"` if omitted. |
 | `multiline`       | `true` — field value spans multiple lines until the next label; stored with `"\n"` in JSON, joined with `" "` in CSV export. `false` or absent — single-line field. In JTable editable mode, double-clicking a multiline cell opens a modal text-editor dialog instead of an inline entry. |
 
 If the file is absent, no additional properties are used. Non-object entries in the array are silently ignored.
@@ -94,7 +94,7 @@ Located at `{repo_root}/{filename}` where `filename` is the value of `[reference
 |-------------------|---------|
 | `collection_name` | Directory name in the repo (e.g. `teams/`); also the collection name used in commands |
 | `property_name`   | The main-collection field that references this collection; validated on push |
-| `type`            | Content validation applied on `push`: `"DATE"` — comma-separated `yyyy/mm/dd` dates; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+` strings; `"EMAIL"` — comma-separated `user@domain.tld` addresses; `"NOTE"` or absent — no content validation. |
+| `type`            | Content validation applied on `push`: `"DATE"` — comma-separated `yyyy/mm/dd` dates; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+` strings; `"EMAIL"` — comma-separated `user@domain.tld` addresses; `"YEAR"` — comma-separated `\d{4}` years; `"NOTE"` or absent — no content validation. |
 | `whitelist`       | Optional JSON array of string values accepted without checking the collection (e.g. `["everyday", "weekends"]`). Omit or use `[]` for no whitelist. |
 
 At startup the app reads this file and for each entry:
@@ -221,7 +221,7 @@ There are no hardcoded core fields. All fields — including `notes`, `machine`,
 
 Validation rules enforced on `push` (applied to the 👉👈 text before conversion):
 - Every section must begin with the exact separator.
-- Each optional additional property label (`additional_properties.json`) must be present; its value is validated according to its `validation_type`: `NONE` — any value (including empty); `NOT_EMPTY` — rejects empty; `HH:MM` — rejects values not matching `\d{2}:\d{2}`; `RE:<pattern>` — rejects values that don't fully match the regex pattern. Multiline fields (`multiline: true`) consume all lines until the next label or separator.
+- Each optional additional property label (`additional_properties.json`) must be present; its value is validated according to its `validation_type`: `NONE` — any value (including empty); `NOT_EMPTY` — rejects empty; `HH:MM` — rejects values not matching `\d{2}:\d{2}`; `YYYY` — rejects values not matching `\d{4}`; `RE:<pattern>` — rejects values that don't fully match the regex pattern. Multiline fields (`multiline: true`) consume all lines until the next label or separator.
 - Each mandatory property label (`additional_mandatory_properties.json` `property_name`, including `schedule` and `contact` when declared there) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection, or appear in the `"whitelist"` array for that prop. One `os.listdir` call per distinct collection per push.
 - **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), **or if the file content is empty/whitespace** (e.g. all rows deleted via the JTable GUI), the push is accepted without validation and the empty template (`_empty_main_collection_json`) is written to the repo.
 
