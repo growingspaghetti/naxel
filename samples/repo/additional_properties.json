@@ -1,0 +1,6 @@
+[
+  {"property_name": "notes",  "validation_type": "NONE",      "multiline": true},
+  {"property_name": "id",     "validation_type": "RE:[^#]+"},
+  {"property_name": "status", "validation_type": "NOT_EMPTY"},
+  {"property_name": "time",   "validation_type": "HH:MM"}
+]

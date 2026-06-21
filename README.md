@@ -1,233 +1,311 @@
-# repo-manipulator
+# naxel
 
-repo-manipulator manipulates data in a NAS repository using commands.
+A command-line tool for managing structured data stored in a file-based repository (local or NAS). Data lives in versioned, directory-organised files; naxel provides a REPL with commands for browsing, editing, validating, and exporting records — plus an optional JTable GUI for visual editing.
 
-You can exit app using `exit` command.
+A parallel Rust/Tauri implementation (`src-rs/`) provides the same REPL plus native table windows via a bundled webview.
 
-# commands
-```
-ls systems # list system names in /systems/ decoding base32
-add systems sys3 # create a file with the system name in /systems/ encoding base32
-cat systems sys4 # print contents finding the maching file by name
-cat systems sys3 --jtable # show the contents finding the maching file by name, and open it with jtable gui.
-get systems sys3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
-get systems sys3 --jtable # get the contents finding the maching file by name, save it in downloaads, then open it with jtable gui.
-clear systems sys3 # like `get` command this opens the editor but with the empty system document.
-len systems sys3 # prints "%d" that is the length of the non-empty records contained in this system document.
-diff systems sys3 # compares the objects in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
-diff systems sys3 --jtable # compares the objects in the latest version in the repository with those of the previous one and shows difference in jtable gui.
-push systems sys3 # reads the contents after finding the file in downloads, then write it in the file in the repository.
+---
 
-ls schedules # list schedule names in /schedules/ decoding base32
-add schedules sc1 # create a file with the schedule name in /schedules/ encoding base32
-cat schedules sc4 # print contents finding the maching file by name
-get schedules sc3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
-clear schedules sc3 # like `get` command this opens the editor but with the empty schedule document.
-len schedules sc3 # prints "%d" that is how many dates contained in this schedule document.
-diff schedules sys3 # compares the dates in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
-diff schedules sys3 --jtable # compares the dates in the latest version in the repository with those of the previous one and shows difference in jtable gui.
-push schedules sc3 # reads the contents after finding the file in downloads, then write it in the file in the repository
+## Screenshots
 
-ls contacts # list contact names in /contacts/ decoding base32
-add contacts cont1 # create a file with the contact name in /contacts/ encoding base32
-cat contacts cont4 # print contents finding the maching file by name
-get contacts cont3 # get the contents finding the maching file by name, save it in downloads, then open it with the editor written below (mousepad).
-clear contacts c3 # like `get` command this opens the editor but with the empty contact document.
-len contacts c3 # prints "%d" that is how many contacts contained in this contact document.
-diff contacts c3 # compares the phone numbers in the latest version in the repository with those of the previous one and shows difference in json having "deleted" and "added".
-diff contacts c3 --jtable # compares the phone numbers in the latest version in the repository with those of the previous one and shows difference in jtable gui.
-push contact c3 # reads the contents after finding the file in downloads, then write it in the file in the repository
+### REPL session
 
-export systems foo.csv # export data in systems to the csv and open with the editor.
-export schedules bar.csv # export data in schedules to the csv and open with the editor.
-export contacts baz.csv # export data in contacts to the csv and open with the editor.
+![REPL session](readme-imgs/repl-session.png)
 
-export systems foo.csv --jtable # export data in systems to the csv and open it with jtable gui.
-export schedules bar.csv --jtable # export data in schedules to the csv and open it with jtable gui.
-export contacts baz.csv --jtable # export data in contacts to the csv and open it with jtable gui.
+### JTable — main collection (editable)
 
-exit # terminates this application
+![JTable main collection](readme-imgs/jtable-main.png)
+
+### JTable — export / cat (read-only with search)
+
+![JTable export](readme-imgs/jtable-export.png)
+
+### JTable — diff view
+
+![JTable diff](readme-imgs/jtable-diff.png)
+
+---
+
+## Quick Start
+
+**Requirements:** Python 3.10+
+
+```sh
+git clone <this-repo>
+cd naxel
 ```
 
-# developing language
-python
+### Try the sample repository
 
-# NAS repository structure
-/systems/
-base32-named-sys1.txt
-base32-named-sys2.txt
+The `samples/` directory contains a ready-to-run server-inventory repository with pre-populated data. `settings.ini` already points to it, so just run:
+
+```sh
+python3 src/app.py
+```
+
+Inside the REPL:
+
+```
+> ls systems
+db-01
+web-01
+web-02
+
+> cat systems web-01
+🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
+👉team👈
+backend
+👉notes👈
+Primary web server.
+Handles all public traffic.
+👉id👈
+WEB-001
+👉status👈
+active
+👉time👈
+09:00
+👉schedule👈
+business-hours
+👉contact👈
+ops-team
 ...
 
-/schedules/
-base32-named-schedule-name1.txt
-base32-named-schedule-name2.txt
-...
+> export systems inventory.csv --jtable
+```
 
-/contacts/
-base32-named-contact-name1.txt
-base32-named-contact-name2.txt
-...
+### Use your own repository
 
-# how to specify repository path
-repository.root in settings.ini (use `dummy-repo` while developing)
+1. Create a repository directory and add `repository.ini` (see [Configuration](#configuration)).
+2. Edit `settings.ini` at the project root and set `repository.root` to your directory.
+3. Run `python3 src/app.py`.
 
+---
 
+## Commands
 
-# editor to launch
-mouthpad
+| Command | Description |
+|---|---|
+| `ls <collection>` | List all entry names in the collection |
+| `add <collection> <name>` | Create a new entry with a blank template |
+| `cat <collection> <name>` | Print the latest version to stdout |
+| `cat <collection> <name> --jtable` | Open the latest version in a read-only JTable window |
+| `cat <collection> <name> --json` | Print the latest version as JSON |
+| `get <collection> <name>` | Download the latest version and open it in your editor |
+| `get <collection> <name> --jtable` | Download and open in an editable JTable window |
+| `get <collection> <name> -` | Download; read new content from stdin (for pipelines) |
+| `clear <collection> <name>` | Write a blank template and open it in your editor |
+| `clear <collection> <name> --jtable` | Write a blank template and open it in JTable |
+| `len <collection> <name>` | Print the number of non-empty records |
+| `push <collection> <name>` | Validate the downloaded file and write it as the next version |
+| `push <collection> <name> --json` | Same, but treat the downloaded file as JSON and convert first |
+| `diff <collection> <name>` | Compare the latest two versions; print JSON with `deleted`/`added` |
+| `diff <collection> <name> --jtable` | Same comparison in a colour-coded JTable window |
+| `export <collection> <file.csv>` | Build a CSV from all entries and open it in your editor |
+| `export <collection> <file.csv> --jtable` | Same, but open in JTable |
+| `export <collection> <file.json>` | Build a JSON file from all entries |
+| `fullcopy <dest-dir>` | Copy the entire repository (all versions) into `<dest-dir>/<repo-name>/` |
+| `fullcopy <dest-dir> --json` | Snapshot the repository (latest versions only) as a single JSON file |
+| `mkrepo <json-file> <dest-dir>` | Reconstruct a repository from a `fullcopy --json` snapshot |
+| `partialcopy <collection> <name> <dest-dir>` | Copy the repository but blank out all entries except one |
+| `partialcopy <collection> <name> <dest-dir> --json` | Same as a JSON snapshot |
+| `cd <path>` | Switch to a different repository |
+| `exit` | Quit |
 
-# document formats
+### Batch mode
 
-## system
-repetition of this section.
+Run commands non-interactively with `-c`:
+
+```sh
+python3 src/app.py -c 'ls systems && cat systems web-01'
+```
+
+Chain a pipeline:
+
+```sh
+cat my-edited-file.txt | python3 src/app.py -c 'get systems web-01 - && push systems web-01'
+```
+
+---
+
+## Configuration
+
+### `settings.ini` (project root)
+
+```ini
+[repository]
+root = /path/to/your/repo   # or a relative path such as dummy-repo
+
+[downloads]
+dir = downloads             # where edited files are staged
+
+[cache]
+dir = cache                 # local mirror synced from the repo at startup
+
+[editor]
+command = mousepad          # editor opened by get / clear / export
+```
+
+### `repository.ini` (repo root)
+
+```ini
+[introduction]
+message = Optional greeting shown at startup.
+
+[main_collection]
+collection_name = systems       # directory name and collection name for the main collection
+partitioning_property = system  # first CSV column header becomes "{this}_name"
+property_order = team,notes,id  # fields that appear first; others follow in declaration order
+
+[additional_properties]
+json = additional_properties.json
+
+[reference_collections]
+json = additional_mandatory_properties.json
+```
+
+### `additional_properties.json`
+
+Optional fields appended to every main-collection record:
+
+```json
+[
+  {"property_name": "notes",  "validation_type": "NONE",      "multiline": true},
+  {"property_name": "id",     "validation_type": "RE:[^#]+"},
+  {"property_name": "status", "validation_type": "NOT_EMPTY"},
+  {"property_name": "time",   "validation_type": "HH:MM"}
+]
+```
+
+| `validation_type` | Rule enforced on `push` |
+|---|---|
+| `NONE` | Any value, including empty |
+| `NOT_EMPTY` | Rejects empty values |
+| `HH:MM` | Must match `\d{2}:\d{2}` |
+| `MM/DD` | Must match `\d{2}/\d{2}` |
+| `INT` | Must match `[0-9]+` |
+| `YYYY` | Must match `\d{4}` |
+| `RE:<pattern>` | Must fully match the given regex |
+
+Set `"multiline": true` for fields that can span multiple lines. In JTable, double-clicking a multiline cell opens a modal editor instead of inline editing.
+
+### `additional_mandatory_properties.json`
+
+Dynamic reference collections — each entry defines a collection of valid values:
+
+```json
+[
+  {"collection_name": "teams",     "property_name": "team",     "type": "NOTE",         "whitelist": []},
+  {"collection_name": "schedules", "property_name": "schedule", "type": "DATE",         "whitelist": ["everyday", "weekends"]},
+  {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER", "whitelist": ["none"]}
+]
+```
+
+On `push`, every `property_name` field in main-collection records must be non-empty and must name an existing entry in the corresponding `collection_name` collection (or appear in its `whitelist`).
+
+| `type` | Format validated in reference entries |
+|---|---|
+| `NOTE` | No validation |
+| `DATE` | Comma-separated `yyyy/mm/dd` |
+| `PHONE_NUMBER` | Comma-separated `[0-9\-\+]+` |
+| `EMAIL` | Comma-separated `user@domain.tld` |
+| `YEAR` | Comma-separated `\d{4}` |
+
+---
+
+## Document Formats
+
+### Main collection — editing format (👉👈)
+
+`get` and `cat` show records in this separator format. `push` accepts it and converts to JSON before writing.
+
 ```
 🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
-👉machine👈
-m1
-👉id👈
-id1
-👉schedule👈
-sche1
-👉time👈
-12:03
+👉team👈
+backend
 👉notes👈
-some
-memo
-here
-👉contact👈
-con4
-👉mandatory-prop1👈
-
-👉props1👈
-
-👉props2👈
-
-👉props3👈
-
-```
-
-```
-🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
-👉machine👈
-m1
+Primary web server.
+Handles all public traffic.
 👉id👈
-id12
-👉schedule👈
-sche1
+WEB-001
+👉status👈
+active
 👉time👈
-02:23
-👉notes👈
-some
-memo
-here
-👉contact👈
-c3
-👉mandatory-prop1👈
-japan
-👉props1👈
-
-👉props2👈
-
-👉props3👈
-
-🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
-👉machine👈
-m2
-👉id👈
-1222
+09:00
 👉schedule👈
-sche8
-👉time👈
-12:22
-👉notes👈
-optional
+business-hours
 👉contact👈
-con5
-👉mandatory-prop1👈
-canada
-👉props1👈
-
-👉props2👈
-
-👉props3👈
-
+ops-team
 ```
 
-### empty system document
-```
-🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
-👉machine👈
+Multiple records per file are separated by the `🏔` line. The blank template written by `add`/`clear` has the same structure with empty values.
 
-👉id👈
+### Reference collections
 
-👉schedule👈
-
-👉time👈
-
-👉notes👈
-
-👉contact👈
-
-👉mandatory-prop1👈
-
-👉props1👈
-
-👉props2👈
-
-👉props3👈
+Plain text: comma-separated values on a single line.
 
 ```
-
-## schedule
-one line or one line + \n. repetition of yyyy/mm/dd with commas.
-```
-1234/12/31,2000/06/01
+2025/01/06,2025/01/07,2025/01/08,2025/01/09,2025/01/10
 ```
 
-```
-1234/12/31,2000/06/01
+### CSV export
 
-```
-
-### empty schedule document
-```
-
-```
-
-## contact
-one line or one line + \n. repetition of ([0-9] or [-] or [+])+ with commas.
-```
-03-1234-5678,09012345678,+81-0100-0331
-```
-
-```
-03-1234-5678,09012345678,+81-0100-0331
-
-```
-
-### empty contact document
-```
-
-```
-
-# export to csv
-saved to `downloads`.
-## systems
 ```csv
-system_name, id, machine, schedule, notes
-sys1, id2, m1, sche3, foobarbaz
-sys1, 1, m2, sche7, 
-sys2, id2, m4, sche7, hoge
+system_name, team, notes, id, status, time, schedule, contact
+web-01, backend, Primary web server. Handles all public traffic., WEB-001, active, 09:00, business-hours, ops-team
+web-01, backend, Secondary instance., WEB-001, active, 09:30, on-call, dev-team
 ```
-## schedules
+
+Reference collections export as:
+
 ```csv
-schedule_name, dates
-sche1, 1234/11/12 1234/11/12 1234/12/12 1234/11/13
-sche5, 1234/11/12 1234/12/12 1234/11/13
+name, values
+business-hours, 2025/01/06 2025/01/07 2025/01/08 2025/01/09 2025/01/10
 ```
-## contacts
-```csv
-contact_name, numbers
-con1, 03-1234-5678 09012345678 +81-0100-0331
-c3, 03-9999-9999
+
+---
+
+## JTable search syntax
+
+The read-only JTable (from `cat --jtable` and `export --jtable`) supports a query bar:
+
+| Query | Behaviour |
+|---|---|
+| `foo bar` | Substring search across all columns |
+| `where col = 'val'` | Exact match on `col` |
+| `where col like 'pat%'` | SQL LIKE pattern (`%` = any chars, `_` = one char) |
+| `where 'val' in col` | `val` is one of the comma-separated tokens in `col` |
+| `where col.contents like 'pat'` | LIKE search on the raw content of a reference entry |
+| `cond1 and cond2` | AND (binds tighter than OR) |
+| `cond1 or cond2` | OR |
+| `select count where cond` | Count matches without changing the view |
+| `select prop.entry.contents` | Display the comma-split values of a specific reference entry |
+
+---
+
+## Rust/Tauri version
+
+```sh
+cargo build --release
+./target/release/naxel              # REPL
+./target/release/naxel -c 'ls systems'
+```
+
+The Rust binary supports the same commands and reads the same config files. `--jtable` commands open native webview table windows (fire-and-forget; the REPL continues immediately).
+
+---
+
+## Repository layout
+
+```
+samples/
+  repo/                           sample server-inventory repository
+src/
+  app.py                          Python REPL
+  gui.py                          JTable GUI (tkinter)
+src-rs/
+  main.rs                         Rust REPL entry point
+  commands.rs                     command implementations
+  repo.rs                         repository state and cache sync
+  ...
+settings.ini                      points to samples/repo by default
 ```
