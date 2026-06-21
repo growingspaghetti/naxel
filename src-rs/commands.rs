@@ -112,6 +112,7 @@ pub fn cmd_cat(
     collection: &str,
     name: &str,
     jtable: bool,
+    as_json: bool,
 ) -> Option<crate::table_spec::TableData> {
     let filepath = match find_latest(&state.repo_root, &state.main_collection, collection, name) {
         Some(p) => p,
@@ -159,7 +160,29 @@ pub fn cmd_cat(
     use std::io::Write;
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
-    if collection == state.main_collection {
+    if as_json {
+        if collection == state.main_collection {
+            let bytes = std::fs::read(&filepath).unwrap_or_default();
+            let sections: Vec<serde_json::Value> = gzip_decompress(&bytes)
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok())
+                .unwrap_or_default();
+            let json_str = serde_json::to_string_pretty(&sections).unwrap_or_default();
+            let _ = writeln!(out, "{json_str}");
+        } else {
+            match std::fs::read_to_string(&filepath) {
+                Ok(s) => {
+                    let values: Vec<&str> = s.trim().split(',')
+                        .map(|v| v.trim())
+                        .filter(|v| !v.is_empty())
+                        .collect();
+                    let json_str = serde_json::to_string_pretty(&values).unwrap_or_default();
+                    let _ = writeln!(out, "{json_str}");
+                }
+                Err(e) => eprintln!("error: {e}"),
+            }
+        }
+    } else if collection == state.main_collection {
         let bytes = std::fs::read(&filepath).unwrap_or_default();
         let sections: Vec<serde_json::Value> = gzip_decompress(&bytes)
             .ok()

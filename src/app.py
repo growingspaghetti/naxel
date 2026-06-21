@@ -478,6 +478,7 @@ def cmd_len(repo_root: Path, collection: str, name: str):
 def cmd_cat(repo_root: Path, collection: str, name: str,
             additional_props: tuple[str, ...] = (),
             downloads_dir: Path | None = None, jtable: bool = False, *,
+            as_json: bool = False,
             field_order: tuple[str, ...] | None = None,
             multiline_props: frozenset[str] = frozenset(),
             ref_data: dict | None = None):
@@ -502,6 +503,15 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
             dest.write_text(filepath.read_text())
             print(f"saved: {dest}")
             _launch_jtable(path=dest, mode="ref", readonly=True, title=f"{collection} {name}")
+        return
+    if as_json:
+        if collection == MAIN_COLLECTION:
+            sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
+            print(json.dumps(sections, ensure_ascii=False, indent=2))
+        else:
+            raw = filepath.read_text().strip()
+            values = [v.strip() for v in raw.split(",") if v.strip()] if raw else []
+            print(json.dumps(values, ensure_ascii=False, indent=2))
         return
     if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
@@ -1272,14 +1282,17 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
 
     elif cmd == "cat":
         jtable = "--jtable" in parts
-        cat_parts = [p for p in parts if p != "--jtable"]
+        as_json = "--json" in parts
+        cat_parts = [p for p in parts if p not in ("--jtable", "--json")]
         if len(cat_parts) != 3:
-            print("usage: cat <collection> <name> [--jtable]")
+            print("usage: cat <collection> <name> [--jtable] [--json]")
+        elif jtable and as_json:
+            print("error: --jtable and --json are mutually exclusive")
         else:
             ref = build_ref_data(cache_dir, mandatory_ref_props) if jtable and collection == MAIN_COLLECTION else None
             cmd_cat(repo_root, collection, cat_parts[2], additional_props,
-                    downloads_dir=downloads_dir, jtable=jtable, field_order=field_order,
-                    multiline_props=multiline_props, ref_data=ref)
+                    downloads_dir=downloads_dir, jtable=jtable, as_json=as_json,
+                    field_order=field_order, multiline_props=multiline_props, ref_data=ref)
 
     elif cmd == "get":
         jtable = "--jtable" in parts
