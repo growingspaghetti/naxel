@@ -7,11 +7,16 @@ import re
 import readline  # noqa: F401 — enables up/down arrow history in input()
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from gui import JTable
 
 SCRIPT_DIR = Path(__file__).parent.parent
+
+
+def _launch_jtable(**kwargs):
+    threading.Thread(target=lambda: JTable(**kwargs).run(), daemon=True).start()
 
 
 def load_config():
@@ -456,13 +461,13 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
             dest.write_text(_main_collection_sections_to_text(sections, additional_props,
                                                       field_order=field_order))
             print(f"saved: {dest}")
-            JTable(dest, mode="main_text", readonly=True, multiline_cols=multiline_props,
-                   ref_data=ref_data).run()
+            _launch_jtable(path=dest, mode="main_text", readonly=True,
+                           multiline_cols=multiline_props, ref_data=ref_data)
         else:
             dest = dl_dir / filepath.name
             dest.write_text(filepath.read_text())
             print(f"saved: {dest}")
-            JTable(dest, mode="ref", readonly=True, title=f"{collection} {name}").run()
+            _launch_jtable(path=dest, mode="ref", readonly=True, title=f"{collection} {name}")
         return
     if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
@@ -520,9 +525,9 @@ def cmd_get(repo_root: Path, collection: str, name: str,
     print(f"saved: {dest}")
     if jtable:
         if collection == MAIN_COLLECTION:
-            JTable(dest, mode="main_text", multiline_cols=multiline_props).run()
+            _launch_jtable(path=dest, mode="main_text", multiline_cols=multiline_props)
         else:
-            JTable(dest, mode="ref", title=f"{collection} {name}").run()
+            _launch_jtable(path=dest, mode="ref", title=f"{collection} {name}")
     else:
         subprocess.Popen([editor, str(dest)])
 
@@ -567,14 +572,14 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
         added = [s for s in curr_sections if _key(s) not in prev_keys]
         if jtable:
             cols = list(field_order) if field_order is not None else list(additional_props)
-            JTable(
+            _launch_jtable(
                 diff_data={
                     "columns": cols,
                     "deleted": [[s.get(k, "") for k in cols] for s in deleted],
                     "added":   [[s.get(k, "") for k in cols] for s in added],
                 },
                 title=f"diff {collection} {name}",
-            ).run()
+            )
             return
     else:
         def _parse_entries(path: Path) -> list[str]:
@@ -589,14 +594,14 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
         added = [e for e in curr_entries if e not in prev_set]
         if jtable:
             col_name = "date" if collection == "schedules" else "number" if collection == "contacts" else "value"
-            JTable(
+            _launch_jtable(
                 diff_data={
                     "columns": [col_name],
                     "deleted": [[e] for e in deleted],
                     "added":   [[e] for e in added],
                 },
                 title=f"diff {collection} {name}",
-            ).run()
+            )
             return
 
     print(json.dumps({"deleted": deleted, "added": added}, ensure_ascii=False, indent=2))
@@ -867,7 +872,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
     print(f"exported: {dest}")
     if jtable:
         ref = build_ref_data(cache_dir, mandatory_ref_props) if mandatory_ref_props else None
-        JTable(dest, ref_data=ref).run()
+        _launch_jtable(path=dest, ref_data=ref)
     else:
         subprocess.Popen([editor, str(dest)])
 
