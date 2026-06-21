@@ -7,6 +7,7 @@ import app
 from app import (
     encode_name,
     cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len, cmd_diff,
+    cmd_fullcopy,
     _empty_main_collection_document, _empty_main_collection_json, _text_to_main_collection_json,
 )
 
@@ -866,3 +867,157 @@ class TestCollectionTypeValidation:
         self._put(repo, downloads, dynamic_col, 0, "not-an-email")
         cmd_push(repo, dynamic_col, "entry1", downloads)
         assert "rejected" in capsys.readouterr().out
+
+
+class TestCmdFullcopy:
+    def _make_repo(self, path):
+        path.mkdir()
+        (path / "systems").mkdir()
+        (path / "schedules").mkdir()
+        (path / "contacts").mkdir()
+        return path
+
+    def _write_minimal_config(self, repo):
+        (repo / "repository.ini").write_text("")
+        (repo / "additional_properties.json").write_text("[]")
+        (repo / "additional_mandatory_properties.json").write_text("[]")
+
+    # ── plain copy ────────────────────────────────────────────────────────────
+
+    def test_plain_creates_named_directory(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "n")), ("notes",))
+        cmd_fullcopy(repo, str(dest), json_mode=False)
+        assert (dest / "my_repo").is_dir()
+        assert "copied" in capsys.readouterr().out
+
+    def test_plain_copies_all_versions(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "old")), ("notes",))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "12:00", "new")), ("notes",))
+        cmd_fullcopy(repo, str(dest), json_mode=False)
+        enc = encode_name("sys1")
+        assert (dest / "my_repo" / "systems" / f"{enc}.0000.txt.gz").exists()
+        assert (dest / "my_repo" / "systems" / f"{enc}.0001.txt.gz").exists()
+
+    def test_plain_copies_ref_collection_files(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_schedule(repo, "sc1", 0, "2024/01/01")
+        cmd_fullcopy(repo, str(dest), json_mode=False)
+        enc = encode_name("sc1")
+        assert (dest / "my_repo" / "schedules" / f"{enc}.0000.txt").exists()
+
+    def test_plain_dest_not_directory_prints_error(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        cmd_fullcopy(repo, str(tmp_path / "nonexistent"), json_mode=False)
+        assert "error" in capsys.readouterr().out
+
+    def test_plain_already_exists_prints_error(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "my_repo").mkdir()
+        cmd_fullcopy(repo, str(dest), json_mode=False)
+        assert "error" in capsys.readouterr().out
+
+    # ── JSON mode ─────────────────────────────────────────────────────────────
+
+    def test_json_creates_named_json_file(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._write_minimal_config(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        cmd_fullcopy(repo, str(dest), json_mode=True)
+        assert (dest / "my_repo.json").exists()
+        assert "exported" in capsys.readouterr().out
+
+    def test_json_config_embeds_repository_ini(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        (repo / "repository.ini").write_text("[main_collection]\ncollection_name = systems\n")
+        (repo / "additional_properties.json").write_text("[]")
+        (repo / "additional_mandatory_properties.json").write_text("[]")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        cmd_fullcopy(repo, str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert "[main_collection]" in data["config"]["repository_ini"]
+        assert "collection_name = systems" in data["config"]["repository_ini"]
+
+    def test_json_config_embeds_additional_properties(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        props = [{"property_name": "notes", "validation_type": "NONE", "multiline": True}]
+        (repo / "repository.ini").write_text("")
+        (repo / "additional_properties.json").write_text(json.dumps(props))
+        (repo / "additional_mandatory_properties.json").write_text("[]")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        cmd_fullcopy(repo, str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert data["config"]["additional_properties"] == props
+
+    def test_json_config_embeds_reference_collections(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        ref_colls = [{"collection_name": "schedules", "property_name": "schedule", "type": "DATE"}]
+        (repo / "repository.ini").write_text("")
+        (repo / "additional_properties.json").write_text("[]")
+        (repo / "additional_mandatory_properties.json").write_text(json.dumps(ref_colls))
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        cmd_fullcopy(repo, str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert data["config"]["reference_collections"] == ref_colls
+
+    def test_json_data_main_collection_latest_only(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._write_minimal_config(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_system(repo, "sys1", 0, sys_doc(("m1", "12:00", "old-notes")), ("notes",))
+        put_system(repo, "sys1", 1, sys_doc(("m1", "12:00", "new-notes")), ("notes",))
+        cmd_fullcopy(repo, str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        sections = data["data"]["systems"]["sys1"]
+        assert any(s.get("notes") == "new-notes" for s in sections)
+        assert not any(s.get("notes") == "old-notes" for s in sections)
+
+    def test_json_data_ref_collection_latest_only(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._write_minimal_config(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        put_schedule(repo, "sc1", 0, "2024/01/01")
+        put_schedule(repo, "sc1", 1, "2024/06/15")
+        cmd_fullcopy(repo, str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert data["data"]["schedules"]["sc1"] == "2024/06/15"
+
+    def test_json_dest_not_directory_prints_error(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        cmd_fullcopy(repo, str(tmp_path / "nonexistent"), json_mode=True)
+        assert "error" in capsys.readouterr().out
+
+    def test_json_already_exists_prints_error(self, tmp_path, capsys):
+        repo = self._make_repo(tmp_path / "my_repo")
+        self._write_minimal_config(repo)
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        (dest / "my_repo.json").write_text("{}")
+        cmd_fullcopy(repo, str(dest), json_mode=True)
+        assert "error" in capsys.readouterr().out
+
+    def test_json_missing_config_files_produce_empty_arrays(self, tmp_path):
+        repo = self._make_repo(tmp_path / "my_repo")
+        (repo / "repository.ini").write_text("")
+        # additional_properties.json and additional_mandatory_properties.json absent
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        cmd_fullcopy(repo, str(dest), json_mode=True)
+        data = json.loads((dest / "my_repo.json").read_text())
+        assert data["config"]["additional_properties"] == []
+        assert data["config"]["reference_collections"] == []

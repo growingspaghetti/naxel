@@ -6,6 +6,7 @@ import json
 import os
 import re
 import readline  # noqa: F401 — enables up/down arrow history in input()
+import shutil
 import subprocess
 import sys
 import threading
@@ -912,6 +913,86 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
         subprocess.Popen([editor, str(dest)])
 
 
+def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
+    dest_base = Path(destination).resolve()
+    if not dest_base.is_dir():
+        print(f"error: not a directory: {dest_base}")
+        return
+
+    repo_name = repo_root.name
+
+    if not json_mode:
+        dest_dir = dest_base / repo_name
+        if dest_dir.exists():
+            print(f"error: already exists: {dest_dir}")
+            return
+        shutil.copytree(repo_root, dest_dir)
+        print(f"copied: {dest_dir}")
+        return
+
+    # JSON mode — embed config + latest-version data only (no history)
+    repo_ini_cfg = configparser.ConfigParser()
+    repo_ini_cfg.read(repo_root / "repository.ini")
+    additional_props_file = repo_ini_cfg.get("additional_properties", "json",
+                                              fallback="additional_properties.json")
+    ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
+                                             fallback="additional_mandatory_properties.json")
+
+    repo_ini_path = repo_root / "repository.ini"
+    repo_ini_text = repo_ini_path.read_text() if repo_ini_path.exists() else ""
+
+    try:
+        additional_props_data = json.loads((repo_root / additional_props_file).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        additional_props_data = []
+
+    try:
+        ref_collections_data = json.loads((repo_root / ref_collections_file).read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        ref_collections_data = []
+
+    data_section: dict[str, dict] = {}
+    for collection in sorted(COLLECTIONS):
+        col_path = collection_path(repo_root, collection)
+        if not col_path.is_dir():
+            continue
+        suffix = _repo_suffix(collection)
+        seen: dict[str, str] = {}
+        try:
+            for fname in sorted(os.listdir(col_path)):
+                if not fname.endswith(suffix):
+                    continue
+                stem = fname[: -len(suffix)]
+                parts = stem.split(".")
+                if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 4:
+                    seen[parts[0]] = fname
+        except FileNotFoundError:
+            pass
+        col_data: dict = {}
+        for encoded, fname in sorted(seen.items()):
+            name = decode_name(encoded) or encoded
+            if collection == MAIN_COLLECTION:
+                col_data[name] = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
+            else:
+                col_data[name] = (col_path / fname).read_text()
+        data_section[collection] = col_data
+
+    output = {
+        "config": {
+            "repository_ini": repo_ini_text,
+            "additional_properties": additional_props_data,
+            "reference_collections": ref_collections_data,
+        },
+        "data": data_section,
+    }
+    dest_file = dest_base / f"{repo_name}.json"
+    if dest_file.exists():
+        print(f"error: already exists: {dest_file}")
+        return
+    dest_file.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
+    print(f"exported: {dest_file}")
+
+
 # ── REPL ──────────────────────────────────────────────────────────────────────
 
 def initialize_repo(repo_root: Path, downloads_base: Path, cache_base: Path) -> RepoState:
@@ -989,6 +1070,7 @@ def usage_string() -> str:
         "  export <collection> <file.csv> [--jtable]\n"
         "  export <collection> <file.json> [--onefile]\n"
         "  diff <collection> <name> [--jtable]\n"
+        "  fullcopy <destination-directory> [--json]\n"
         "  exit"
         f"\ncollections: {', '.join(sorted(COLLECTIONS))}"
     )
@@ -1094,6 +1176,14 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         else:
             cmd_diff(repo_root, collection, diff_parts[2], additional_props,
                      jtable=jtable, field_order=field_order)
+
+    elif cmd == "fullcopy":
+        json_mode = "--json" in parts
+        fullcopy_parts = [p for p in parts if p != "--json"]
+        if len(fullcopy_parts) != 2:
+            print("usage: fullcopy <destination-directory> [--json]")
+        else:
+            cmd_fullcopy(repo_root, fullcopy_parts[1], json_mode)
 
     else:
         print(f"unknown command: {cmd!r}")
