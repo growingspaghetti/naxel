@@ -100,7 +100,7 @@ def sync_cache(repo_root: Path, cache_dir: Path):
 MAIN_COLLECTION: str = "systems"
 PARTITIONING_PROPERTY: str = "system"
 
-COLLECTIONS: set[str] = {"systems", "schedules", "contacts"}
+COLLECTIONS: set[str] = set()  # populated in main() from repository.ini and reference_collections JSON
 
 COLLECTION_TYPE: dict[str, str] = {}
 
@@ -905,11 +905,9 @@ def main():
     editor = get_editor(config)
 
     main_coll, partition_prop, property_order, additional_props_file, ref_collections_file = load_repository_config(repo_root)
-    if main_coll != MAIN_COLLECTION:
-        COLLECTIONS.discard(MAIN_COLLECTION)
-        COLLECTIONS.add(main_coll)
     MAIN_COLLECTION = main_coll
     PARTITIONING_PROPERTY = partition_prop
+    COLLECTIONS.add(main_coll)
 
     optional_prop_pairs = load_additional_properties(repo_root, additional_props_file)
     optional_props = tuple(name for name, _, _ in optional_prop_pairs)
