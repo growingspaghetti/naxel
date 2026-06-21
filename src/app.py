@@ -97,6 +97,30 @@ def sync_cache(repo_root: Path, cache_dir: Path):
         print(f"cache: synced {copied} file(s)")
 
 
+def build_ref_data(cache_dir: Path,
+                   mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...]
+                   ) -> dict[str, dict[str, str]]:
+    """Read cache for each reference collection; return {property_name: {entry_name: content}}."""
+    result: dict[str, dict[str, str]] = {}
+    for pname, cname, _ in mandatory_ref_props:
+        col_dir = cache_dir / cname
+        mapping: dict[str, str] = {}
+        try:
+            for fname in sorted(os.listdir(col_dir)):
+                if not fname.endswith(".txt"):
+                    continue
+                stem = fname[:-4]
+                parts = stem.split(".")
+                if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 4:
+                    name = decode_name(parts[0])
+                    if name is not None:
+                        mapping[name] = (col_dir / fname).read_text().strip()
+        except FileNotFoundError:
+            pass
+        result[pname] = mapping
+    return result
+
+
 MAIN_COLLECTION: str | None = None
 PARTITIONING_PROPERTY: str | None = None
 
@@ -416,7 +440,8 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
             additional_props: tuple[str, ...] = (),
             downloads_dir: Path | None = None, jtable: bool = False, *,
             field_order: tuple[str, ...] | None = None,
-            multiline_props: frozenset[str] = frozenset()):
+            multiline_props: frozenset[str] = frozenset(),
+            ref_data: dict | None = None):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
@@ -430,7 +455,8 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
         dest.write_text(_main_collection_sections_to_text(sections, additional_props,
                                                   field_order=field_order))
         print(f"saved: {dest}")
-        JTable(dest, mode="systems", readonly=True, multiline_cols=multiline_props).run()
+        JTable(dest, mode="systems", readonly=True, multiline_cols=multiline_props,
+               ref_data=ref_data).run()
         return
     if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
@@ -712,7 +738,8 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                downloads_dir: Path, cache_dir: Path, editor: str,
                additional_props: tuple[str, ...] = (), jtable: bool = False, *,
                field_order: tuple[str, ...] | None = None,
-               multiline_props: frozenset[str] = frozenset()):
+               multiline_props: frozenset[str] = frozenset(),
+               mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = ()):
     sync_cache(repo_root, cache_dir)
     col_path = cache_dir / collection
     if not col_path.is_dir():
@@ -773,7 +800,8 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
     dest.write_text("\n".join(rows) + "\n")
     print(f"exported: {dest}")
     if jtable:
-        JTable(dest).run()
+        ref = build_ref_data(cache_dir, mandatory_ref_props) if mandatory_ref_props else None
+        JTable(dest, ref_data=ref).run()
     else:
         subprocess.Popen([editor, str(dest)])
 
@@ -838,9 +866,10 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         elif jtable and collection != MAIN_COLLECTION:
             print(f"error: --jtable is only supported for {MAIN_COLLECTION}")
         else:
+            ref = build_ref_data(cache_dir, mandatory_ref_props) if jtable else None
             cmd_cat(repo_root, collection, cat_parts[2], additional_props,
                     downloads_dir=downloads_dir, jtable=jtable, field_order=field_order,
-                    multiline_props=multiline_props)
+                    multiline_props=multiline_props, ref_data=ref)
 
     elif cmd == "get":
         jtable = "--jtable" in parts
@@ -884,7 +913,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
         else:
             cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir,
                        editor, additional_props, jtable=jtable, field_order=field_order,
-                       multiline_props=multiline_props)
+                       multiline_props=multiline_props,
+                       mandatory_ref_props=mandatory_ref_props)
 
     elif cmd == "diff":
         jtable = "--jtable" in parts
