@@ -37,10 +37,9 @@ cd naxel
 
 ### Try the sample repository
 
-The `samples/` directory contains a ready-to-run server-inventory repository with pre-populated data.
+The `samples/` directory contains a ready-to-run server-inventory repository with pre-populated data. `settings.ini` already points to it, so just run:
 
 ```sh
-cp samples/settings.ini settings.ini   # point naxel at the sample repo
 python3 src/app.py
 ```
 
@@ -77,7 +76,7 @@ ops-team
 ### Use your own repository
 
 1. Create a repository directory and add `repository.ini` (see [Configuration](#configuration)).
-2. Edit `settings.ini` to point `repository.root` at your directory.
+2. Edit `settings.ini` at the project root and set `repository.root` to your directory.
 3. Run `python3 src/app.py`.
 
 ---
@@ -299,7 +298,6 @@ The Rust binary supports the same commands and reads the same config files. `--j
 
 ```
 samples/
-  settings.ini                    copy to project root to try the sample repo
   repo/                           sample server-inventory repository
 src/
   app.py                          Python REPL
@@ -309,5 +307,5 @@ src-rs/
   commands.rs                     command implementations
   repo.rs                         repository state and cache sync
   ...
-settings.ini                      active configuration (not committed)
+settings.ini                      points to samples/repo by default
 ```
