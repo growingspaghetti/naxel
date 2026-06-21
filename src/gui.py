@@ -1,4 +1,5 @@
 import csv
+import json
 import re
 import sys
 import tkinter as tk
@@ -315,6 +316,7 @@ class JTable:
 
         self._tree.tag_configure("odd", background="#f5f5f5")
 
+        self._tree.bind("<Button-3>", self._on_right_click)
         if self._mode in ("main_text", "ref") and not self._readonly:
             self._tree.bind("<Double-1>", self._on_double_click)
 
@@ -511,6 +513,29 @@ class JTable:
                 self._count_label.config(text=f"{total} rows")
             else:
                 self._count_label.config(text=f"{pos} / {total} rows")
+
+    def _on_right_click(self, event):
+        row_id = self._tree.identify_row(event.y)
+        if not row_id:
+            return
+        self._tree.selection_set(row_id)
+        values = [str(v) for v in self._tree.item(row_id)["values"]]
+        menu = tk.Menu(self._root, tearoff=0)
+        menu.add_command(
+            label="Copy row as TSV",
+            command=lambda: self._copy_to_clipboard("\t".join(values)),
+        )
+        menu.add_command(
+            label="Copy row as JSON",
+            command=lambda: self._copy_to_clipboard(
+                json.dumps(dict(zip(self._columns, values)), ensure_ascii=False)
+            ),
+        )
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _copy_to_clipboard(self, text: str):
+        self._root.clipboard_clear()
+        self._root.clipboard_append(text)
 
     def _sort(self, col: str, reverse: bool):
         items = [(self._tree.set(k, col), k) for k in self._tree.get_children("")]
