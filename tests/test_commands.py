@@ -7,7 +7,7 @@ import app
 from app import (
     encode_name,
     cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len, cmd_diff,
-    _EMPTY_DOCUMENTS, _empty_system_document, _empty_system_json, _text_to_system_json,
+    _empty_system_document, _empty_system_json, _text_to_system_json,
 )
 
 SEP = "🏔" * 20
@@ -51,10 +51,8 @@ def dynamic_col(repo, downloads):
     (repo / cname).mkdir()
     (downloads / cname).mkdir()
     app.COLLECTIONS.add(cname)
-    app.REPO_SUFFIX[cname] = ".txt"
     yield cname
     app.COLLECTIONS.discard(cname)
-    app.REPO_SUFFIX.pop(cname, None)
     app.COLLECTION_TYPE.pop(cname, None)
 
 
@@ -248,14 +246,14 @@ class TestCmdClear:
         enc = encode_name("sys1")
         with patch.object(app.subprocess, "Popen"):
             cmd_clear(repo, "systems", "sys1", downloads, "mousepad")
-        assert (downloads / "systems" / f"{enc}.0001.txt").read_text() == _EMPTY_DOCUMENTS["systems"]
+        assert (downloads / "systems" / f"{enc}.0001.txt").read_text() == _empty_system_document()
 
     def test_schedule_writes_empty_template(self, repo, downloads):
         put_schedule(repo, "sc1", 0, "2020/01/01")
         enc = encode_name("sc1")
         with patch.object(app.subprocess, "Popen"):
             cmd_clear(repo, "schedules", "sc1", downloads, "mousepad")
-        assert (downloads / "schedules" / f"{enc}.0000.txt").read_text() == _EMPTY_DOCUMENTS["schedules"]
+        assert (downloads / "schedules" / f"{enc}.0000.txt").read_text() == ""
 
     def test_uses_latest_version_for_filename(self, repo, downloads):
         put_system(repo, "sys1", 0, "")
@@ -408,7 +406,7 @@ class TestCmdPush:
     def test_empty_system_document_accepted(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(_EMPTY_DOCUMENTS["systems"])
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(_empty_system_document())
         cmd_push(repo, "systems", "sys1", downloads)
         assert "pushed" in capsys.readouterr().out
         assert (repo / "systems" / f"{enc}.0001.txt.gz").exists()
@@ -493,7 +491,7 @@ class TestCmdExport:
         assert "old-notes" not in content
 
     def test_systems_excludes_initial_state(self, repo, downloads, cache):
-        put_system(repo, "empty_sys", 0, _EMPTY_DOCUMENTS["systems"])
+        put_system(repo, "empty_sys", 0, _empty_system_document())
         put_system(repo, "real_sys", 0, sys_doc(("m1", "12:00", "some-notes")), ("notes",))
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=("notes",))
@@ -510,7 +508,7 @@ class TestCmdExport:
         assert "sc1, 2020/01/01 2020/06/15" in content
 
     def test_schedules_excludes_initial_state(self, repo, downloads, cache):
-        put_schedule(repo, "empty_sc", 0, _EMPTY_DOCUMENTS["schedules"])
+        put_schedule(repo, "empty_sc", 0, "")
         put_schedule(repo, "real_sc", 0, "2020/01/01")
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "schedules", "out.csv", downloads, cache, "mousepad")
@@ -677,7 +675,7 @@ class TestCmdLen:
         assert capsys.readouterr().out.strip() == "2"
 
     def test_systems_initial_state_is_zero(self, repo, capsys):
-        put_system(repo, "sys1", 0, _EMPTY_DOCUMENTS["systems"])
+        put_system(repo, "sys1", 0, _empty_system_document())
         cmd_len(repo, "systems", "sys1")
         assert capsys.readouterr().out.strip() == "0"
 

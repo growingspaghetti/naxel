@@ -102,13 +102,11 @@ PARTITIONING_PROPERTY: str = "system"
 
 COLLECTIONS: set[str] = {"systems", "schedules", "contacts"}
 
-REPO_SUFFIX: dict[str, str] = {
-    "systems": ".txt.gz",
-    "schedules": ".txt",
-    "contacts": ".txt",
-}
-
 COLLECTION_TYPE: dict[str, str] = {}
+
+
+def _repo_suffix(collection: str) -> str:
+    return ".txt.gz" if collection == MAIN_COLLECTION else ".txt"
 
 
 def encode_name(name: str) -> str:
@@ -146,7 +144,7 @@ def latest_in_dir(directory: Path, encoded: str, suffix: str) -> Path | None:
 
 
 def find_latest_file(repo_root: Path, collection: str, name: str) -> Path | None:
-    suffix = REPO_SUFFIX.get(collection, ".txt")
+    suffix = _repo_suffix(collection)
     return latest_in_dir(collection_path(repo_root, collection), encode_name(name), suffix)
 
 
@@ -189,11 +187,6 @@ def _empty_system_document(additional_props: tuple[str, ...] = (), *,
     return "\n".join(lines) + "\n"
 
 
-_EMPTY_DOCUMENTS = {
-    "systems": _empty_system_document(),
-    "schedules": "",
-    "contacts": "",
-}
 
 
 def _empty_system_json(additional_props: tuple[str, ...] = (), *,
@@ -365,7 +358,7 @@ def cmd_ls(repo_root: Path, collection: str):
     if not path.is_dir():
         print(f"error: directory not found: {path}")
         return
-    suffix = REPO_SUFFIX.get(collection, ".txt")
+    suffix = _repo_suffix(collection)
     seen: set[str] = set()
     for fname in sorted(os.listdir(path)):
         if not fname.endswith(suffix):
@@ -387,7 +380,7 @@ def cmd_add(repo_root: Path, collection: str, name: str,
     path = collection_path(repo_root, collection)
     path.mkdir(parents=True, exist_ok=True)
     encoded = encode_name(name)
-    suffix = REPO_SUFFIX.get(collection, ".txt")
+    suffix = _repo_suffix(collection)
     dest = path / f"{encoded}.0000{suffix}"
     if dest.exists():
         print(f"error: already exists: {name}")
@@ -396,7 +389,7 @@ def cmd_add(repo_root: Path, collection: str, name: str,
         dest.write_bytes(gzip.compress(
             _empty_system_json(additional_props, field_order=field_order).encode()))
     else:
-        dest.write_text(_EMPTY_DOCUMENTS.get(collection, ""))
+        dest.write_text("")
     print(f"created: {name}")
 
 
@@ -456,7 +449,7 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
     if collection == MAIN_COLLECTION:
         template = _empty_system_document(additional_props, field_order=field_order)
     else:
-        template = _EMPTY_DOCUMENTS.get(collection, "")
+        template = ""
     dest.write_text(template)
     print(f"cleared: {dest}")
     subprocess.Popen([editor, str(dest)])
@@ -496,7 +489,7 @@ def cmd_get(repo_root: Path, collection: str, name: str,
 def cmd_diff(repo_root: Path, collection: str, name: str,
              additional_props: tuple[str, ...] = (), jtable: bool = False, *,
              field_order: tuple[str, ...] | None = None):
-    suffix = REPO_SUFFIX.get(collection, ".txt")
+    suffix = _repo_suffix(collection)
     col_path = collection_path(repo_root, collection)
     encoded = encode_name(name)
     prefix = encoded + "."
@@ -595,7 +588,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
                                                        field_order=field_order,
                                                        multiline_props=multiline_props)
             for pname, cname, whitelist in mandatory_ref_props:
-                ref_suffix = REPO_SUFFIX.get(cname, ".txt")
+                ref_suffix = _repo_suffix(cname)
                 ref_dir = collection_path(repo_root, cname)
                 try:
                     existing_refs = {
@@ -611,7 +604,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
                         print(f"rejected: {pname} {val!r} not found in {cname} collection")
                         return
     col_path = collection_path(repo_root, collection)
-    suffix = REPO_SUFFIX.get(collection, ".txt")
+    suffix = _repo_suffix(collection)
     latest = latest_in_dir(col_path, encoded, suffix)
     if latest is None:
         print(f"error: not found in repository: {name}")
@@ -720,7 +713,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
         print(f"error: directory not found: {col_path}")
         return
 
-    suffix = REPO_SUFFIX.get(collection, ".txt")
+    suffix = _repo_suffix(collection)
     seen: dict[str, str] = {}  # encoded → latest filename (sorted order gives highest version last)
     for fname in sorted(os.listdir(col_path)):
         if not fname.endswith(suffix):
@@ -915,7 +908,6 @@ def main():
     if main_coll != MAIN_COLLECTION:
         COLLECTIONS.discard(MAIN_COLLECTION)
         COLLECTIONS.add(main_coll)
-        REPO_SUFFIX[main_coll] = REPO_SUFFIX.pop(MAIN_COLLECTION, ".txt.gz")
     MAIN_COLLECTION = main_coll
     PARTITIONING_PROPERTY = partition_prop
 
@@ -930,7 +922,6 @@ def main():
     for dc in dynamic_colls:
         cname = dc["collection_name"]
         COLLECTIONS.add(cname)
-        REPO_SUFFIX.setdefault(cname, ".txt")
         COLLECTION_TYPE[cname] = dc.get("type", "")
         (repo_root / cname).mkdir(parents=True, exist_ok=True)
         (cache_dir / cname).mkdir(parents=True, exist_ok=True)
