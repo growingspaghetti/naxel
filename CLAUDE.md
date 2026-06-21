@@ -148,9 +148,9 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `ls <collection>`                        | Print decoded names (one per line, latest-version files only, deduped) |
 | `add <collection> <name>`                | Create `{encoded}.0000{ext}` with the empty document template |
 | `cat <collection> <name>`               | Print latest version content to stdout (decompresses the main collection) |
-| `cat <main-collection> <name> --jtable` | Save to `downloads/{main-collection}/`, open read-only JTable window |
+| `cat <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open read-only JTable window |
 | `get <collection> <name>`               | Copy latest version to `downloads/{collection}/` as `.txt`, open with editor |
-| `get <main-collection> <name> --jtable` | Save to `downloads/{main-collection}/`, open editable JTable window with Save / Add Row / Duplicate Row / Delete Row buttons |
+| `get <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open editable JTable window. Main collection: Save / Add Row / Duplicate Row / Delete Row. Reference collections: Save / Add Row / Delete Row. |
 | `clear <collection> <name>`             | Write empty document template to `downloads/{collection}/` (same filename as `get`), open with editor |
 | `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for the main collection, comma-separated entries for all others) |
 | `push <collection> <name>`              | Validate latest `.txt` in `downloads/{collection}/`, write as next version in repo |
@@ -163,8 +163,6 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `exit`                                   | Quit |
 
 All collections are fully dynamic. The main collection is configured in `repository.ini [main_collection]`; all reference collections come from the file named by `[reference_collections] json`. There are no built-in collections.
-
-`--jtable` on `cat`/`get` is only supported for the main collection.
 
 ## Document formats
 
@@ -319,7 +317,7 @@ JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None,
 | Parameter      | Values / meaning |
 |----------------|-----------------|
 | `path`         | File to display (CSV or 👉👈 `.txt`) |
-| `mode`         | `"csv"` — parse as CSV (export); `"systems"` — parse 👉👈 format (used for the main collection) |
+| `mode`         | `"csv"` — parse as CSV (export); `"systems"` — parse 👉👈 format (main collection); `"ref"` — parse comma-separated `.txt` as a single-column `"values"` table (reference collections) |
 | `readonly`     | `True` suppresses Save/row-edit buttons (`cat --jtable`) |
 | `diff_data`    | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
 | `title`        | Window title (defaults to filename or `"diff"`) |
@@ -328,9 +326,11 @@ JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None,
 
 **Main-collection editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save.
 
+**Reference-collection mode** (`mode="ref"`): displays the comma-separated `.txt` file as a single-column table with header `"values"` — one row per value. Readonly (`cat --jtable`): sortable, search bar shown. Editable (`get --jtable`): double-click a cell to edit inline, Save writes back as `val1,val2,...\n` (empty rows are excluded), Add Row / Delete Row buttons. No Duplicate Row button.
+
 **Diff mode** (`diff_data` provided): read-only, deleted rows shown in red with `−`, added rows in green with `+`. Data columns are sortable.
 
-**Search bar** — shown at the top of the window when `readonly=True` (cat --jtable) or `mode="csv"` (export --jtable); hidden in editable mode and diff mode. A row-count label sits at the right end of the bar. The search bar is powered by a custom query parser (`_parse_query` in `gui.py`) and supports the following syntax (all keywords case-insensitive):
+**Search bar** — shown at the top of the window when `readonly=True` (cat --jtable) or `mode="csv"` (export --jtable); hidden in editable mode (`mode="systems"` or `mode="ref"`) and diff mode. A row-count label sits at the right end of the bar. The search bar is powered by a custom query parser (`_parse_query` in `gui.py`) and supports the following syntax (all keywords case-insensitive):
 
 | Query | Behaviour |
 |-------|-----------|
@@ -348,4 +348,4 @@ JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None,
 
 Deep search detail: for `like` and plain-text queries, ref-column cells are expanded to `"entry_name ref_content"` before matching. This means searching `2024/01/01` will find rows whose `schedule` entry contains that date, even though the cell itself shows only the entry name. The expansion is pre-computed in `_expand_row` and stored in `self._expanded_rows` at load time. Exact-match (`=`) always checks the original cell value only.
 
-`build_ref_data(cache_dir, mandatory_ref_props)` in `app.py` reads the latest file for each reference collection from the local cache and returns the `ref_data` dict. It is called in `dispatch` only when `cat --jtable` is invoked (lazy, not at startup).
+`build_ref_data(cache_dir, mandatory_ref_props)` in `app.py` reads the latest file for each reference collection from the local cache and returns the `ref_data` dict. It is called in `dispatch` only when `cat --jtable` is invoked on the main collection (lazy, not at startup).
