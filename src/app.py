@@ -1182,7 +1182,10 @@ def initialize_repo(repo_root: Path, downloads_base: Path, cache_base: Path) -> 
         for dc in dynamic_colls
         if dc.get("property_name")
     )
-    all_props = optional_props + tuple(pname for pname, _, _ in mandatory_ref_props)
+    optional_props_set = set(optional_props)
+    all_props = optional_props + tuple(
+        pname for pname, _, _ in mandatory_ref_props if pname not in optional_props_set
+    )
 
     all_fields_set = _DEFAULT_CORE_SET | set(all_props)
     ordered_front = [p for p in property_order if p in all_fields_set]
