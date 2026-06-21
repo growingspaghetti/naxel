@@ -37,7 +37,7 @@ cache/                            local mirror of the NAS repo, populated at sta
 | `[downloads]`  | `dir`       | `downloads`  | Where edited files are staged                          |
 | `[cache]`      | `dir`       | `cache`      | Local mirror of the NAS repo                           |
 | `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
-| `[system]`     | `property_order` | *(empty)* | Comma-separated field names (core or extra) that appear first in system documents, in the listed order. Remaining fields follow in their default relative order (core fields, then extra props). Unknown names are silently ignored. |
+| `[system]`     | `property_order` | *(empty)* | Comma-separated field names that appear first in system documents, in the listed order. Remaining fields follow in their default relative order. Unknown names are silently ignored. |
 
 ## additional_properties.json
 
@@ -45,6 +45,7 @@ Located at `{repo_root}/additional_properties.json`. A JSON array of objects def
 
 ```json
 [
+  {"property_name": "notes", "validation_type": "NONE", "multiline": true},
   {"property_name": "id",    "validation_type": "RE:[^#]+"},
   {"property_name": "prop1", "validation_type": "NONE"},
   {"property_name": "prop2", "validation_type": "NOT_EMPTY"},
@@ -56,6 +57,7 @@ Located at `{repo_root}/additional_properties.json`. A JSON array of objects def
 |-------------------|---------|
 | `property_name`   | Field name appended to each system section |
 | `validation_type` | `"NONE"` — no validation (value may be empty); `"NOT_EMPTY"` — `push` rejects empty values; `"HH:MM"` — `push` rejects values that don't match `\d{2}:\d{2}`; `"RE:<pattern>"` — `push` rejects values that don't fully match the regex `<pattern>` (via `re.fullmatch`). Defaults to `"NONE"` if omitted. |
+| `multiline`       | `true` — field value spans multiple lines until the next label; stored with `"\n"` in JSON, joined with `" "` in CSV export. `false` or absent — single-line field. In JTable editable mode, double-clicking a multiline cell opens a modal text-editor dialog instead of an inline entry. |
 
 If the file is absent, no additional properties are used. Non-object entries in the array are silently ignored.
 
@@ -82,7 +84,7 @@ At startup the app reads this file and for each entry:
 - Adds `collection_name` to the valid collection set
 - Registers `.txt` as its repo file suffix
 - Creates the collection directory in both the repo root and the local cache if absent
-- If `property_name` is **not** `notes` (the only core field): appends it to `additional_props`, making it a required document field
+- Appends `property_name` to `additional_props`, making it a required document field
 
 `schedule` and `contact` must be declared in `additional_mandatory_properties.json` to be required. When declared, they are appended to `additional_props` and validated like any other mandatory ref prop (non-empty check + collection-existence check).
 
@@ -90,7 +92,7 @@ Dynamic collections behave like the built-in `schedules`/`contacts`: plain `.txt
 
 **Mandatory property behaviour in systems:**
 
-All `property_name` values (except `notes`) are appended to `additional_props` at startup and are therefore included in system document templates, the 👉👈 text format, and JSON storage. On `push`, they are validated more strictly than optional properties:
+All `property_name` values are appended to `additional_props` at startup and are therefore included in system document templates, the 👉👈 text format, and JSON storage. On `push`, they are validated more strictly than optional properties:
 - The label (`👉property_name👈`) must be present (same as optional props).
 - The value must be **non-empty**.
 - The value must exist as an entry in the corresponding `collection_name` collection (one `os.listdir` call per distinct collection per push, reusing the list across all sections).
@@ -198,16 +200,15 @@ prop1_value
 prop2_value
 ```
 
-The sole core field is `notes` — it always appears first. All other fields (from `additional_properties.json` and `additional_mandatory_properties.json`, including `machine`, `time`, `id`, `schedule`, and `contact`) are additional properties loaded from config and follow in the order they were loaded. The full order is controlled by `[system] property_order` in `settings.ini` — any field listed there moves to the front. All fields must still be present; only the order changes. If `property_order` is empty the default order is used.
+There are no hardcoded core fields. All fields — including `notes`, `machine`, `time`, `id`, `schedule`, and `contact` — are additional properties loaded from config. Fields from `additional_properties.json` come first (in declaration order), followed by fields from `additional_mandatory_properties.json`. The full order is controlled by `[system] property_order` in `settings.ini` — any field listed there moves to the front. All fields must still be present; only the order changes. If `property_order` is empty the default order is used.
 
 Validation rules enforced on `push` (applied to the 👉👈 text before conversion):
 - Every section must begin with the exact separator.
-- `👉notes👈` label must be present (value may be empty).
-- Each optional additional property label (`additional_properties.json`) must be present; its value is validated according to its `validation_type`: `NONE` — any value (including empty); `NOT_EMPTY` — rejects empty; `HH:MM` — rejects values not matching `\d{2}:\d{2}`; `RE:<pattern>` — rejects values that don't fully match the regex pattern.
+- Each optional additional property label (`additional_properties.json`) must be present; its value is validated according to its `validation_type`: `NONE` — any value (including empty); `NOT_EMPTY` — rejects empty; `HH:MM` — rejects values not matching `\d{2}:\d{2}`; `RE:<pattern>` — rejects values that don't fully match the regex pattern. Multiline fields (`multiline: true`) consume all lines until the next label or separator.
 - Each mandatory property label (`additional_mandatory_properties.json` `property_name`, including `schedule` and `contact` when declared there) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection, or appear in the `"whitelist"` array for that prop. One `os.listdir` call per distinct collection per push.
 - **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), **or if the file content is empty/whitespace** (e.g. all rows deleted via the JTable GUI), the push is accepted without validation and the empty template (`_empty_system_json`) is written to the repo.
 
-Empty template (written by `clear`): separator + all core labels + all configured additional property labels, each with a blank value line.
+Empty template (written by `clear`): separator + all configured additional property labels, each with a blank value line.
 
 ### schedules
 
@@ -239,7 +240,7 @@ sys1, foobarbaz, m1, 09:00, id1, sche3, cont1, val1, val2
 sys1, , m2, 12:30, id2, sche7, cont2, , 
 ```
 
-One row per section. Multi-line notes are joined with a space. Documents where every field in every section is blank are excluded from the CSV. Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[system] property_order`; `machine` is renamed to `machine_name` in the header. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
+One row per section. Multiline fields (`multiline: true` in `additional_properties.json`) are joined with a space. Documents where every field in every section is blank are excluded from the CSV. Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[system] property_order`; `machine` is renamed to `machine_name` in the header. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules
 
@@ -277,8 +278,9 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 - `push` looks for the latest `.txt` in `downloads/{collection}/`; the repo suffix is determined by `REPO_SUFFIX[collection]`.
 - Systems are stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
 - `_validate_system` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_system_sections` is lenient and used only for mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
-- The **only** hardcoded core field is `notes`. All other system fields — including `machine`, `time`, `id`, `schedule`, `contact` — are additional properties declared in `additional_properties.json` or `additional_mandatory_properties.json`. Their validation rules come entirely from those config files (e.g. `machine` uses `NOT_EMPTY`, `time` uses `HH:MM`, `id` uses `RE:[^#]+`). `id` is not unique — multiple sections or systems can share the same id value.
-- `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `schedule` and `contact` are **not** core fields — they are loaded from `additional_mandatory_properties.json` like any other field, appended to `additional_props`, and included in `mandatory_ref_props` with non-empty + collection-existence checks. `mandatory_prop_names` (the `frozenset` passed to `_validate_system`) includes all non-core `property_name` values, meaning the non-empty check applies to `schedule` and `contact` too when declared.
+- There are **no hardcoded core fields**. Every system field — including `notes`, `machine`, `time`, `id`, `schedule`, `contact` — is an additional property declared in `additional_properties.json` or `additional_mandatory_properties.json`. `notes` is declared in `additional_properties.json` with `"multiline": true`. `id` is not unique — multiple sections or systems can share the same id value.
+- `load_additional_properties` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `main()` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch system text; JTable receives it as `multiline_cols`.
+- `COLLECTIONS` and `REPO_SUFFIX` are mutable module-level globals, initialized with the three built-in collections and extended at startup by `load_dynamic_collections`. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time, so adding to it before the REPL starts is sufficient to make dynamic collections fully usable. `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `schedule` and `contact` are loaded from `additional_mandatory_properties.json` like any other field, appended to `additional_props`, and included in `mandatory_ref_props` with non-empty + collection-existence checks. `mandatory_prop_names` (the `frozenset` passed to `_validate_system`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to `schedule` and `contact` when declared.
 - `field_order` is a `tuple[str, ...]` of all system field names in the display/validation order dictated by `[system] property_order`. It is computed once in `main()` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
 
 ## JTable GUI (`src/gui.py`)
@@ -286,17 +288,18 @@ Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
 `JTable` is a tkinter `ttk.Treeview`-based table widget imported directly by `app.py` (no subprocess). Constructor:
 
 ```python
-JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None).run()
+JTable(path=None, mode="csv", readonly=False, diff_data=None, title=None, multiline_cols=frozenset()).run()
 ```
 
-| Parameter   | Values / meaning |
-|-------------|-----------------|
-| `path`      | File to display (CSV or 👉👈 `.txt`) |
-| `mode`      | `"csv"` — parse as CSV (export); `"systems"` — parse 👉👈 format |
-| `readonly`  | `True` suppresses Save/row-edit buttons (`cat --jtable`) |
-| `diff_data` | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
-| `title`     | Window title (defaults to filename or `"diff"`) |
+| Parameter      | Values / meaning |
+|----------------|-----------------|
+| `path`         | File to display (CSV or 👉👈 `.txt`) |
+| `mode`         | `"csv"` — parse as CSV (export); `"systems"` — parse 👉👈 format |
+| `readonly`     | `True` suppresses Save/row-edit buttons (`cat --jtable`) |
+| `diff_data`    | `{"columns": [...], "deleted": [[...], ...], "added": [[...], ...]}` — activates diff view; `path` not needed |
+| `title`        | Window title (defaults to filename or `"diff"`) |
+| `multiline_cols` | `frozenset[str]` of column names whose cells open a modal text-editor dialog on double-click instead of an inline entry. Passed from `multiline_props` in `app.py`. |
 
-**Systems editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Multiline notes are displayed collapsed (newlines → spaces); double-clicking a `notes` cell opens a modal text-editor dialog (OK / Cancel) instead of an inline entry — OK updates the treeview and preserves newlines for the next Save.
+**Systems editable mode** (`mode="systems"`, `readonly=False`) features: double-click cell to edit inline (Entry overlay), Save button writes 👉👈 format back to the downloads file, Add Row / Duplicate Row / Delete Row buttons with odd/even re-striping. Cells for columns in `multiline_cols` are displayed collapsed (newlines → spaces); double-clicking one opens a modal text-editor dialog (OK / Cancel) — OK updates the treeview and preserves newlines for the next Save.
 
 **Diff mode** (`diff_data` provided): read-only, deleted rows shown in red with `−`, added rows in green with `+`. Data columns are sortable.
