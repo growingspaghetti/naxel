@@ -528,7 +528,7 @@ class JTable:
         menu.add_command(
             label="Copy row as JSON",
             command=lambda: self._copy_to_clipboard(
-                json.dumps(dict(zip(self._columns, values)), ensure_ascii=False)
+                json.dumps(dict(zip(self._columns, values)), ensure_ascii=False, indent=2)
             ),
         )
         menu.tk_popup(event.x_root, event.y_root)
