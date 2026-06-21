@@ -3,10 +3,10 @@ import pytest
 from pathlib import Path
 import app
 from app import (
-    _validate_system, _validate_dates, _validate_phone_numbers, _validate_email,
-    validate, _parse_system_sections,
-    _csv_field, _csv_row, _empty_system_document,
-    _text_to_system_json, _system_sections_to_text, _empty_system_json,
+    _validate_main_collection, _validate_dates, _validate_phone_numbers, _validate_email,
+    validate, _parse_main_collection_sections,
+    _csv_field, _csv_row, _empty_main_collection_document,
+    _text_to_main_collection_json, _main_collection_sections_to_text, _empty_main_collection_json,
     load_additional_properties,
 )
 
@@ -51,7 +51,7 @@ def sys_doc(*rows, props=()):
 
 class TestValidateSystem:
     def test_single_section_valid(self):
-        ok, _ = _validate_system(
+        ok, _ = _validate_main_collection(
             sys_doc(("m1", "12:00", "notes"), props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")]),
             NMTISC_PROPS, prop_validation_types=MTISC_VALIDATION,
         )
@@ -62,87 +62,87 @@ class TestValidateSystem:
             sys_doc(("m1", "08:00", "n1"), props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")]) +
             sys_doc(("m2", "09:00", "n2"), props=[("id", "id2"), ("schedule", "s2"), ("contact", "cont2")])
         )
-        ok, _ = _validate_system(content, NMTISC_PROPS, prop_validation_types=MTISC_VALIDATION)
+        ok, _ = _validate_main_collection(content, NMTISC_PROPS, prop_validation_types=MTISC_VALIDATION)
         assert ok
 
     def test_multiline_notes_valid(self):
         content = "\n".join([SEP, N, "line1", "line2", M, "m1", T, "12:00", I, "id1", S, "s1", C, "cont1"]) + "\n"
-        ok, _ = _validate_system(content, NMTISC_PROPS, prop_validation_types=MTISC_VALIDATION,
+        ok, _ = _validate_main_collection(content, NMTISC_PROPS, prop_validation_types=MTISC_VALIDATION,
                                   multiline_props=N_ML)
         assert ok
 
     def test_empty_content_rejected(self):
-        ok, msg = _validate_system("")
+        ok, msg = _validate_main_collection("")
         assert not ok
         assert "no sections" in msg
 
     def test_missing_separator_rejected(self):
         content = "\n".join([N, "notes", M, "m1", T, "12:00"]) + "\n"
-        ok, msg = _validate_system(content)
+        ok, msg = _validate_main_collection(content)
         assert not ok
         assert "separator" in msg
 
     def test_empty_machine_value_rejected(self):
         content = "\n".join([SEP, N, "notes", M, "", T, "12:00"]) + "\n"
-        ok, _ = _validate_system(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
+        ok, _ = _validate_main_collection(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
         assert not ok
 
     def test_whitespace_only_machine_rejected(self):
         content = "\n".join([SEP, N, "notes", M, "   ", T, "12:00"]) + "\n"
-        ok, _ = _validate_system(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
+        ok, _ = _validate_main_collection(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
         assert not ok
 
     def test_empty_id_rejected(self):
         content = "\n".join([SEP, N, "notes", M, "m1", T, "12:00", I, ""]) + "\n"
-        ok, _ = _validate_system(content, ("notes", "machine", "time", "id"),
+        ok, _ = _validate_main_collection(content, ("notes", "machine", "time", "id"),
                                   prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
         assert not ok
 
     def test_id_with_hash_rejected(self):
         content = "\n".join([SEP, N, "notes", M, "m1", T, "12:00", I, "#id1"]) + "\n"
-        ok, msg = _validate_system(content, ("notes", "machine", "time", "id"),
+        ok, msg = _validate_main_collection(content, ("notes", "machine", "time", "id"),
                                    prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
         assert not ok
         assert "#" in msg
 
     def test_id_without_hash_accepted(self):
         content = "\n".join([SEP, N, "notes", M, "m1", T, "12:00", I, "anything"]) + "\n"
-        ok, _ = _validate_system(content, ("notes", "machine", "time", "id"),
+        ok, _ = _validate_main_collection(content, ("notes", "machine", "time", "id"),
                                   prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
         assert ok
 
     def test_empty_schedule_value_rejected(self):
         content = "\n".join([SEP, N, "notes", M, "m1", T, "12:00", S, ""]) + "\n"
-        ok, _ = _validate_system(content, ("notes", "machine", "time", "schedule"),
+        ok, _ = _validate_main_collection(content, ("notes", "machine", "time", "schedule"),
                                   mandatory_prop_names=frozenset({"schedule"}),
                                   prop_validation_types=MT_VALIDATION)
         assert not ok
 
     def test_empty_contact_value_rejected(self):
         content = "\n".join([SEP, N, "notes", M, "m1", T, "12:00", S, "s1", C, ""]) + "\n"
-        ok, _ = _validate_system(content, ("notes", "machine", "time", "schedule", "contact"),
+        ok, _ = _validate_main_collection(content, ("notes", "machine", "time", "schedule", "contact"),
                                   mandatory_prop_names=frozenset({"contact"}),
                                   prop_validation_types=MT_VALIDATION)
         assert not ok
 
     def test_empty_notes_accepted(self):
         content = "\n".join([SEP, N]) + "\n"
-        ok, _ = _validate_system(content, ("notes",), multiline_props=N_ML)
+        ok, _ = _validate_main_collection(content, ("notes",), multiline_props=N_ML)
         assert ok
 
     def test_invalid_time_format_rejected(self):
         content = "\n".join([SEP, N, "notes", M, "m1", T, "9:00"]) + "\n"
-        ok, msg = _validate_system(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
+        ok, msg = _validate_main_collection(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
         assert not ok
         assert "HH:MM" in msg
 
     def test_time_with_letters_rejected(self):
         content = "\n".join([SEP, N, "notes", M, "m1", T, "ab:cd"]) + "\n"
-        ok, _ = _validate_system(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
+        ok, _ = _validate_main_collection(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
         assert not ok
 
     def test_valid_time_accepted(self):
-        ok, _ = _validate_system(
+        ok, _ = _validate_main_collection(
             sys_doc(("m1", "00:00", "notes"), props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")]),
             NMTISC_PROPS, prop_validation_types=MTISC_VALIDATION,
         )
@@ -150,12 +150,12 @@ class TestValidateSystem:
 
     def test_wrong_label_rejected(self):
         content = "\n".join([SEP, "👉wrong👈", "m1"]) + "\n"
-        ok, _ = _validate_system(content)
+        ok, _ = _validate_main_collection(content)
         assert not ok
 
     def test_error_includes_line_number(self):
         content = "\n".join([SEP, N, "notes", M, "", T, "12:00"]) + "\n"
-        _, msg = _validate_system(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
+        _, msg = _validate_main_collection(content, ("notes",) + MT_PROPS, prop_validation_types=MT_VALIDATION)
         assert "line" in msg
 
 
@@ -255,7 +255,7 @@ class TestValidateDispatch:
 
 class TestParseSystemSections:
     def test_single_section(self):
-        sections = _parse_system_sections(
+        sections = _parse_main_collection_sections(
             sys_doc(("m1", "12:00", "notes"), props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")]),
             NMTISC_PROPS,
         )
@@ -267,23 +267,23 @@ class TestParseSystemSections:
             sys_doc(("m1", "08:00", "n1"), props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")]) +
             sys_doc(("m2", "09:00", "n2"), props=[("id", "id2"), ("schedule", "s2"), ("contact", "cont2")])
         )
-        sections = _parse_system_sections(content, NMTISC_PROPS)
+        sections = _parse_main_collection_sections(content, NMTISC_PROPS)
         assert len(sections) == 2
         assert sections[0]["machine"] == "m1"
         assert sections[1]["machine"] == "m2"
 
     def test_multiline_notes_joined_with_space(self):
         content = "\n".join([SEP, N, "line1", "line2", "line3"]) + "\n"
-        sections = _parse_system_sections(content, ("notes",), multiline_props=N_ML)
+        sections = _parse_main_collection_sections(content, ("notes",), multiline_props=N_ML)
         assert sections[0]["notes"] == "line1 line2 line3"
 
     def test_empty_template_has_blank_fields(self):
         content = "\n".join([SEP, N, "", M, "", T, "", I, "", S, "", C, ""]) + "\n"
-        sections = _parse_system_sections(content, NMTISC_PROPS)
+        sections = _parse_main_collection_sections(content, NMTISC_PROPS)
         assert sections[0] == {"notes": "", "machine": "", "time": "", "id": "", "schedule": "", "contact": ""}
 
     def test_empty_content_returns_no_sections(self):
-        assert _parse_system_sections("") == []
+        assert _parse_main_collection_sections("") == []
 
 
 class TestCsvHelpers:
@@ -316,57 +316,57 @@ class TestAdditionalPropsValidation:
     def test_valid_with_props(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", "v1"), ("p2", "v2")])
-        ok, _ = _validate_system(doc, NMTISC_PROPS + PROPS, prop_validation_types=MTISC_VALIDATION)
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS, prop_validation_types=MTISC_VALIDATION)
         assert ok
 
     def test_empty_prop_value_valid(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", ""), ("p2", "")])
-        ok, _ = _validate_system(doc, NMTISC_PROPS + PROPS, prop_validation_types=MTISC_VALIDATION)
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS, prop_validation_types=MTISC_VALIDATION)
         assert ok
 
     def test_missing_prop_label_rejected(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")])  # no p1/p2
-        ok, msg = _validate_system(doc, NMTISC_PROPS + PROPS, prop_validation_types=MTISC_VALIDATION)
+        ok, msg = _validate_main_collection(doc, NMTISC_PROPS + PROPS, prop_validation_types=MTISC_VALIDATION)
         assert not ok
         assert "p1" in msg
 
     def test_wrong_prop_label_rejected(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("wrong", "v"), ("p2", "v")])
-        ok, msg = _validate_system(doc, NMTISC_PROPS + PROPS, prop_validation_types=MTISC_VALIDATION)
+        ok, msg = _validate_main_collection(doc, NMTISC_PROPS + PROPS, prop_validation_types=MTISC_VALIDATION)
         assert not ok
 
     def test_notes_terminated_by_prop_label(self):
         doc = sys_doc(("m1", "12:00", "line1"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", "v1"), ("p2", "")])
-        sections = _parse_system_sections(doc, NMTISC_PROPS + PROPS)
+        sections = _parse_main_collection_sections(doc, NMTISC_PROPS + PROPS)
         assert sections[0]["notes"] == "line1"
         assert sections[0]["p1"] == "v1"
 
     def test_multiline_notes_terminated_before_props(self):
         content = "\n".join([SEP, N, "line1", "line2",
                               M, "m1", T, "12:00", I, "id1", S, "s1", C, "cont1", "👉p1👈", "val", "👉p2👈", ""]) + "\n"
-        sections = _parse_system_sections(content, NMTISC_PROPS + PROPS, multiline_props=N_ML)
+        sections = _parse_main_collection_sections(content, NMTISC_PROPS + PROPS, multiline_props=N_ML)
         assert sections[0]["notes"] == "line1 line2"
         assert sections[0]["p1"] == "val"
 
     def test_empty_template_includes_props(self):
-        doc = _empty_system_document(PROPS)
+        doc = _empty_main_collection_document(PROPS)
         assert "👉p1👈" in doc
         assert "👉p2👈" in doc
 
     def test_parse_empty_template_with_props(self):
-        doc = _empty_system_document(PROPS)
-        sections = _parse_system_sections(doc, PROPS)
+        doc = _empty_main_collection_document(PROPS)
+        sections = _parse_main_collection_sections(doc, PROPS)
         assert sections[0] == {"p1": "", "p2": ""}
 
     def test_parse_mismatch_fills_missing_with_empty(self):
         # document has p1 and p3, config asks for p1 and p2 — p2 should be ""
         content = "\n".join([SEP, N, "notes", M, "m1", T, "12:00",
                               "👉p1👈", "val1", "👉p3👈", "val3"]) + "\n"
-        sections = _parse_system_sections(content, ("p1", "p2"))
+        sections = _parse_main_collection_sections(content, ("p1", "p2"))
         assert sections[0]["p1"] == "val1"
         assert sections[0]["p2"] == ""
 
@@ -374,7 +374,7 @@ class TestAdditionalPropsValidation:
         # document has p3 and p4, config asks for p1 and p2 — both should be ""
         content = "\n".join([SEP, N, "notes", M, "m1", T, "12:00",
                               "👉p3👈", "val3", "👉p4👈", "val4"]) + "\n"
-        sections = _parse_system_sections(content, ("p1", "p2"))
+        sections = _parse_main_collection_sections(content, ("p1", "p2"))
         assert sections[0]["p1"] == ""
         assert sections[0]["p2"] == ""
         assert len(sections) == 1  # section still included
@@ -383,13 +383,13 @@ class TestAdditionalPropsValidation:
         # document has unknown prop labels; notes must not consume them
         content = "\n".join([SEP, N, "real notes", M, "m1", T, "12:00",
                               "👉p3👈", "val"]) + "\n"
-        sections = _parse_system_sections(content, ("notes", "p1"))
+        sections = _parse_main_collection_sections(content, ("notes", "p1"))
         assert sections[0]["notes"] == "real notes"
 
     def test_not_empty_type_rejects_empty_value(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", ""), ("p2", "v")])
-        ok, msg = _validate_system(doc, NMTISC_PROPS + PROPS,
+        ok, msg = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
                                    prop_validation_types={**MTISC_VALIDATION, "p1": "NOT_EMPTY"})
         assert not ok
         assert "p1" in msg
@@ -397,28 +397,28 @@ class TestAdditionalPropsValidation:
     def test_not_empty_type_accepts_non_empty_value(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", "val"), ("p2", "")])
-        ok, _ = _validate_system(doc, NMTISC_PROPS + PROPS,
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
                                  prop_validation_types={**MTISC_VALIDATION, "p1": "NOT_EMPTY"})
         assert ok
 
     def test_none_type_accepts_empty_value(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", ""), ("p2", "")])
-        ok, _ = _validate_system(doc, NMTISC_PROPS + PROPS,
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
                                  prop_validation_types={**MTISC_VALIDATION, "p1": "NONE", "p2": "NONE"})
         assert ok
 
     def test_hh_mm_type_accepts_valid_time(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", ""), ("p2", "08:30")])
-        ok, _ = _validate_system(doc, NMTISC_PROPS + PROPS,
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
                                  prop_validation_types={**MTISC_VALIDATION, "p2": "HH:MM"})
         assert ok
 
     def test_hh_mm_type_rejects_invalid_value(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", ""), ("p2", "bad")])
-        ok, msg = _validate_system(doc, NMTISC_PROPS + PROPS,
+        ok, msg = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
                                    prop_validation_types={**MTISC_VALIDATION, "p2": "HH:MM"})
         assert not ok
         assert "HH:MM" in msg
@@ -426,27 +426,27 @@ class TestAdditionalPropsValidation:
     def test_hh_mm_type_rejects_empty_value(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", ""), ("p2", "")])
-        ok, _ = _validate_system(doc, NMTISC_PROPS + PROPS,
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS + PROPS,
                                  prop_validation_types={**MTISC_VALIDATION, "p2": "HH:MM"})
         assert not ok
 
     def test_re_type_accepts_matching_value(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")])
-        ok, _ = _validate_system(doc, NMTISC_PROPS, prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS, prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
         assert ok
 
     def test_re_type_rejects_non_matching_value(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", "#bad"), ("schedule", "s1"), ("contact", "cont1")])
-        ok, msg = _validate_system(doc, NMTISC_PROPS, prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
+        ok, msg = _validate_main_collection(doc, NMTISC_PROPS, prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
         assert not ok
         assert "#bad" in msg
 
     def test_re_type_rejects_empty_value(self):
         doc = sys_doc(("m1", "12:00", "notes"),
                       props=[("id", ""), ("schedule", "s1"), ("contact", "cont1")])
-        ok, _ = _validate_system(doc, NMTISC_PROPS, prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
+        ok, _ = _validate_main_collection(doc, NMTISC_PROPS, prop_validation_types={**MT_VALIDATION, "id": "RE:[^#]+"})
         assert not ok
 
 
@@ -454,18 +454,18 @@ class TestTextToSystemJson:
     def test_basic_section(self):
         content = sys_doc(("m1", "12:00", "notes"),
                           props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")])
-        data = json.loads(_text_to_system_json(content, NMTISC_PROPS))
+        data = json.loads(_text_to_main_collection_json(content, NMTISC_PROPS))
         assert data == [{"notes": "notes", "machine": "m1", "time": "12:00", "id": "id1", "schedule": "s1", "contact": "cont1"}]
 
     def test_multiline_notes_preserved_with_newlines(self):
         content = "\n".join([SEP, N, "line1", "line2"]) + "\n"
-        data = json.loads(_text_to_system_json(content, ("notes",), multiline_props=N_ML))
+        data = json.loads(_text_to_main_collection_json(content, ("notes",), multiline_props=N_ML))
         assert data[0]["notes"] == "line1\nline2"
 
     def test_additional_props_included(self):
         content = sys_doc(("m1", "12:00", "n"),
                           props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", "v1"), ("p2", "")])
-        data = json.loads(_text_to_system_json(content, NMTISC_PROPS + ("p1", "p2")))
+        data = json.loads(_text_to_main_collection_json(content, NMTISC_PROPS + ("p1", "p2")))
         assert data[0]["p1"] == "v1"
         assert data[0]["p2"] == ""
 
@@ -474,33 +474,33 @@ class TestTextToSystemJson:
             sys_doc(("m1", "08:00", "n1"), props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1")]) +
             sys_doc(("m2", "09:00", "n2"), props=[("id", "id2"), ("schedule", "s2"), ("contact", "cont2")])
         )
-        data = json.loads(_text_to_system_json(content, NMTISC_PROPS))
+        data = json.loads(_text_to_main_collection_json(content, NMTISC_PROPS))
         assert len(data) == 2
         assert data[1]["machine"] == "m2"
 
     def test_empty_content_returns_empty_array(self):
-        data = json.loads(_text_to_system_json(""))
+        data = json.loads(_text_to_main_collection_json(""))
         assert data == []
 
     def test_round_trip(self):
         content = sys_doc(("m1", "12:00", "notes"),
                           props=[("id", "id1"), ("schedule", "s1"), ("contact", "cont1"), ("p1", "val")])
         props = NMTISC_PROPS + ("p1",)
-        result = _system_sections_to_text(json.loads(_text_to_system_json(content, props)), props)
+        result = _main_collection_sections_to_text(json.loads(_text_to_main_collection_json(content, props)), props)
         assert result == content
 
 
 class TestSystemSectionsToText:
     def test_basic_conversion(self):
         sections = [{"notes": "notes", "machine": "m1", "time": "12:00", "id": "id1", "schedule": "s1", "contact": "cont1"}]
-        text = _system_sections_to_text(sections, NMTISC_PROPS)
+        text = _main_collection_sections_to_text(sections, NMTISC_PROPS)
         assert SEP in text
         assert "m1" in text
         assert "id1" in text
 
     def test_multiline_notes_expanded(self):
         sections = [{"notes": "line1\nline2", "machine": "m1", "time": "12:00", "id": "id1", "schedule": "s1", "contact": "cont1"}]
-        text = _system_sections_to_text(sections, NMTISC_PROPS)
+        text = _main_collection_sections_to_text(sections, NMTISC_PROPS)
         lines = text.splitlines()
         notes_idx = lines.index(N)
         assert lines[notes_idx + 1] == "line1"
@@ -508,27 +508,27 @@ class TestSystemSectionsToText:
 
     def test_missing_additional_prop_appended_empty(self):
         sections = [{"notes": "n"}]
-        text = _system_sections_to_text(sections, ("p1", "p2"))
+        text = _main_collection_sections_to_text(sections, ("p1", "p2"))
         assert "👉p1👈" in text
         assert "👉p2👈" in text
 
     def test_empty_sections_returns_empty_string(self):
-        assert _system_sections_to_text([]) == "\n"
+        assert _main_collection_sections_to_text([]) == "\n"
 
 
 class TestEmptySystemJson:
     def test_returns_valid_json_array(self):
-        data = json.loads(_empty_system_json())
+        data = json.loads(_empty_main_collection_json())
         assert isinstance(data, list)
         assert len(data) == 1
 
     def test_all_core_fields_blank(self):
-        data = json.loads(_empty_system_json(("notes",)))
+        data = json.loads(_empty_main_collection_json(("notes",)))
         sec = data[0]
         assert sec["notes"] == ""
 
     def test_additional_props_included_blank(self):
-        data = json.loads(_empty_system_json(("p1", "p2")))
+        data = json.loads(_empty_main_collection_json(("p1", "p2")))
         assert data[0]["p1"] == ""
         assert data[0]["p2"] == ""
 

@@ -7,7 +7,7 @@ import app
 from app import (
     encode_name,
     cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len, cmd_diff,
-    _empty_system_document, _empty_system_json, _text_to_system_json,
+    _empty_main_collection_document, _empty_main_collection_json, _text_to_main_collection_json,
 )
 
 SEP = "🏔" * 20
@@ -73,7 +73,7 @@ def put_system(repo, name, version, content, additional_props=(), multiline_prop
     path = repo / "systems" / f"{enc}.{version:04d}.txt.gz"
     if content:
         path.write_bytes(gzip.compress(
-            _text_to_system_json(content, additional_props, multiline_props=multiline_props).encode()
+            _text_to_main_collection_json(content, additional_props, multiline_props=multiline_props).encode()
         ))
     else:
         path.write_bytes(gzip.compress(b""))
@@ -125,7 +125,7 @@ class TestCmdAdd:
         enc = encode_name("sys1")
         path = repo / "systems" / f"{enc}.0000.txt.gz"
         assert path.exists()
-        assert gzip.decompress(path.read_bytes()).decode() == _empty_system_json()
+        assert gzip.decompress(path.read_bytes()).decode() == _empty_main_collection_json()
         assert "created: sys1" in capsys.readouterr().out
 
     def test_schedules_creates_txt(self, repo, capsys):
@@ -246,7 +246,7 @@ class TestCmdClear:
         enc = encode_name("sys1")
         with patch.object(app.subprocess, "Popen"):
             cmd_clear(repo, "systems", "sys1", downloads, "mousepad")
-        assert (downloads / "systems" / f"{enc}.0001.txt").read_text() == _empty_system_document()
+        assert (downloads / "systems" / f"{enc}.0001.txt").read_text() == _empty_main_collection_document()
 
     def test_schedule_writes_empty_template(self, repo, downloads):
         put_schedule(repo, "sc1", 0, "2020/01/01")
@@ -293,7 +293,7 @@ class TestCmdPush:
         cmd_push(repo, "systems", "sys1", downloads, NMTISC_PROPS, mandatory_ref_props=_SC_CONTACT_REFS,
                  prop_validation_types=MTISC_VALIDATION)
         gz = repo / "systems" / f"{enc}.0001.txt.gz"
-        assert gzip.decompress(gz.read_bytes()).decode() == _text_to_system_json(content, NMTISC_PROPS)
+        assert gzip.decompress(gz.read_bytes()).decode() == _text_to_main_collection_json(content, NMTISC_PROPS)
 
     def test_system_invalid_format_rejected(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
@@ -403,10 +403,10 @@ class TestCmdPush:
         cmd_push(repo, "schedules", "sc1", downloads)
         assert "rejected" in capsys.readouterr().out
 
-    def test_empty_system_document_accepted(self, repo, downloads, capsys):
+    def test_empty_main_collection_document_accepted(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(_empty_system_document())
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(_empty_main_collection_document())
         cmd_push(repo, "systems", "sys1", downloads)
         assert "pushed" in capsys.readouterr().out
         assert (repo / "systems" / f"{enc}.0001.txt.gz").exists()
@@ -419,7 +419,7 @@ class TestCmdPush:
         assert "pushed" in capsys.readouterr().out
         pushed = repo / "systems" / f"{enc}.0001.txt.gz"
         assert pushed.exists()
-        assert gzip.decompress(pushed.read_bytes()).decode() == _empty_system_json()
+        assert gzip.decompress(pushed.read_bytes()).decode() == _empty_main_collection_json()
 
     def test_not_in_downloads_prints_error(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
@@ -491,7 +491,7 @@ class TestCmdExport:
         assert "old-notes" not in content
 
     def test_systems_excludes_initial_state(self, repo, downloads, cache):
-        put_system(repo, "empty_sys", 0, _empty_system_document())
+        put_system(repo, "empty_sys", 0, _empty_main_collection_document())
         put_system(repo, "real_sys", 0, sys_doc(("m1", "12:00", "some-notes")), ("notes",))
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=("notes",))
@@ -540,11 +540,11 @@ class TestAdditionalProps:
         assert "p1" in data[0]
         assert "p2" in data[0]
 
-    def test_add_template_matches_empty_system_json(self, repo):
+    def test_add_template_matches_empty_main_collection_json(self, repo):
         cmd_add(repo, "systems", "sys1", additional_props=PROPS)
         enc = encode_name("sys1")
         content = gzip.decompress((repo / "systems" / f"{enc}.0000.txt.gz").read_bytes()).decode()
-        assert content == _empty_system_json(PROPS)
+        assert content == _empty_main_collection_json(PROPS)
 
     def test_clear_writes_template_with_props(self, repo, downloads):
         put_system(repo, "sys1", 0,
@@ -555,7 +555,7 @@ class TestAdditionalProps:
         with patch.object(app.subprocess, "Popen"):
             cmd_clear(repo, "systems", "sys1", downloads, "mousepad", additional_props=PROPS)
         content = (downloads / "systems" / f"{enc}.0000.txt").read_text()
-        assert content == _empty_system_document(PROPS)
+        assert content == _empty_main_collection_document(PROPS)
 
     def test_push_accepts_doc_with_props(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
@@ -582,7 +582,7 @@ class TestAdditionalProps:
     def test_push_accepts_initial_state_with_props(self, repo, downloads, capsys):
         put_system(repo, "sys1", 0, "")
         enc = encode_name("sys1")
-        (downloads / "systems" / f"{enc}.0000.txt").write_text(_empty_system_document(PROPS))
+        (downloads / "systems" / f"{enc}.0000.txt").write_text(_empty_main_collection_document(PROPS))
         cmd_push(repo, "systems", "sys1", downloads, PROPS)
         assert "pushed" in capsys.readouterr().out
 
@@ -675,7 +675,7 @@ class TestCmdLen:
         assert capsys.readouterr().out.strip() == "2"
 
     def test_systems_initial_state_is_zero(self, repo, capsys):
-        put_system(repo, "sys1", 0, _empty_system_document())
+        put_system(repo, "sys1", 0, _empty_main_collection_document())
         cmd_len(repo, "systems", "sys1")
         assert capsys.readouterr().out.strip() == "0"
 

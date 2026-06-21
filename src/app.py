@@ -178,7 +178,7 @@ def _is_any_label(line: str) -> bool:
             and line != _SEPARATOR)
 
 
-def _empty_system_document(additional_props: tuple[str, ...] = (), *,
+def _empty_main_collection_document(additional_props: tuple[str, ...] = (), *,
                             field_order: tuple[str, ...] | None = None) -> str:
     order = field_order if field_order is not None else (_DEFAULT_CORE + additional_props)
     lines = [_SEPARATOR]
@@ -189,14 +189,14 @@ def _empty_system_document(additional_props: tuple[str, ...] = (), *,
 
 
 
-def _empty_system_json(additional_props: tuple[str, ...] = (), *,
+def _empty_main_collection_json(additional_props: tuple[str, ...] = (), *,
                         field_order: tuple[str, ...] | None = None) -> str:
     order = field_order if field_order is not None else (_DEFAULT_CORE + additional_props)
     section: dict[str, str] = {key: "" for key in order}
     return json.dumps([section], ensure_ascii=False, indent=2) + "\n"
 
 
-def _system_sections_to_text(sections: list[dict], additional_props: tuple[str, ...] = (), *,
+def _main_collection_sections_to_text(sections: list[dict], additional_props: tuple[str, ...] = (), *,
                                field_order: tuple[str, ...] | None = None) -> str:
     """Convert parsed JSON sections to the human-readable 👉👈 text format."""
     order = field_order if field_order is not None else (_DEFAULT_CORE + additional_props)
@@ -209,7 +209,7 @@ def _system_sections_to_text(sections: list[dict], additional_props: tuple[str, 
     return "\n".join(lines) + "\n"
 
 
-def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *,
+def _text_to_main_collection_json(content: str, additional_props: tuple[str, ...] = (), *,
                           field_order: tuple[str, ...] | None = None,
                           multiline_props: frozenset[str] = frozenset()) -> str:
     """Convert 👉👈 separator text (from downloads) to a JSON string for repo storage."""
@@ -264,7 +264,7 @@ def _text_to_system_json(content: str, additional_props: tuple[str, ...] = (), *
     return json.dumps(sections, ensure_ascii=False, indent=2) + "\n"
 
 
-def _validate_system(content: str, additional_props: tuple[str, ...] = (),
+def _validate_main_collection(content: str, additional_props: tuple[str, ...] = (),
                      mandatory_prop_names: frozenset[str] = frozenset(), *,
                      field_order: tuple[str, ...] | None = None,
                      prop_validation_types: dict[str, str] = {},
@@ -337,7 +337,7 @@ def validate(collection: str, content: str, additional_props: tuple[str, ...] = 
              prop_validation_types: dict[str, str] = {},
              multiline_props: frozenset[str] = frozenset()) -> tuple[bool, str]:
     if collection == MAIN_COLLECTION:
-        return _validate_system(content, additional_props, mandatory_prop_names,
+        return _validate_main_collection(content, additional_props, mandatory_prop_names,
                                 field_order=field_order,
                                 prop_validation_types=prop_validation_types,
                                 multiline_props=multiline_props)
@@ -387,7 +387,7 @@ def cmd_add(repo_root: Path, collection: str, name: str,
         return
     if suffix == ".txt.gz":
         dest.write_bytes(gzip.compress(
-            _empty_system_json(additional_props, field_order=field_order).encode()))
+            _empty_main_collection_json(additional_props, field_order=field_order).encode()))
     else:
         dest.write_text("")
     print(f"created: {name}")
@@ -421,14 +421,14 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
         dl_dir = downloads_dir / collection
         dl_dir.mkdir(parents=True, exist_ok=True)
         dest = dl_dir / dl_name
-        dest.write_text(_system_sections_to_text(sections, additional_props,
+        dest.write_text(_main_collection_sections_to_text(sections, additional_props,
                                                   field_order=field_order))
         print(f"saved: {dest}")
         JTable(dest, mode="systems", readonly=True, multiline_cols=multiline_props).run()
         return
     if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
-        print(_system_sections_to_text(sections, additional_props, field_order=field_order), end="")
+        print(_main_collection_sections_to_text(sections, additional_props, field_order=field_order), end="")
     elif filepath.name.endswith(".gz"):
         print(gzip.decompress(filepath.read_bytes()).decode(), end="")
     else:
@@ -447,7 +447,7 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
     dl_name = filepath.name[:-3] if filepath.name.endswith(".gz") else filepath.name
     dest = dl_dir / dl_name
     if collection == MAIN_COLLECTION:
-        template = _empty_system_document(additional_props, field_order=field_order)
+        template = _empty_main_collection_document(additional_props, field_order=field_order)
     else:
         template = ""
     dest.write_text(template)
@@ -470,7 +470,7 @@ def cmd_get(repo_root: Path, collection: str, name: str,
         dl_name = filepath.name[:-3]
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         dest = dl_dir / dl_name
-        dest.write_text(_system_sections_to_text(sections, additional_props,
+        dest.write_text(_main_collection_sections_to_text(sections, additional_props,
                                                   field_order=field_order))
     elif filepath.name.endswith(".gz"):
         dl_name = filepath.name[:-3]
@@ -573,7 +573,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
         print(f"error: not found in downloads: {name}")
         return
     content = src.read_text()
-    if not (collection == MAIN_COLLECTION and _is_initial_state_system(
+    if not (collection == MAIN_COLLECTION and _is_initial_state_main_collection(
             content, additional_props, field_order=field_order, multiline_props=multiline_props)):
         mandatory_prop_names = frozenset(pname for pname, _, _ in mandatory_ref_props)
         ok, reason = validate(collection, content, additional_props, mandatory_prop_names,
@@ -584,7 +584,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
             print(f"rejected: {reason}")
             return
         if collection == MAIN_COLLECTION and mandatory_ref_props:
-            sections_for_ref = _parse_system_sections(content, additional_props,
+            sections_for_ref = _parse_main_collection_sections(content, additional_props,
                                                        field_order=field_order,
                                                        multiline_props=multiline_props)
             for pname, cname, whitelist in mandatory_ref_props:
@@ -614,9 +614,9 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
     dest = col_path / f"{encoded}.{new_version:04d}{suffix}"
     if suffix == ".txt.gz":
         if not content.strip():
-            body = _empty_system_json(additional_props, field_order=field_order)
+            body = _empty_main_collection_json(additional_props, field_order=field_order)
         else:
-            body = _text_to_system_json(content, additional_props, field_order=field_order,
+            body = _text_to_main_collection_json(content, additional_props, field_order=field_order,
                                          multiline_props=multiline_props)
         dest.write_bytes(gzip.compress(body.encode()))
     else:
@@ -624,7 +624,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
     print(f"pushed: {name} (version {new_version:04d})")
 
 
-def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (), *,
+def _parse_main_collection_sections(content: str, additional_props: tuple[str, ...] = (), *,
                              field_order: tuple[str, ...] | None = None,
                              multiline_props: frozenset[str] = frozenset()) -> list[dict]:
     lines = content.splitlines()
@@ -678,12 +678,12 @@ def _parse_system_sections(content: str, additional_props: tuple[str, ...] = (),
     return sections
 
 
-def _is_initial_state_system(content: str, additional_props: tuple[str, ...] = (), *,
+def _is_initial_state_main_collection(content: str, additional_props: tuple[str, ...] = (), *,
                                field_order: tuple[str, ...] | None = None,
                                multiline_props: frozenset[str] = frozenset()) -> bool:
     if not content.strip():
         return True  # all rows deleted via GUI → treat as cleared
-    sections = _parse_system_sections(content, additional_props, field_order=field_order,
+    sections = _parse_main_collection_sections(content, additional_props, field_order=field_order,
                                        multiline_props=multiline_props)
     extra_to_check = tuple(field_order) if field_order is not None else additional_props
     return bool(sections) and all(
