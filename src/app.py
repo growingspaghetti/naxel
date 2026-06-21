@@ -786,8 +786,7 @@ def _csv_row(*fields: str) -> str:
 
 def cmd_export(repo_root: Path, collection: str, filename: str,
                downloads_dir: Path, cache_dir: Path, editor: str,
-               additional_props: tuple[str, ...] = (), jtable: bool = False,
-               onefile: bool = False, *,
+               additional_props: tuple[str, ...] = (), jtable: bool = False, *,
                field_order: tuple[str, ...] | None = None,
                multiline_props: frozenset[str] = frozenset(),
                mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = ()):
@@ -825,33 +824,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                     for f in cols:
                         record[f] = sec.get(f, "")
                     records.append(record)
-            if onefile:
-                output: dict = {collection: records}
-                for _, cname, _ in mandatory_ref_props:
-                    ref_col_path = cache_dir / cname
-                    ref_seen: dict[str, str] = {}
-                    try:
-                        for rfname in sorted(os.listdir(ref_col_path)):
-                            if not rfname.endswith(".txt"):
-                                continue
-                            rstem = rfname[:-4]
-                            rparts = rstem.split(".")
-                            if len(rparts) == 2 and rparts[1].isdigit() and len(rparts[1]) == 4:
-                                ref_seen[rparts[0]] = rfname
-                    except FileNotFoundError:
-                        pass
-                    ref_records: list[dict] = []
-                    for rencoded, rfname in sorted(ref_seen.items()):
-                        entry_name = decode_name(rencoded) or rencoded
-                        content = (ref_col_path / rfname).read_text().strip()
-                        if not content:
-                            continue
-                        values = [v.strip() for v in content.split(",") if v.strip()]
-                        ref_records.append({"name": entry_name, "values": values})
-                    output[cname] = ref_records
-                dest.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
-            else:
-                dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n")
+            dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n")
         else:
             for encoded, fname in sorted(seen.items()):
                 entry_name = decode_name(encoded) or encoded
@@ -1133,7 +1106,7 @@ def usage_string() -> str:
         "  len <collection> <name>\n"
         "  push <collection> <name>\n"
         "  export <collection> <file.csv> [--jtable]\n"
-        "  export <collection> <file.json> [--onefile]\n"
+        "  export <collection> <file.json>\n"
         "  diff <collection> <name> [--jtable]\n"
         "  fullcopy <destination-directory> [--json]\n"
         "  mkrepo <json-file> <destination-directory>\n"
@@ -1222,15 +1195,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
 
     elif cmd == "export":
         jtable = "--jtable" in parts
-        onefile = "--onefile" in parts
-        export_parts = [p for p in parts if p not in ("--jtable", "--onefile")]
+        export_parts = [p for p in parts if p != "--jtable"]
         if len(export_parts) != 3:
-            print("usage: export <collection> <file.csv> [--jtable] | export <collection> <file.json> [--onefile]")
-        elif onefile and not export_parts[2].endswith(".json"):
-            print("error: --onefile is only supported for .json export")
+            print("usage: export <collection> <file.csv> [--jtable] | export <collection> <file.json>")
         else:
             cmd_export(repo_root, collection, export_parts[2], downloads_dir, cache_dir,
-                       editor, additional_props, jtable=jtable, onefile=onefile,
+                       editor, additional_props, jtable=jtable,
                        field_order=field_order, multiline_props=multiline_props,
                        mandatory_ref_props=mandatory_ref_props)
 
