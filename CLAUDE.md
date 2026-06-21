@@ -131,7 +131,7 @@ Every file in the repo is named `{base32(name)}.{version}.{ext}` where:
 
 `get`, `clear`, and `cat --jtable` write files to `downloads/{collection}/` (e.g. `downloads/systems/`, `downloads/schedules/`). `push` reads from the same subdirectory. Using per-collection subdirectories means same-name entries in different collections (e.g. a "foo" in `schedules` and a "foo" in a dynamic collection) never share a filename and cannot overwrite each other.
 
-`export` is the exception: its output CSV is written directly to `downloads/` (not a subdirectory), because it is not a versioned collection entry.
+`export` is the exception: its output file (CSV or JSON) is written directly to `downloads/` (not a subdirectory), because it is not a versioned collection entry.
 
 All files in `downloads/` are plain `.txt` regardless of collection, so any text editor can open them directly.
 
@@ -139,7 +139,7 @@ All files in `downloads/` are plain `.txt` regardless of collection, so any text
 
 On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one on the cache dir, then copies only the missing files. No per-file stat calls against the NAS.
 
-`export` re-runs `sync_cache` before reading, then reads exclusively from the local cache — no per-file NAS calls during CSV generation.
+`export` re-runs `sync_cache` before reading, then reads exclusively from the local cache — no per-file NAS calls during CSV/JSON generation.
 
 ## Commands
 
@@ -154,8 +154,10 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `clear <collection> <name>`             | Write empty document template to `downloads/{collection}/` (same filename as `get`), open with editor |
 | `len <collection> <name>`               | Print the count of non-empty records in the latest version (sections for the main collection, comma-separated entries for all others) |
 | `push <collection> <name>`              | Validate latest `.txt` in `downloads/{collection}/`, write as next version in repo |
-| `export <collection> <file>`            | Sync cache, build CSV from latest versions, save to `downloads/`, open with editor |
-| `export <collection> <file> --jtable`   | Same as `export` but opens the CSV in a JTable window instead of the editor |
+| `export <collection> <file.csv>`                      | Sync cache, build CSV from latest versions, save to `downloads/`, open with editor |
+| `export <collection> <file.csv> --jtable`             | Same as `export` but opens the CSV in a JTable window instead of the editor |
+| `export <collection> <file.json>`                     | Sync cache, build JSON array from latest versions, save to `downloads/`, open with editor |
+| `export <main-collection> <file.json> --onefile`      | Same but wraps main collection and all reference collections into one JSON object: `{ main: [...], ref1: [...], ... }` |
 | `diff <collection> <name>`              | Compare latest and previous repo versions; print JSON with `"deleted"` and `"added"` arrays |
 | `diff <collection> <name> --jtable`     | Same comparison but opens a JTable window: deleted rows in red with `−`, added rows in green with `+` |
 | `exit`                                   | Quit |
@@ -251,6 +253,46 @@ sche1, 1234/11/12 1234/11/12 1234/12/12
 All non-main collections use the same `name, values` header. Comma-separated values from the file are converted to space-separated in the CSV. Entries with empty content are excluded.
 
 Fields containing `,`, `"`, or newlines are quoted (RFC 4180 `""`-escaping).
+
+## JSON export format
+
+Triggered when the filename passed to `export` ends with `.json`. Opens with the editor like CSV; `--jtable` is not supported.
+
+### main collection
+
+```json
+[
+  {"system_name": "sys1", "notes": "foobarbaz", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche3", "contact": "cont1"},
+  {"system_name": "sys1", "notes": "", "machine": "m2", "time": "12:30", "id": "id2", "schedule": "sche7", "contact": "cont2"}
+]
+```
+
+One object per section. The first key is `{partitioning_property}_name`. Remaining keys follow `field_order`. Multiline fields keep their `\n` characters (unlike CSV, which joins with a space). Documents where every field in every section is blank are excluded.
+
+### reference collections
+
+```json
+[
+  {"name": "sche1", "values": ["2024/01/01", "2024/06/15", "2025/03/20"]},
+  {"name": "sche2", "values": ["2024/03/01"]}
+]
+```
+
+Comma-separated values from the file are split into a JSON array (unlike CSV, which joins with a space). Empty entries are excluded.
+
+### `--onefile` (main collection only)
+
+When `--onefile` is passed with a `.json` filename and the collection is the main collection, the output is a single JSON object keyed by collection name:
+
+```json
+{
+  "systems": [ ... ],
+  "teams":   [{"name": "team1", "values": ["val1"]}, ...],
+  "schedules": [{"name": "sche1", "values": ["2024/01/01"]}, ...]
+}
+```
+
+The main collection array appears under its collection name. Each reference collection declared in `additional_mandatory_properties.json` appears under its `collection_name`. `--onefile` has no effect when the collection is not the main collection.
 
 ## Key implementation decisions
 
