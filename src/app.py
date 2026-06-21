@@ -313,13 +313,13 @@ def _validate_system(content: str, additional_props: tuple[str, ...] = (),
     return True, ""
 
 
-def _validate_schedule(content: str) -> tuple[bool, str]:
+def _validate_dates(content: str) -> tuple[bool, str]:
     if _SCHEDULE_RE.match(content):
         return True, ""
     return False, "expected: yyyy/mm/dd,yyyy/mm/dd,... (one line)"
 
 
-def _validate_contact(content: str) -> tuple[bool, str]:
+def _validate_phone_numbers(content: str) -> tuple[bool, str]:
     if _CONTACT_RE.match(content):
         return True, ""
     return False, "expected: digits/dashes/plus signs separated by commas (one line)"
@@ -343,9 +343,9 @@ def validate(collection: str, content: str, additional_props: tuple[str, ...] = 
                                 multiline_props=multiline_props)
     ctype = COLLECTION_TYPE.get(collection, "")
     if ctype == "DATE":
-        return _validate_schedule(content)
+        return _validate_dates(content)
     if ctype == "PHONE_NUMBER":
-        return _validate_contact(content)
+        return _validate_phone_numbers(content)
     if ctype == "EMAIL":
         return _validate_email(content)
     return True, ""

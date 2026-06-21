@@ -3,7 +3,7 @@ import pytest
 from pathlib import Path
 import app
 from app import (
-    _validate_system, _validate_schedule, _validate_contact, _validate_email,
+    _validate_system, _validate_dates, _validate_phone_numbers, _validate_email,
     validate, _parse_system_sections,
     _csv_field, _csv_row, _empty_system_document,
     _text_to_system_json, _system_sections_to_text, _empty_system_json,
@@ -161,35 +161,35 @@ class TestValidateSystem:
 
 class TestValidateSchedule:
     def test_single_date_valid(self):
-        ok, _ = _validate_schedule("2000/01/01")
+        ok, _ = _validate_dates("2000/01/01")
         assert ok
 
     def test_multiple_dates_valid(self):
-        ok, _ = _validate_schedule("1234/12/31,2000/06/01")
+        ok, _ = _validate_dates("1234/12/31,2000/06/01")
         assert ok
 
     def test_trailing_newline_valid(self):
-        ok, _ = _validate_schedule("2000/01/01\n")
+        ok, _ = _validate_dates("2000/01/01\n")
         assert ok
 
     def test_empty_rejected(self):
-        ok, _ = _validate_schedule("")
+        ok, _ = _validate_dates("")
         assert not ok
 
     def test_dash_separator_rejected(self):
-        ok, _ = _validate_schedule("2000-01-01")
+        ok, _ = _validate_dates("2000-01-01")
         assert not ok
 
     def test_space_separator_rejected(self):
-        ok, _ = _validate_schedule("2000/01/01 2000/02/02")
+        ok, _ = _validate_dates("2000/01/01 2000/02/02")
         assert not ok
 
     def test_short_year_rejected(self):
-        ok, _ = _validate_schedule("200/01/01")
+        ok, _ = _validate_dates("200/01/01")
         assert not ok
 
     def test_plain_text_rejected(self):
-        ok, _ = _validate_schedule("not a date")
+        ok, _ = _validate_dates("not a date")
         assert not ok
 
 
