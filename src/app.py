@@ -509,7 +509,8 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
     elif filepath.name.endswith(".gz"):
         print(gzip.decompress(filepath.read_bytes()).decode(), end="")
     else:
-        print(filepath.read_text(), end="")
+        content = filepath.read_text()
+        print(content, end="" if content.endswith("\n") else "\n")
 
 
 def cmd_clear(repo_root: Path, collection: str, name: str,
