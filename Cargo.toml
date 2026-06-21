@@ -1,5 +1,5 @@
 [package]
-name = "repo-manipulator"
+name = "naxel"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [[bin]]
-name = "repo-manipulator"
+name = "naxel"
 path = "src-rs/main.rs"
 
 [dependencies]

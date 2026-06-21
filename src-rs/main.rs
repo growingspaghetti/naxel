@@ -52,7 +52,7 @@ fn do_cd(
 
 fn spawn_table(td: TableData) {
     let exe = std::env::current_exe()
-        .unwrap_or_else(|_| std::path::PathBuf::from("repo-manipulator"));
+        .unwrap_or_else(|_| std::path::PathBuf::from("naxel"));
     let json = match serde_json::to_string(&td) {
         Ok(j) => j,
         Err(e) => { eprintln!("error: failed to serialize table data: {e}"); return; }
@@ -274,7 +274,7 @@ fn main() {
         return;
     }
 
-    println!("repo-manipulator  repository={}", state.repo_root.display());
+    println!("naxel  repository={}", state.repo_root.display());
     sync_cache(&state);
     if !state.intro_message.is_empty() {
         println!("{}", state.intro_message);

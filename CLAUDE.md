@@ -1,4 +1,4 @@
-# repo-manipulator — developer notes
+# naxel — developer notes
 
 ## How to run
 
