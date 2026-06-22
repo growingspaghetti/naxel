@@ -245,8 +245,8 @@ fn main() {
     };
 
     let cfg = load_app_config(&project_dir);
-    let downloads_base = cfg.downloads_dir.clone();
-    let cache_base = cfg.cache_dir.clone();
+    let downloads_base = project_dir.join("downloads");
+    let cache_base = project_dir.join("cache");
     let editor = cfg.editor.clone();
 
     let mut state = initialize_repo(&cfg.repo_root, &downloads_base, &cache_base);

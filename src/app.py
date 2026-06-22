@@ -32,13 +32,6 @@ def get_repo_root(config):
     return SCRIPT_DIR / config.get("repository", "root", fallback="dummy-repo")
 
 
-def get_downloads_dir(config):
-    return SCRIPT_DIR / config.get("downloads", "dir", fallback="downloads")
-
-
-def get_cache_dir(config):
-    return SCRIPT_DIR / config.get("cache", "dir", fallback="cache")
-
 
 def get_editor(config):
     return config.get("editor", "command", fallback="mousepad")
@@ -1423,8 +1416,8 @@ def _do_cd(path_str: str, downloads_base: Path, cache_base: Path,
 def main():
     config = load_config()
     repo_root = get_repo_root(config)
-    downloads_base = get_downloads_dir(config)
-    cache_base = get_cache_dir(config)
+    downloads_base = SCRIPT_DIR / "downloads"
+    cache_base = SCRIPT_DIR / "cache"
     editor = get_editor(config)
 
     state = initialize_repo(repo_root, downloads_base, cache_base)
