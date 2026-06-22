@@ -1094,6 +1094,9 @@ def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: st
 def cmd_init(destination: str):
     dest = Path(destination).resolve()
     dest.mkdir(parents=True, exist_ok=True)
+    if (dest / "repository.ini").exists():
+        print(f"error: already initialized: {dest}")
+        return
 
     def _prompt(prompt: str, default: str = "") -> str:
         suffix = f" [{default}]" if default else ""

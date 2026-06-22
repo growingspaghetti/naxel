@@ -1053,6 +1053,10 @@ pub fn cmd_init(destination: &str) {
         eprintln!("error: could not create directory: {e}");
         return;
     }
+    if dest.join("repository.ini").exists() {
+        eprintln!("error: already initialized: {}", dest.display());
+        return;
+    }
 
     fn readline() -> String {
         let mut s = String::new();
