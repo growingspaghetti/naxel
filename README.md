@@ -205,7 +205,7 @@ Dynamic reference collections — each entry defines a collection of valid value
 
 ```json
 [
-  {"collection_name": "teams",     "property_name": "team",     "type": "NOTE",         "whitelist": []},
+  {"collection_name": "teams",     "property_name": "team",     "type": "STRING",         "whitelist": []},
   {"collection_name": "schedules", "property_name": "schedule", "type": "DATE",         "whitelist": ["everyday", "weekends"]},
   {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER", "whitelist": ["none"]}
 ]
@@ -215,7 +215,7 @@ On `push`, every `property_name` field in main-collection records must be non-em
 
 | `type` | Format validated in reference entries |
 |---|---|
-| `NOTE` | No validation |
+| `STRING` | No validation |
 | `DATE` | Comma-separated `yyyy/mm/dd` |
 | `PHONE_NUMBER` | Comma-separated `[0-9\-\+]+` |
 | `EMAIL` | Comma-separated `user@domain.tld` |

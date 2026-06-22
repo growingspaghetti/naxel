@@ -1113,8 +1113,8 @@ pub fn cmd_init(destination: &str) {
             println!("    Content type options: note, date, phone_number, email, year");
             let ref_type_raw = prompt("    Content type", "note").to_uppercase();
             let ref_type = match ref_type_raw.as_str() {
-                "NOTE" | "DATE" | "PHONE_NUMBER" | "EMAIL" | "YEAR" => ref_type_raw.clone(),
-                _ => "NOTE".to_string(),
+                "STRING" | "DATE" | "PHONE_NUMBER" | "EMAIL" | "YEAR" => ref_type_raw.clone(),
+                _ => "STRING".to_string(),
             };
             print!("    Whitelist values (comma-separated, or leave empty): ");
             std::io::stdout().flush().ok();

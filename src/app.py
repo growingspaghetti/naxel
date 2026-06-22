@@ -1138,8 +1138,8 @@ def cmd_init(destination: str):
             ref_col = _prompt("    Referenced collection name")
             print("    Content type options: note, date, phone_number, email, year")
             ref_type = _prompt("    Content type", "note").upper()
-            if ref_type not in ("NOTE", "DATE", "PHONE_NUMBER", "EMAIL", "YEAR"):
-                ref_type = "NOTE"
+            if ref_type not in ("STRING", "DATE", "PHONE_NUMBER", "EMAIL", "YEAR"):
+                ref_type = "STRING"
             wl_raw = input("    Whitelist values (comma-separated, or leave empty): ").strip()
             whitelist = [v.strip() for v in wl_raw.split(",") if v.strip()] if wl_raw else []
             ref_entry: dict = {"collection_name": ref_col, "property_name": col_name, "type": ref_type}
@@ -1300,8 +1300,8 @@ def cmd_update(destination: str):
             ref_col = _prompt("    Referenced collection name")
             print("    Content type options: note, date, phone_number, email, year")
             ref_type = _prompt("    Content type", "note").upper()
-            if ref_type not in ("NOTE", "DATE", "PHONE_NUMBER", "EMAIL", "YEAR"):
-                ref_type = "NOTE"
+            if ref_type not in ("STRING", "DATE", "PHONE_NUMBER", "EMAIL", "YEAR"):
+                ref_type = "STRING"
             wl_raw = input("    Whitelist values (comma-separated, or leave empty): ").strip()
             whitelist = [v.strip() for v in wl_raw.split(",") if v.strip()] if wl_raw else []
             ref_entry: dict = {"collection_name": ref_col, "property_name": col_name, "type": ref_type}

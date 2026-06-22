@@ -137,7 +137,7 @@ Located at `{repo_root}/reference_collections.json`. A JSON array of objects, ea
 
 ```json
 [
-  {"collection_name": "teams",     "property_name": "team",     "type": "NOTE",         "whitelist": []},
+  {"collection_name": "teams",     "property_name": "team",     "type": "STRING",         "whitelist": []},
   {"collection_name": "schedules", "property_name": "schedule", "type": "DATE",         "whitelist": ["everyday", "weekends"]},
   {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER", "whitelist": []}
 ]
@@ -147,7 +147,7 @@ Located at `{repo_root}/reference_collections.json`. A JSON array of objects, ea
 |-------------------|---------|
 | `collection_name` | Directory name in the repo (e.g. `teams/`); also the collection name used in commands |
 | `property_name`   | The main-collection field that references this collection; validated on push |
-| `type`            | Content validation applied on `push`: `"DATE"` — comma-separated `yyyy/mm/dd` dates; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+` strings; `"EMAIL"` — comma-separated `user@domain.tld` addresses; `"YEAR"` — comma-separated `\d{4}` years; `"NOTE"` or absent — no content validation. |
+| `type`            | Content validation applied on `push`: `"DATE"` — comma-separated `yyyy/mm/dd` dates; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+` strings; `"EMAIL"` — comma-separated `user@domain.tld` addresses; `"YEAR"` — comma-separated `\d{4}` years; `"STRING"` or absent — no content validation. |
 | `whitelist`       | Optional JSON array of string values accepted without checking the collection (e.g. `["everyday", "weekends"]`). Omit or use `[]` for no whitelist. |
 
 At startup the app reads this file and for each entry:
@@ -311,7 +311,7 @@ Content validation on `push` is determined by the `type` field in `reference_col
 - `"DATE"` (`yyyy/mm/dd` dates): `1234/12/31,2000/06/01`
 - `"PHONE_NUMBER"` (`[0-9\-\+]+`): `03-1234-5678,09012345678,+81-0100-0331`
 - `"EMAIL"` (`user@domain.tld`): `foo@example.com,bar@example.org`
-- `"NOTE"` or absent: no format validation
+- `"STRING"` or absent: no format validation
 
 Empty template: empty string.
 
