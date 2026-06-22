@@ -1043,6 +1043,189 @@ pub fn cmd_partialcopy(
     println!("created: {}", dest_dir.display());
 }
 
+// ── init ───────────────────────────────────────────────────────────────────────
+
+pub fn cmd_init(destination: &str) {
+    use std::io::Write;
+
+    let dest = std::path::PathBuf::from(destination);
+    if let Err(e) = std::fs::create_dir_all(&dest) {
+        eprintln!("error: could not create directory: {e}");
+        return;
+    }
+
+    fn readline() -> String {
+        let mut s = String::new();
+        std::io::stdin().read_line(&mut s).ok();
+        s.trim().to_string()
+    }
+
+    fn prompt(msg: &str, default: &str) -> String {
+        loop {
+            if default.is_empty() {
+                print!("{msg}: ");
+            } else {
+                print!("{msg} [{default}]: ");
+            }
+            std::io::stdout().flush().ok();
+            let answer = readline();
+            if !answer.is_empty() { return answer; }
+            if !default.is_empty() { return default.to_string(); }
+            println!("  (required)");
+        }
+    }
+
+    fn prompt_bool(msg: &str) -> bool {
+        loop {
+            print!("{msg} (y/n): ");
+            std::io::stdout().flush().ok();
+            match readline().to_lowercase().as_str() {
+                "y" | "yes" => return true,
+                "n" | "no" => return false,
+                _ => {}
+            }
+        }
+    }
+
+    println!("Initializing new repository.\n");
+    let main_collection = prompt("Main collection name", "systems");
+    let partitioning_property = prompt("Partitioning property name", "system");
+
+    let mut additional_props: Vec<serde_json::Value> = Vec::new();
+    let mut ref_collections: Vec<serde_json::Value> = Vec::new();
+
+    println!();
+    let mut first = true;
+    loop {
+        let label = if first { "Add a column" } else { "Add another column" };
+        first = false;
+        if !prompt_bool(label) { break; }
+
+        let col_name = prompt("  Column name", "");
+        let is_ref = prompt_bool("  References another collection?");
+
+        if is_ref {
+            let ref_col = prompt("    Referenced collection name", "");
+            println!("    Content type options: note, date, phone_number, email, year");
+            let ref_type_raw = prompt("    Content type", "note").to_uppercase();
+            let ref_type = match ref_type_raw.as_str() {
+                "NOTE" | "DATE" | "PHONE_NUMBER" | "EMAIL" | "YEAR" => ref_type_raw.clone(),
+                _ => "NOTE".to_string(),
+            };
+            print!("    Whitelist values (comma-separated, or leave empty): ");
+            std::io::stdout().flush().ok();
+            let wl_raw = readline();
+            let whitelist: Vec<serde_json::Value> = wl_raw
+                .split(',')
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty())
+                .map(|v| serde_json::Value::String(v.to_string()))
+                .collect();
+            let mut entry = serde_json::json!({
+                "collection_name": ref_col,
+                "property_name": col_name,
+                "type": ref_type,
+            });
+            if !whitelist.is_empty() {
+                entry["whitelist"] = serde_json::Value::Array(whitelist);
+            }
+            ref_collections.push(entry);
+        } else {
+            let is_multiline = prompt_bool("  Multiline field?");
+            println!("  Validation options: none, not_empty, hh:mm, mm/dd, int, yyyy, re:<pattern>");
+            let vtype_raw = prompt("  Validation type", "none").to_lowercase();
+            let validation_type = if vtype_raw == "none" {
+                "NONE".to_string()
+            } else if vtype_raw == "not_empty" {
+                "NOT_EMPTY".to_string()
+            } else if vtype_raw == "hh:mm" {
+                "HH:MM".to_string()
+            } else if vtype_raw == "mm/dd" {
+                "MM/DD".to_string()
+            } else if vtype_raw == "int" {
+                "INT".to_string()
+            } else if vtype_raw == "yyyy" {
+                "YYYY".to_string()
+            } else if vtype_raw.starts_with("re:") {
+                format!("RE:{}", &vtype_raw[3..])
+            } else {
+                "NONE".to_string()
+            };
+            let mut prop_entry = serde_json::json!({
+                "property_name": col_name,
+                "validation_type": validation_type,
+            });
+            if is_multiline {
+                prop_entry["multiline"] = serde_json::Value::Bool(true);
+            }
+            additional_props.push(prop_entry);
+        }
+    }
+
+    let all_cols: Vec<String> = additional_props.iter()
+        .filter_map(|p| p["property_name"].as_str().map(|s| s.to_string()))
+        .chain(ref_collections.iter().filter_map(|r| r["property_name"].as_str().map(|s| s.to_string())))
+        .collect();
+
+    let property_order = if all_cols.len() > 1 {
+        println!("\nColumn order:");
+        for (i, col) in all_cols.iter().enumerate() {
+            println!("  {}. {col}", i + 1);
+        }
+        print!("Enter numbers in desired order (or press Enter to keep current): ");
+        std::io::stdout().flush().ok();
+        let order_raw = readline();
+        if !order_raw.is_empty() {
+            let indices: Vec<usize> = order_raw
+                .replace(',', " ")
+                .split_whitespace()
+                .filter_map(|s| s.parse::<usize>().ok())
+                .filter(|&i| i >= 1 && i <= all_cols.len())
+                .map(|i| i - 1)
+                .collect();
+            let mut ordered: Vec<String> = indices.iter().map(|&i| all_cols[i].clone()).collect();
+            let seen: std::collections::HashSet<String> = ordered.iter().cloned().collect();
+            ordered.extend(all_cols.iter().filter(|c| !seen.contains(*c)).cloned());
+            ordered.join(", ")
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    println!();
+    let intro_message = prompt("Introduction message", &main_collection);
+
+    let mut repo_ini = format!(
+        "[main_collection]\ncollection_name = {main_collection}\npartitioning_property = {partitioning_property}\n"
+    );
+    if !property_order.is_empty() {
+        repo_ini.push_str(&format!("property_order = {property_order}\n"));
+    }
+    repo_ini.push_str(&format!("\n[introduction]\nmessage = {intro_message}\n"));
+
+    let ref_coll_names: Vec<String> = ref_collections.iter()
+        .filter_map(|r| r["collection_name"].as_str().map(|s| s.to_string()))
+        .collect();
+
+    let _ = std::fs::write(dest.join("repository.ini"), &repo_ini);
+    let _ = std::fs::write(
+        dest.join("additional_properties.json"),
+        serde_json::to_string_pretty(&serde_json::Value::Array(additional_props)).unwrap() + "\n",
+    );
+    let _ = std::fs::write(
+        dest.join("reference_collections.json"),
+        serde_json::to_string_pretty(&serde_json::Value::Array(ref_collections)).unwrap() + "\n",
+    );
+    let _ = std::fs::create_dir_all(dest.join(&main_collection));
+    for cname in &ref_coll_names {
+        let _ = std::fs::create_dir_all(dest.join(cname));
+    }
+
+    println!("\ncreated: {}", dest.display());
+}
+
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
