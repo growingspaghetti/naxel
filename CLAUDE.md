@@ -137,7 +137,7 @@ Located at `{repo_root}/reference_collections.json`. A JSON array of objects, ea
 
 ```json
 [
-  {"collection_name": "teams",     "property_name": "team",     "type": "NOTE",         "whitelist": []},
+  {"collection_name": "teams",     "property_name": "team",     "type": "STRING",         "whitelist": []},
   {"collection_name": "schedules", "property_name": "schedule", "type": "DATE",         "whitelist": ["everyday", "weekends"]},
   {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER", "whitelist": []}
 ]
@@ -147,7 +147,7 @@ Located at `{repo_root}/reference_collections.json`. A JSON array of objects, ea
 |-------------------|---------|
 | `collection_name` | Directory name in the repo (e.g. `teams/`); also the collection name used in commands |
 | `property_name`   | The main-collection field that references this collection; validated on push |
-| `type`            | Content validation applied on `push`: `"DATE"` — comma-separated `yyyy/mm/dd` dates; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+` strings; `"EMAIL"` — comma-separated `user@domain.tld` addresses; `"YEAR"` — comma-separated `\d{4}` years; `"NOTE"` or absent — no content validation. |
+| `type`            | Content validation applied on `push`: `"DATE"` — comma-separated `yyyy/mm/dd` dates; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+` strings; `"EMAIL"` — comma-separated `user@domain.tld` addresses; `"YEAR"` — comma-separated `\d{4}` years; `"STRING"` or absent — no content validation. |
 | `whitelist`       | Optional JSON array of string values accepted without checking the collection (e.g. `["everyday", "weekends"]`). Omit or use `[]` for no whitelist. |
 
 At startup the app reads this file and for each entry:
@@ -210,13 +210,14 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 
 ## Commands
 
-`init` is a top-level CLI subcommand (not available in the REPL or `-c` batch mode). All other commands below are REPL / batch-mode commands.
+`init` and `update` are top-level CLI subcommands (not available in the REPL or `-c` batch mode). All other commands below are REPL / batch-mode commands.
 
 ### CLI-only
 
 | Command                                  | Description |
 |------------------------------------------|-------------|
-| `init <destination-directory>`           | Bootstrap a new repository with an interactive wizard. Creates the destination if absent. Asks: main collection name, partitioning property, columns (with validation type, multiline flag, optional reference-collection wiring), column display order, and introduction message. Writes `repository.ini`, `additional_properties.json`, `reference_collections.json`, and creates collection directories. |
+| `init <destination-directory>`           | Bootstrap a new repository with an interactive wizard. Creates the destination if absent. Aborts if `repository.ini` already exists. Asks: main collection name, partitioning property, columns (with validation type, multiline flag, optional reference-collection wiring), column display order, and introduction message. Writes `repository.ini`, `additional_properties.json`, `reference_collections.json`, and creates collection directories. |
+| `update <destination-directory>`         | Modify an existing repository's config with an interactive wizard. Requires `repository.ini` to exist. Three sections: (1) add columns (same flow as `init`); (2) update introduction message; (3) change or remove validation types for existing non-reference columns. New columns are appended to any existing `property_order`. Rewrites `repository.ini`, `additional_properties.json`, and `reference_collections.json` in place. |
 
 ### REPL / batch-mode
 
@@ -311,7 +312,7 @@ Content validation on `push` is determined by the `type` field in `reference_col
 - `"DATE"` (`yyyy/mm/dd` dates): `1234/12/31,2000/06/01`
 - `"PHONE_NUMBER"` (`[0-9\-\+]+`): `03-1234-5678,09012345678,+81-0100-0331`
 - `"EMAIL"` (`user@domain.tld`): `foo@example.com,bar@example.org`
-- `"NOTE"` or absent: no format validation
+- `"STRING"` or absent: no format validation
 
 Empty template: empty string.
 

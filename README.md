@@ -103,6 +103,7 @@ It writes `repository.ini`, `additional_properties.json`, and `reference_collect
 | Command | Description |
 |---|---|
 | `init <destination-directory>` | Bootstrap a new repository via an interactive wizard; creates the directory if absent |
+| `update <destination-directory>` | Modify an existing repository's config via an interactive wizard |
 
 ### REPL commands
 
@@ -205,7 +206,7 @@ Dynamic reference collections — each entry defines a collection of valid value
 
 ```json
 [
-  {"collection_name": "teams",     "property_name": "team",     "type": "NOTE",         "whitelist": []},
+  {"collection_name": "teams",     "property_name": "team",     "type": "STRING",         "whitelist": []},
   {"collection_name": "schedules", "property_name": "schedule", "type": "DATE",         "whitelist": ["everyday", "weekends"]},
   {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER", "whitelist": ["none"]}
 ]
@@ -215,7 +216,7 @@ On `push`, every `property_name` field in main-collection records must be non-em
 
 | `type` | Format validated in reference entries |
 |---|---|
-| `NOTE` | No validation |
+| `STRING` | No validation |
 | `DATE` | Comma-separated `yyyy/mm/dd` |
 | `PHONE_NUMBER` | Comma-separated `[0-9\-\+]+` |
 | `EMAIL` | Comma-separated `user@domain.tld` |
@@ -303,10 +304,11 @@ cargo build --release
 
 The Rust binary supports the same commands and reads the same config files. `--jtable` commands open native webview table windows (fire-and-forget; the REPL continues immediately).
 
-`init` is also available:
+`init` and `update` are also available:
 
 ```sh
 ./target/release/naxel init /path/to/new-repo
+./target/release/naxel update /path/to/existing-repo
 ```
 
 ---
