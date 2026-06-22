@@ -464,7 +464,7 @@ class TestCmdExport:
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=NMTISC_PROPS,
                        multiline_props=N_ML)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, notes, machine, time, id, schedule, contact" in content
+        assert "system, notes, machine, time, id, schedule, contact" in content
         assert "sys1, some notes, m1, 12:00, id1, sc1, cont1" in content
 
     def test_systems_multiple_sections_expand_to_rows(self, repo, downloads, cache):
@@ -594,7 +594,7 @@ class TestAdditionalProps:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=NMTISC_PROPS + PROPS)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, notes, machine, time, id, schedule, contact, p1, p2" in content
+        assert "system, notes, machine, time, id, schedule, contact, p1, p2" in content
         assert "sys1, notes, m1, 12:00, id1, sc1, cont1, val1, val2" in content
 
     def test_export_csv_empty_prop_value(self, repo, downloads, cache):
@@ -662,7 +662,7 @@ class TestAdditionalProps:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=NMTISC_PROPS + PROPS)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, notes, machine, time, id, schedule, contact, p1, p2" in content
+        assert "system, notes, machine, time, id, schedule, contact, p1, p2" in content
         assert "sys1, notes, m1, 12:00, id1, sc1, cont1, val1, " in content
 
 

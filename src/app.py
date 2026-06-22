@@ -838,7 +838,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
         records: list[dict] = []
         if collection == MAIN_COLLECTION:
             cols = list(field_order) if field_order is not None else list(additional_props)
-            name_col = f"{PARTITIONING_PROPERTY}_name"
+            name_col = PARTITIONING_PROPERTY
             for encoded, fname in sorted(seen.items()):
                 system_name = decode_name(encoded) or encoded
                 sections = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
@@ -865,7 +865,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
 
     rows = []
     if collection == MAIN_COLLECTION:
-        csv_name_col = f"{PARTITIONING_PROPERTY}_name"
+        csv_name_col = PARTITIONING_PROPERTY
         if field_order is not None:
             rows.append(_csv_row(csv_name_col, *field_order))
         else:

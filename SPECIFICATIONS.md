@@ -193,13 +193,13 @@ prop1_value
 ### メインコレクション
 
 ```csv
-system_name, notes, machine, time, id, schedule, contact, prop1, prop2
+system, notes, machine, time, id, schedule, contact, prop1, prop2
 sys1, ノート内容, m1, 09:00, id1, sche1, cont1, val1, val2
 sys1, , m2, 12:30, id2, sche2, cont2, ,
 ```
 
 - セクションごとに1行出力されます。
-- 先頭列のヘッダーは `repository.ini` の `[main_collection] partitioning_property` の値に `_name` を付けたものです（例: `partitioning_property = system` → `system_name`）。
+- 先頭列のヘッダーは `repository.ini` の `[main_collection] partitioning_property` の値です（例: `partitioning_property = system` → `system`）。
 - 残りの列名はフィールド名そのままです（リネームなし）。
 - `multiline: true` のフィールド（`notes` など）は複数行がスペースで結合されます。
 - すべてのセクションの全フィールドが空のエントリは出力されません。
@@ -225,13 +225,13 @@ sche1, 2024/01/01 2024/06/15 2025/03/20
 
 ```json
 [
-  {"system_name": "sys1", "notes": "ノート内容", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche1", "contact": "cont1"},
-  {"system_name": "sys1", "notes": "", "machine": "m2", "time": "12:30", "id": "id2", "schedule": "sche2", "contact": "cont2"}
+  {"system": "sys1", "notes": "ノート内容", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche1", "contact": "cont1"},
+  {"system": "sys1", "notes": "", "machine": "m2", "time": "12:30", "id": "id2", "schedule": "sche2", "contact": "cont2"}
 ]
 ```
 
 - セクションごとに1オブジェクト出力されます。
-- 先頭キーは `{partitioning_property}_name`（例: `system_name`）です。
+- 先頭キーは `partitioning_property` の値です（例: `system`）。
 - 残りのキーは `field_order` に従ったフィールド名です。
 - `multiline: true` のフィールドは改行 `\n` をそのまま保持します（CSVではスペースに変換されます）。
 - すべてのセクションの全フィールドが空のエントリは出力されません。
@@ -331,7 +331,7 @@ sche1, 2024/01/01 2024/06/15 2025/03/20
 | セクション | キー | デフォルト | 説明 |
 |---|---|---|---|
 | `[main_collection]` | `collection_name` | `systems` | メインコレクション（gzip圧縮・複数セクション形式）のコレクション名 |
-| `[main_collection]` | `partitioning_property` | `system` | CSVの先頭列ヘッダーのプレフィックス（`{値}_name` が列名になる） |
+| `[main_collection]` | `partitioning_property` | `system` | CSV/JSONの先頭列ヘッダー（エントリ名の列） |
 | `[main_collection]` | `property_order` | （空） | システムドキュメントの先頭に表示するフィールド名（カンマ区切り）。記載したフィールドが先頭に並び、残りはデフォルト順で続く |
 | `[introduction]` | `message` | （空） | 起動時および `cd` でリポジトリを切り替えた直後に表示するメッセージ |
 

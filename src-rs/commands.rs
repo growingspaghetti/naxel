@@ -632,7 +632,7 @@ pub fn cmd_export(
     if json_mode {
         let mut records: Vec<serde_json::Value> = vec![];
         if collection == state.main_collection {
-            let name_col = format!("{}_name", state.partitioning_property);
+            let name_col = state.partitioning_property.clone();
             let mut sorted: Vec<(&String, &String)> = seen.iter().collect();
             sorted.sort_by_key(|(k, _)| k.as_str());
             for (encoded, fname) in sorted {
@@ -676,7 +676,7 @@ pub fn cmd_export(
     // CSV mode
     let mut rows: Vec<String> = vec![];
     if collection == state.main_collection {
-        let name_col = format!("{}_name", state.partitioning_property);
+        let name_col = state.partitioning_property.clone();
         let header_fields: Vec<&str> = std::iter::once(name_col.as_str())
             .chain(field_order.iter().map(|s| s.as_str()))
             .collect();

@@ -106,7 +106,7 @@ Located at `{repo_root}/repository.ini`. Configures the main collection.
 | Section             | Key                     | Default   | Meaning |
 |---------------------|-------------------------|-----------|---------|
 | `[main_collection]` | `collection_name`       | `systems` | Name of the main (gzip-compressed, multi-section) collection |
-| `[main_collection]` | `partitioning_property` | `system`  | Prefix for the first CSV column header: `{partitioning_property}_name` |
+| `[main_collection]` | `partitioning_property` | `system`  | First CSV/JSON column header (the entry name column) |
 | `[main_collection]` | `property_order`        | *(empty)* | Comma-separated field names that appear first in main-collection documents, in the listed order. Remaining fields follow in their default relative order. Unknown names are silently ignored. |
 
 ## additional_properties.json
@@ -310,12 +310,12 @@ Empty template: empty string.
 ### main collection
 
 ```csv
-system_name, notes, machine, time, id, schedule, contact, prop1, prop2
+system, notes, machine, time, id, schedule, contact, prop1, prop2
 sys1, foobarbaz, m1, 09:00, id1, sche3, cont1, val1, val2
 sys1, , m2, 12:30, id2, sche7, cont2, , 
 ```
 
-One row per section. Multiline fields (`multiline: true` in `additional_properties.json`) are joined with a space. Documents where every field in every section is blank are excluded from the CSV. The first column header is `{partitioning_property}_name` from `repository.ini`. Remaining column headers are the field names as declared (no renaming). Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[main_collection] property_order` in `repository.ini`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
+One row per section. Multiline fields (`multiline: true` in `additional_properties.json`) are joined with a space. Documents where every field in every section is blank are excluded from the CSV. The first column header is `partitioning_property` from `repository.ini`. Remaining column headers are the field names as declared (no renaming). Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[main_collection] property_order` in `repository.ini`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules, contacts, and dynamic collections
 
@@ -336,12 +336,12 @@ Triggered when the filename passed to `export` ends with `.json`. Opens with the
 
 ```json
 [
-  {"system_name": "sys1", "notes": "foobarbaz", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche3", "contact": "cont1"},
-  {"system_name": "sys1", "notes": "", "machine": "m2", "time": "12:30", "id": "id2", "schedule": "sche7", "contact": "cont2"}
+  {"system": "sys1", "notes": "foobarbaz", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche3", "contact": "cont1"},
+  {"system": "sys1", "notes": "", "machine": "m2", "time": "12:30", "id": "id2", "schedule": "sche7", "contact": "cont2"}
 ]
 ```
 
-One object per section. The first key is `{partitioning_property}_name`. Remaining keys follow `field_order`. Multiline fields keep their `\n` characters (unlike CSV, which joins with a space). Documents where every field in every section is blank are excluded.
+One object per section. The first key is `partitioning_property`. Remaining keys follow `field_order`. Multiline fields keep their `\n` characters (unlike CSV, which joins with a space). Documents where every field in every section is blank are excluded.
 
 ### reference collections
 
