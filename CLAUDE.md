@@ -80,7 +80,7 @@ settings.ini                      configuration
 dummy-repo/                       local NAS substitute for development
   repository.ini                  per-repository configuration (main collection, JSON file paths)
   additional_properties.json      JSON array of optional fields for main-collection sections
-  additional_mandatory_properties.json  JSON array defining all reference collections
+  reference_collections.json            JSON array defining all reference collections
   <main-collection>/              .txt.gz files named by base32-encoded name + version
   <reference-collection>/         .txt files named by base32-encoded name + version
 downloads/                        files staged for editing, organised by repository and collection
@@ -97,25 +97,21 @@ cache/                            local mirror of the NAS repo, populated at sta
 | Section        | Key         | Default      | Meaning                                                |
 |----------------|-------------|--------------|--------------------------------------------------------|
 | `[repository]` | `root`      | `dummy-repo` | Path to the NAS repo root                              |
-| `[downloads]`  | `dir`       | `downloads`  | Where edited files are staged                          |
-| `[cache]`      | `dir`       | `cache`      | Local mirror of the NAS repo                           |
 | `[editor]`     | `command`   | `mousepad`   | Editor launched by get/clear/export                    |
 
 ## repository.ini
 
-Located at `{repo_root}/repository.ini`. Configures the main collection and paths to the JSON definition files.
+Located at `{repo_root}/repository.ini`. Configures the main collection.
 
-| Section                   | Key                     | Default                                | Meaning |
-|---------------------------|-------------------------|----------------------------------------|---------|
-| `[main_collection]`       | `collection_name`       | `systems`                              | Name of the main (gzip-compressed, multi-section) collection |
-| `[main_collection]`       | `partitioning_property` | `system`                               | Prefix for the first CSV column header: `{partitioning_property}_name` |
-| `[main_collection]`       | `property_order`        | *(empty)*                              | Comma-separated field names that appear first in main-collection documents, in the listed order. Remaining fields follow in their default relative order. Unknown names are silently ignored. |
-| `[additional_properties]` | `json`                  | `additional_properties.json`           | Filename (relative to repo root) of the optional-properties definition |
-| `[reference_collections]` | `json`                  | `additional_mandatory_properties.json` | Filename (relative to repo root) of the dynamic collections definition |
+| Section             | Key                     | Default   | Meaning |
+|---------------------|-------------------------|-----------|---------|
+| `[main_collection]` | `collection_name`       | `systems` | Name of the main (gzip-compressed, multi-section) collection |
+| `[main_collection]` | `partitioning_property` | `system`  | First CSV/JSON column header (the entry name column) |
+| `[main_collection]` | `property_order`        | *(empty)* | Comma-separated field names that appear first in main-collection documents, in the listed order. Remaining fields follow in their default relative order. Unknown names are silently ignored. |
 
 ## additional_properties.json
 
-Located at `{repo_root}/{filename}` where `filename` is the value of `[additional_properties] json` in `repository.ini` (default: `additional_properties.json`). A JSON array of objects defining the optional (non-mandatory) fields appended to each main-collection section:
+Located at `{repo_root}/additional_properties.json`. A JSON array of objects defining the optional (non-mandatory) fields appended to each main-collection section:
 
 ```json
 [
@@ -135,9 +131,9 @@ Located at `{repo_root}/{filename}` where `filename` is the value of `[additiona
 
 If the file is absent, no additional properties are used. Non-object entries in the array are silently ignored.
 
-## additional_mandatory_properties.json
+## reference_collections.json
 
-Located at `{repo_root}/{filename}` where `filename` is the value of `[reference_collections] json` in `repository.ini` (default: `additional_mandatory_properties.json`). A JSON array of objects, each defining a **dynamic collection**:
+Located at `{repo_root}/reference_collections.json`. A JSON array of objects, each defining a **dynamic collection**:
 
 ```json
 [
@@ -170,7 +166,7 @@ All `property_name` values are appended to `additional_props` at startup and are
 - The value must be **non-empty**.
 - The value must exist as an entry in the corresponding `collection_name` collection (one `os.listdir` call per distinct collection per push, reusing the list across all sections).
 
-**Whitelist**: values listed in the `"whitelist"` array in `additional_mandatory_properties.json` bypass the collection-existence check.
+**Whitelist**: values listed in the `"whitelist"` array in `reference_collections.json` bypass the collection-existence check.
 
 ## File naming convention
 
@@ -242,7 +238,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `partialcopy <collection> <name> <destination-directory> --json` | Create `<destination-directory>/<repo-name>.json` like `fullcopy --json`, but with only `<collection> <name>` carrying real data; all other main-collection entries are `[]` and reference-collection entries are `""`. |
 | `exit`                                   | Quit |
 
-All collections are fully dynamic. The main collection is configured in `repository.ini [main_collection]`; all reference collections come from the file named by `[reference_collections] json`. There are no built-in collections.
+All collections are fully dynamic. The main collection is configured in `repository.ini [main_collection]`; all reference collections come from `reference_collections.json`. There are no built-in collections.
 
 ## Document formats
 
@@ -286,12 +282,12 @@ prop1_value
 prop2_value
 ```
 
-There are no hardcoded core fields. All fields — including `notes`, `machine`, `time`, `id`, `schedule`, and `contact` — are additional properties loaded from config. Fields from `additional_properties.json` come first (in declaration order), followed by fields from `additional_mandatory_properties.json`. The full order is controlled by `[main_collection] property_order` in `repository.ini` — any field listed there moves to the front. All fields must still be present; only the order changes. If `property_order` is empty the default order is used.
+There are no hardcoded core fields. All fields — including `notes`, `machine`, `time`, `id`, `schedule`, and `contact` — are additional properties loaded from config. Fields from `additional_properties.json` come first (in declaration order), followed by fields from `reference_collections.json`. The full order is controlled by `[main_collection] property_order` in `repository.ini` — any field listed there moves to the front. All fields must still be present; only the order changes. If `property_order` is empty the default order is used.
 
 Validation rules enforced on `push` (applied to the 👉👈 text before conversion):
 - Every section must begin with the exact separator.
 - Each optional additional property label (`additional_properties.json`) must be present; its value is validated according to its `validation_type`: `NONE` — any value (including empty); `NOT_EMPTY` — rejects empty; `HH:MM` — rejects values not matching `\d{2}:\d{2}`; `YYYY` — rejects values not matching `\d{4}`; `RE:<pattern>` — rejects values that don't fully match the regex pattern. Multiline fields (`multiline: true`) consume all lines until the next label or separator.
-- Each mandatory property label (`additional_mandatory_properties.json` `property_name`, including `schedule` and `contact` when declared there) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection, or appear in the `"whitelist"` array for that prop. One `os.listdir` call per distinct collection per push.
+- Each mandatory property label (`reference_collections.json` `property_name`, including `schedule` and `contact` when declared there) must be present with a **non-empty** value, and that value must exist as an entry in the corresponding `collection_name` collection, or appear in the `"whitelist"` array for that prop. One `os.listdir` call per distinct collection per push.
 - **Exception:** if every section in the document has all fields blank (initial state as written by `add`/`clear`), **or if the file content is empty/whitespace** (e.g. all rows deleted via the JTable GUI), the push is accepted without validation and the empty template (`_empty_main_collection_json`) is written to the repo.
 
 Empty template (written by `clear`): separator + all configured additional property labels, each with a blank value line.
@@ -300,7 +296,7 @@ Empty template (written by `clear`): separator + all configured additional prope
 
 All reference collections share the same plain `.txt` format: comma-separated values on a single line (optional trailing newline).
 
-Content validation on `push` is determined by the `type` field in `additional_mandatory_properties.json`:
+Content validation on `push` is determined by the `type` field in `reference_collections.json`:
 
 - `"DATE"` (`yyyy/mm/dd` dates): `1234/12/31,2000/06/01`
 - `"PHONE_NUMBER"` (`[0-9\-\+]+`): `03-1234-5678,09012345678,+81-0100-0331`
@@ -314,12 +310,12 @@ Empty template: empty string.
 ### main collection
 
 ```csv
-system_name, notes, machine, time, id, schedule, contact, prop1, prop2
+system, notes, machine, time, id, schedule, contact, prop1, prop2
 sys1, foobarbaz, m1, 09:00, id1, sche3, cont1, val1, val2
 sys1, , m2, 12:30, id2, sche7, cont2, , 
 ```
 
-One row per section. Multiline fields (`multiline: true` in `additional_properties.json`) are joined with a space. Documents where every field in every section is blank are excluded from the CSV. The first column header is `{partitioning_property}_name` from `repository.ini`. Remaining column headers are the field names as declared (no renaming). Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[main_collection] property_order` in `repository.ini`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
+One row per section. Multiline fields (`multiline: true` in `additional_properties.json`) are joined with a space. Documents where every field in every section is blank are excluded from the CSV. The first column header is `partitioning_property` from `repository.ini`. Remaining column headers are the field names as declared (no renaming). Column order follows `field_order` (the same order used in the 👉👈 text format), which respects `[main_collection] property_order` in `repository.ini`. If a document was saved with a different set of additional properties (e.g. after a config change), missing columns are filled with empty string rather than dropping the row.
 
 ### schedules, contacts, and dynamic collections
 
@@ -340,12 +336,12 @@ Triggered when the filename passed to `export` ends with `.json`. Opens with the
 
 ```json
 [
-  {"system_name": "sys1", "notes": "foobarbaz", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche3", "contact": "cont1"},
-  {"system_name": "sys1", "notes": "", "machine": "m2", "time": "12:30", "id": "id2", "schedule": "sche7", "contact": "cont2"}
+  {"system": "sys1", "notes": "foobarbaz", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche3", "contact": "cont1"},
+  {"system": "sys1", "notes": "", "machine": "m2", "time": "12:30", "id": "id2", "schedule": "sche7", "contact": "cont2"}
 ]
 ```
 
-One object per section. The first key is `{partitioning_property}_name`. Remaining keys follow `field_order`. Multiline fields keep their `\n` characters (unlike CSV, which joins with a space). Documents where every field in every section is blank are excluded.
+One object per section. The first key is `partitioning_property`. Remaining keys follow `field_order`. Multiline fields keep their `\n` characters (unlike CSV, which joins with a space). Documents where every field in every section is blank are excluded.
 
 ### reference collections
 
@@ -388,14 +384,14 @@ Creates `<destination-directory>/<repo-name>.json`. History is omitted — only 
 }
 ```
 
-`config.additional_properties` is read from the file named by `[additional_properties] json` in `repository.ini`; `config.reference_collections` from the file named by `[reference_collections] json`. Missing config files produce empty arrays. Errors if the destination does not exist or `<repo-name>.json` already exists.
+`config.additional_properties` is read from `additional_properties.json`; `config.reference_collections` from `reference_collections.json`. Missing config files produce empty arrays. Errors if the destination does not exist or `<repo-name>.json` already exists.
 
 ### `mkrepo <json-file> <destination-directory>`
 
 Reconstructs a repository from a `fullcopy --json` file into `<destination-directory>/<stem>/` (stem = filename without `.json`):
 
-1. Parses `config.repository_ini` text to determine the main collection name and config filenames (`[additional_properties] json`, `[reference_collections] json`).
-2. Writes `repository.ini`, the additional-properties file, and the reference-collections file under the new repo directory.
+1. Parses `config.repository_ini` text to determine the main collection name.
+2. Writes `repository.ini`, `additional_properties.json`, and `reference_collections.json` under the new repo directory.
 3. For each collection in `data`, creates the collection directory and writes each entry at version `0000`: main collection as gzip-compressed JSON (`.txt.gz`), reference collections as plain text (`.txt`).
 
 Errors if the JSON file does not exist, the destination is not a directory, the JSON is not a valid fullcopy payload (missing `config` or `data` keys), or `<destination>/<stem>` already exists.
@@ -407,12 +403,12 @@ Errors if the JSON file does not exist, the destination is not a directory, the 
 - `push` looks for the latest `.txt` in `downloads/{md5}/{collection}/`; the repo suffix is determined by `_repo_suffix(collection)` — returns `.txt.gz` when `collection == MAIN_COLLECTION`, `.txt` for all others.
 - The main collection is stored as JSON in the repo (compressed) but presented as 👉👈 separator text for editing. `get`/`cat` convert JSON→text; `push` validates the text then converts text→JSON before writing.
 - `_validate_main_collection` is strict: it requires exactly the configured additional property labels in the document, and enforces non-empty values for mandatory props (passed as a `frozenset[str]`). `_parse_main_collection_sections` is lenient and used only for mandatory-ref-prop-reference checking and initial-state detection (both operate on the 👉👈 text from downloads). `cmd_export` parses JSON directly from cache using `.get(key, "")` fallbacks, so old documents with different props export cleanly after a config change.
-- There are **no hardcoded core fields**. Every main-collection field — including `notes`, `machine`, `time`, `id`, `schedule`, `contact` — is an additional property declared in `additional_properties.json` or `additional_mandatory_properties.json`. `notes` is declared in `additional_properties.json` with `"multiline": true`. `id` is not unique — multiple sections or documents can share the same id value.
+- There are **no hardcoded core fields**. Every main-collection field — including `notes`, `machine`, `time`, `id`, `schedule`, `contact` — is an additional property declared in `additional_properties.json` or `reference_collections.json`. `notes` is declared in `additional_properties.json` with `"multiline": true`. `id` is not unique — multiple sections or documents can share the same id value.
 - `repo_namespace(repo_root)` returns `hashlib.md5(str(repo_root.resolve()).encode()).hexdigest()` — the 32-character hex digest used to namespace downloads and cache directories per repository.
 - `initialize_repo(repo_root, downloads_base, cache_base)` bundles all per-repository initialisation: clears and re-populates `MAIN_COLLECTION`, `PARTITIONING_PROPERTY`, `COLLECTIONS`, `COLLECTION_TYPE`; computes namespaced `downloads_dir = downloads_base / md5` and `cache_dir = cache_base / md5`; loads config and returns a `RepoState` dataclass. Called once at startup and again on every `cd`. The `cd` command validates the path (must be a directory; must contain `repository.ini` in REPL mode), then calls `initialize_repo` and `sync_cache` before continuing the REPL.
-- `load_repository_config(repo_root)` reads `repository.ini` and returns a 6-tuple: `(collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file, intro_message)`. `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals (start as `None`) set by `initialize_repo`. `COLLECTIONS` starts as an empty `set[str]` and is populated in `initialize_repo` — first with the main collection, then with each reference collection. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time.
+- `load_repository_config(repo_root)` reads `repository.ini` and returns a 4-tuple: `(collection_name, partitioning_property, property_order, intro_message)`. `MAIN_COLLECTION` and `PARTITIONING_PROPERTY` are module-level globals (start as `None`) set by `initialize_repo`. `COLLECTIONS` starts as an empty `set[str]` and is populated in `initialize_repo` — first with the main collection, then with each reference collection. All command dispatch and `sync_cache` iterate `COLLECTIONS` at call time.
 - `load_additional_properties(repo_root, filename)` returns `tuple[tuple[str, str, bool], ...]` — triples of `(name, validation_type, multiline)`. `initialize_repo` derives `optional_props`, `prop_validation_types`, and `multiline_props: frozenset[str]` from it. `multiline_props` is threaded through `dispatch` and all `cmd_*` functions that touch main-collection text; JTable receives it as `multiline_cols`.
-- `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `additional_mandatory_properties.json` entry (`dc.get("whitelist", [])`) at startup. `mandatory_prop_names` (the `frozenset` passed to `_validate_main_collection`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to every declared reference prop.
+- `mandatory_ref_props` (a `tuple[tuple[str, str, frozenset[str]], ...]` of `(property_name, collection_name, whitelist)` triples) is threaded from `main` → `dispatch` → `cmd_push`. The whitelist for each prop is read from the `"whitelist"` array in its `reference_collections.json` entry (`dc.get("whitelist", [])`) at startup. `mandatory_prop_names` (the `frozenset` passed to `_validate_main_collection`) is the set of all `property_name` values from `mandatory_ref_props`, meaning the non-empty check applies to every declared reference prop.
 - `field_order` is a `tuple[str, ...]` of all main-collection field names in the display/validation order dictated by `[main_collection] property_order` in `repository.ini`. It is computed once in `initialize_repo` and threaded as a keyword-only argument through `dispatch` and every `cmd_*` function and internal parser/serialiser. When `field_order` is `None` (its default in all internal functions) the `additional_props`-based behaviour is used.
 - The "Save & Push" button in editable JTable windows (`get --jtable`, `clear --jtable`) saves the downloads file and immediately runs the equivalent of `push`. In the Python version (`gui.py`) this is a `push_callback` closure threaded from `dispatch` into `JTable`. In the Tauri version, `cmd_get` and `cmd_clear` serialise all necessary repo state into a `PushInfo` struct stored in `TableData::MainText`/`TableData::Ref`; the table subprocess exposes a `save_and_push` Tauri command that reconstructs a minimal `RepoState` from `PushInfo` and calls `cmd_push`. Push output (success/rejection messages) goes to the terminal in both versions.
 

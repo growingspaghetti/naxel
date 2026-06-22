@@ -135,12 +135,6 @@ cat my-edited-file.txt | python3 src/app.py -c 'get systems web-01 - && push sys
 [repository]
 root = /path/to/your/repo   # or a relative path such as dummy-repo
 
-[downloads]
-dir = downloads             # where edited files are staged
-
-[cache]
-dir = cache                 # local mirror synced from the repo at startup
-
 [editor]
 command = mousepad          # editor opened by get / clear / export
 ```
@@ -153,14 +147,8 @@ message = Optional greeting shown at startup.
 
 [main_collection]
 collection_name = systems       # directory name and collection name for the main collection
-partitioning_property = system  # first CSV column header becomes "{this}_name"
+partitioning_property = system  # first CSV column header
 property_order = team,notes,id  # fields that appear first; others follow in declaration order
-
-[additional_properties]
-json = additional_properties.json
-
-[reference_collections]
-json = additional_mandatory_properties.json
 ```
 
 ### `additional_properties.json`
@@ -188,7 +176,7 @@ Optional fields appended to every main-collection record:
 
 Set `"multiline": true` for fields that can span multiple lines. In JTable, double-clicking a multiline cell opens a modal editor instead of inline editing.
 
-### `additional_mandatory_properties.json`
+### `reference_collections.json`
 
 Dynamic reference collections — each entry defines a collection of valid values:
 
@@ -250,7 +238,7 @@ Plain text: comma-separated values on a single line.
 ### CSV export
 
 ```csv
-system_name, team, notes, id, status, time, schedule, contact
+system, team, notes, id, status, time, schedule, contact
 web-01, backend, Primary web server. Handles all public traffic., WEB-001, active, 09:00, business-hours, ops-team
 web-01, backend, Secondary instance., WEB-001, active, 09:30, on-call, dev-team
 ```

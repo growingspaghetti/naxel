@@ -632,7 +632,7 @@ pub fn cmd_export(
     if json_mode {
         let mut records: Vec<serde_json::Value> = vec![];
         if collection == state.main_collection {
-            let name_col = format!("{}_name", state.partitioning_property);
+            let name_col = state.partitioning_property.clone();
             let mut sorted: Vec<(&String, &String)> = seen.iter().collect();
             sorted.sort_by_key(|(k, _)| k.as_str());
             for (encoded, fname) in sorted {
@@ -676,7 +676,7 @@ pub fn cmd_export(
     // CSV mode
     let mut rows: Vec<String> = vec![];
     if collection == state.main_collection {
-        let name_col = format!("{}_name", state.partitioning_property);
+        let name_col = state.partitioning_property.clone();
         let header_fields: Vec<&str> = std::iter::once(name_col.as_str())
             .chain(field_order.iter().map(|s| s.as_str()))
             .collect();
@@ -772,7 +772,7 @@ pub fn cmd_fullcopy(state: &RepoState, destination: &str, json_mode: bool) {
 
     let repo_ini_text = std::fs::read_to_string(state.repo_root.join("repository.ini")).unwrap_or_default();
     let ap_file = state.repo_root.join("additional_properties.json");
-    let rc_file = state.repo_root.join("additional_mandatory_properties.json");
+    let rc_file = state.repo_root.join("reference_collections.json");
     let additional_props_data: serde_json::Value = std::fs::read_to_string(&ap_file)
         .ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(serde_json::json!([]));
     let ref_collections_data: serde_json::Value = std::fs::read_to_string(&rc_file)
@@ -874,19 +874,15 @@ pub fn cmd_mkrepo(json_file: &str, destination: &str) {
     ini.read(repo_ini_text.to_string()).ok();
     let main_coll = ini.get("main_collection", "collection_name")
         .unwrap_or_else(|| "systems".into());
-    let ap_file = ini.get("additional_properties", "json")
-        .unwrap_or_else(|| "additional_properties.json".into());
-    let rc_file = ini.get("reference_collections", "json")
-        .unwrap_or_else(|| "additional_mandatory_properties.json".into());
 
     let _ = std::fs::create_dir_all(&repo_dir);
     let _ = std::fs::write(repo_dir.join("repository.ini"), repo_ini_text);
     let _ = std::fs::write(
-        repo_dir.join(&ap_file),
+        repo_dir.join("additional_properties.json"),
         serde_json::to_string_pretty(&config["additional_properties"]).unwrap() + "\n",
     );
     let _ = std::fs::write(
-        repo_dir.join(&rc_file),
+        repo_dir.join("reference_collections.json"),
         serde_json::to_string_pretty(&config["reference_collections"]).unwrap() + "\n",
     );
 
@@ -942,7 +938,7 @@ pub fn cmd_partialcopy(
         let repo_ini_text = std::fs::read_to_string(state.repo_root.join("repository.ini")).unwrap_or_default();
         let additional_props_data: serde_json::Value = std::fs::read_to_string(state.repo_root.join("additional_properties.json"))
             .ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(serde_json::json!([]));
-        let ref_collections_data: serde_json::Value = std::fs::read_to_string(state.repo_root.join("additional_mandatory_properties.json"))
+        let ref_collections_data: serde_json::Value = std::fs::read_to_string(state.repo_root.join("reference_collections.json"))
             .ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(serde_json::json!([]));
 
         let mut data_section = serde_json::Map::new();

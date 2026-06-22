@@ -464,7 +464,7 @@ class TestCmdExport:
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=NMTISC_PROPS,
                        multiline_props=N_ML)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, notes, machine, time, id, schedule, contact" in content
+        assert "system, notes, machine, time, id, schedule, contact" in content
         assert "sys1, some notes, m1, 12:00, id1, sc1, cont1" in content
 
     def test_systems_multiple_sections_expand_to_rows(self, repo, downloads, cache):
@@ -594,7 +594,7 @@ class TestAdditionalProps:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=NMTISC_PROPS + PROPS)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, notes, machine, time, id, schedule, contact, p1, p2" in content
+        assert "system, notes, machine, time, id, schedule, contact, p1, p2" in content
         assert "sys1, notes, m1, 12:00, id1, sc1, cont1, val1, val2" in content
 
     def test_export_csv_empty_prop_value(self, repo, downloads, cache):
@@ -662,7 +662,7 @@ class TestAdditionalProps:
         with patch.object(app.subprocess, "Popen"):
             cmd_export(repo, "systems", "out.csv", downloads, cache, "mousepad", additional_props=NMTISC_PROPS + PROPS)
         content = (downloads / "out.csv").read_text()
-        assert "system_name, notes, machine, time, id, schedule, contact, p1, p2" in content
+        assert "system, notes, machine, time, id, schedule, contact, p1, p2" in content
         assert "sys1, notes, m1, 12:00, id1, sc1, cont1, val1, " in content
 
 
@@ -966,7 +966,7 @@ class TestCmdFullcopy:
         ref_colls = [{"collection_name": "schedules", "property_name": "schedule", "type": "DATE"}]
         (repo / "repository.ini").write_text("")
         (repo / "additional_properties.json").write_text("[]")
-        (repo / "additional_mandatory_properties.json").write_text(json.dumps(ref_colls))
+        (repo / "reference_collections.json").write_text(json.dumps(ref_colls))
         dest = tmp_path / "dest"
         dest.mkdir()
         cmd_fullcopy(repo, str(dest), json_mode=True)
@@ -1090,29 +1090,9 @@ class TestCmdMkrepo:
             "reference_collections": ref_colls,
         })
         cmd_mkrepo(str(json_file), str(dest))
-        written = json.loads((dest / "my_repo" / "additional_mandatory_properties.json").read_text())
+        written = json.loads((dest / "my_repo" / "reference_collections.json").read_text())
         assert written == ref_colls
 
-    def test_respects_custom_config_filenames_from_repository_ini(self, tmp_path):
-        src = tmp_path / "src"
-        src.mkdir()
-        dest = tmp_path / "dest"
-        dest.mkdir()
-        ini_text = (
-            "[main_collection]\ncollection_name = systems\n"
-            "[additional_properties]\njson = my_props.json\n"
-            "[reference_collections]\njson = my_refs.json\n"
-        )
-        props = [{"property_name": "notes"}]
-        ref_colls = [{"collection_name": "teams"}]
-        json_file = self._write_fullcopy_json(src, config={
-            "repository_ini": ini_text,
-            "additional_properties": props,
-            "reference_collections": ref_colls,
-        })
-        cmd_mkrepo(str(json_file), str(dest))
-        assert json.loads((dest / "my_repo" / "my_props.json").read_text()) == props
-        assert json.loads((dest / "my_repo" / "my_refs.json").read_text()) == ref_colls
 
     def test_reconstructs_main_collection_as_gzip(self, tmp_path):
         src = tmp_path / "src"
