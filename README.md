@@ -103,6 +103,7 @@ It writes `repository.ini`, `additional_properties.json`, and `reference_collect
 | Command | Description |
 |---|---|
 | `init <destination-directory>` | Bootstrap a new repository via an interactive wizard; creates the directory if absent |
+| `update <destination-directory>` | Modify an existing repository's config via an interactive wizard |
 
 ### REPL commands
 
@@ -303,10 +304,11 @@ cargo build --release
 
 The Rust binary supports the same commands and reads the same config files. `--jtable` commands open native webview table windows (fire-and-forget; the REPL continues immediately).
 
-`init` is also available:
+`init` and `update` are also available:
 
 ```sh
 ./target/release/naxel init /path/to/new-repo
+./target/release/naxel update /path/to/existing-repo
 ```
 
 ---
