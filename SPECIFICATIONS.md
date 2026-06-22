@@ -53,9 +53,9 @@ cache/
 | 種別 | 説明 | 設定場所 |
 |---|---|---|
 | メインコレクション | 複数のセクションを持つ構造化ドキュメント（gzip圧縮） | `repository.ini [main_collection]` |
-| 参照コレクション | カンマ区切りの値リスト（プレーンテキスト） | `additional_mandatory_properties.json` |
+| 参照コレクション | カンマ区切りの値リスト（プレーンテキスト） | `reference_collections.json` |
 
-`schedules` や `contacts` なども `additional_mandatory_properties.json` に記述することで利用できます（組み込みではなく、設定次第です）。
+`schedules` や `contacts` なども `reference_collections.json` に記述することで利用できます（組み込みではなく、設定次第です）。
 
 ---
 
@@ -155,7 +155,7 @@ contact_value
 prop1_value
 ```
 
-ハードコードされたコアフィールドはありません。`notes`・`machine`・`time`・`id`・`schedule`・`contact` をはじめとする全フィールドは、`additional_properties.json` または `additional_mandatory_properties.json` で定義された追加プロパティです。フィールドの表示順は `repository.ini` の `[main_collection] property_order` で制御できます（後述）。
+ハードコードされたコアフィールドはありません。`notes`・`machine`・`time`・`id`・`schedule`・`contact` をはじめとする全フィールドは、`additional_properties.json` または `reference_collections.json` で定義された追加プロパティです。フィールドの表示順は `repository.ini` の `[main_collection] property_order` で制御できます（後述）。
 
 #### push 時の検証ルール
 
@@ -164,7 +164,7 @@ prop1_value
 | フィールド | 検証内容 |
 |---|---|
 | 追加プロパティ（任意） | ラベルが存在すること。`validation_type` に応じた入力検証が行われる（`NONE` — 制約なし; `NOT_EMPTY` — 空値を拒否; `HH:MM` — `\d{2}:\d{2}` 形式でない値を拒否; `MM/DD` — `\d{2}/\d{2}` 形式でない値を拒否; `INT` — `[0-9]+` にマッチしない値を拒否; `YYYY` — `\d{4}` 形式でない値を拒否; `RE:<pattern>` — 正規表現にマッチしない値を拒否）。`multiline: true` のフィールドは次のラベルまでの複数行を値として読み込む |
-| 追加プロパティ（必須） | ラベルが存在し、値が空でないこと、かつ対応するコレクションに存在すること（`schedule`・`contact` も `additional_mandatory_properties.json` で定義した場合はここに含まれる） |
+| 追加プロパティ（必須） | ラベルが存在し、値が空でないこと、かつ対応するコレクションに存在すること（`schedule`・`contact` も `reference_collections.json` で定義した場合はここに含まれる） |
 
 **例外：** すべてのセクションの全フィールドが空（`add` / `clear` 直後の状態）、またはファイル内容が空白のみの場合は検証をスキップして空テンプレートとして登録されます。
 
@@ -267,7 +267,7 @@ sche1, 2024/01/01 2024/06/15 2025/03/20
   "config": {
     "repository_ini": "...(repository.ini の内容)...",
     "additional_properties": [...（additional_properties.json の配列）...],
-    "reference_collections": [...（additional_mandatory_properties.json の配列）...]
+    "reference_collections": [...（reference_collections.json の配列）...]
   },
   "data": {
     "<メインコレクション>": {
@@ -286,7 +286,7 @@ sche1, 2024/01/01 2024/06/15 2025/03/20
 
 `fullcopy --json` で作成したJSONファイルからリポジトリを復元します。`<保存先ディレクトリ>/<ファイル名（拡張子なし）>/` にリポジトリが作成されます。
 
-- `config.repository_ini` の内容から `repository.ini` を書き出します。また `[additional_properties] json` / `[reference_collections] json` の設定値（またはデフォルト値）を使ってそれぞれの設定ファイルを書き出します��
+- `config.repository_ini` の内容から `repository.ini` を書き出します。また `additional_properties.json` と `reference_collections.json` を書き出します。
 - `data` の各コレクションについてディレクトリを作成し、各エントリをバージョン `0000` で書き出します。メインコレクションは gzip 圧縮された JSON（`.txt.gz`）、参照コレクションはプレーンテキスト（`.txt`）です。
 - JSONファイルが存在しない場合、保存先ディレクトリが存在しない場合、JSONが `fullcopy --json` の形式でない場合（`config` または `data` キーがない場合）、または復元先ディレクトリが既に存在する場合はエラーになります。
 
@@ -322,8 +322,6 @@ sche1, 2024/01/01 2024/06/15 2025/03/20
 | セクション | キー | デフォルト | 説明 |
 |---|---|---|---|
 | `[repository]` | `root` | `dummy-repo` | リポジトリ（NAS）のルートパス |
-| `[downloads]` | `dir` | `downloads` | 編集ファイルの保存先ディレクトリ |
-| `[cache]` | `dir` | `cache` | リポジトリのローカルキャッシュディレクトリ |
 | `[editor]` | `command` | `mousepad` | `get` / `clear` / `export` で起動するエディタ |
 
 ### repository.ini
@@ -335,8 +333,6 @@ sche1, 2024/01/01 2024/06/15 2025/03/20
 | `[main_collection]` | `collection_name` | `systems` | メインコレクション（gzip圧縮・複数セクション形式）のコレクション名 |
 | `[main_collection]` | `partitioning_property` | `system` | CSVの先頭列ヘッダーのプレフィックス（`{値}_name` が列名になる） |
 | `[main_collection]` | `property_order` | （空） | システムドキュメントの先頭に表示するフィールド名（カンマ区切り）。記載したフィールドが先頭に並び、残りはデフォルト順で続く |
-| `[additional_properties]` | `json` | `additional_properties.json` | 任意プロパティ定義ファイルのパス（リポジトリルートからの相対パス） |
-| `[reference_collections]` | `json` | `additional_mandatory_properties.json` | 動的コレクション定義ファイルのパス（リポジトリルートからの相対パス） |
 | `[introduction]` | `message` | （空） | 起動時および `cd` でリポジトリを切り替えた直後に表示するメッセージ |
 
 ### 設定例
@@ -356,12 +352,6 @@ command = gedit
 collection_name = systems
 partitioning_property = system
 property_order = team,notes,id
-
-[additional_properties]
-json = additional_properties.json
-
-[reference_collections]
-json = additional_mandatory_properties.json
 ```
 
 ---
@@ -370,7 +360,7 @@ json = additional_mandatory_properties.json
 
 ### 任意プロパティ（additional_properties.json）
 
-`repository.ini` の `[additional_properties] json` で指定したファイル（デフォルト: `additional_properties.json`）に、システムの各セクションに追加するフィールドをオブジェクトの配列で記述します。
+`additional_properties.json` に、システムの各セクションに追加するフィールドをオブジェクトの配列で記述します。
 
 ```json
 [
@@ -390,9 +380,9 @@ json = additional_mandatory_properties.json
 
 オブジェクト以外のエントリは無視されます。
 
-### 必須プロパティ・動的コレクション（additional_mandatory_properties.json）
+### 必須プロパティ・動的コレクション（reference_collections.json）
 
-`repository.ini` の `[reference_collections] json` で指定したファイル（デフォルト: `additional_mandatory_properties.json`）に、動的コレクションの定義を記述します。
+`reference_collections.json` に、動的コレクションの定義を記述します。
 
 ```json
 [
