@@ -1211,6 +1211,165 @@ def cmd_init(destination: str):
     print(f"\ncreated: {dest}")
 
 
+def cmd_update(destination: str):
+    dest = Path(destination).resolve()
+    if not dest.is_dir():
+        print(f"error: not a directory: {dest}")
+        return
+    if not (dest / "repository.ini").exists():
+        print(f"error: not an initialized repository (no repository.ini): {dest}")
+        return
+
+    repo_ini_cfg = configparser.ConfigParser()
+    repo_ini_cfg.read(dest / "repository.ini", encoding="utf-8")
+    main_collection = repo_ini_cfg.get("main_collection", "collection_name", fallback="systems")
+    partitioning_property = repo_ini_cfg.get("main_collection", "partitioning_property", fallback="system")
+    property_order_raw = repo_ini_cfg.get("main_collection", "property_order", fallback="")
+    existing_order = [s.strip() for s in property_order_raw.split(",") if s.strip()]
+    intro_message = repo_ini_cfg.get("introduction", "message", fallback="")
+
+    try:
+        additional_props_list: list[dict] = [
+            p for p in json.loads((dest / "additional_properties.json").read_text(encoding="utf-8"))
+            if isinstance(p, dict)
+        ]
+    except (FileNotFoundError, json.JSONDecodeError):
+        additional_props_list = []
+
+    try:
+        ref_collections_list: list[dict] = [
+            r for r in json.loads((dest / "reference_collections.json").read_text(encoding="utf-8"))
+            if isinstance(r, dict)
+        ]
+    except (FileNotFoundError, json.JSONDecodeError):
+        ref_collections_list = []
+
+    def _prompt(prompt: str, default: str = "") -> str:
+        suffix = f" [{default}]" if default else ""
+        while True:
+            answer = input(f"{prompt}{suffix}: ").strip()
+            if answer:
+                return answer
+            if default:
+                return default
+            print("  (required)")
+
+    def _prompt_bool(prompt: str) -> bool:
+        while True:
+            answer = input(f"{prompt} (y/n): ").strip().lower()
+            if answer in ("y", "yes"):
+                return True
+            if answer in ("n", "no"):
+                return False
+
+    def _parse_vtype(raw: str) -> str:
+        _vmap = {
+            "none": "NONE", "not_empty": "NOT_EMPTY",
+            "hh:mm": "HH:MM", "mm/dd": "MM/DD",
+            "int": "INT", "yyyy": "YYYY",
+        }
+        low = raw.lower()
+        if low in _vmap:
+            return _vmap[low]
+        if low.startswith("re:"):
+            return "RE:" + raw[3:]
+        return "NONE"
+
+    print(f"Updating repository at {dest}\n")
+    print(f"  Main collection : {main_collection}  (partitioning property: {partitioning_property})")
+    print(f"  Intro message   : {intro_message!r}")
+    print(f"  Columns:")
+    for p in additional_props_list:
+        vtype = p.get("validation_type", "NONE")
+        ml = ", multiline" if p.get("multiline") else ""
+        print(f"    {p['property_name']}  [{vtype}{ml}]")
+    for r in ref_collections_list:
+        print(f"    {r['property_name']} → {r['collection_name']}  [{r.get('type', 'NOTE')}]")
+    print()
+
+    # ── Add columns ────────────────────────────────────────────────────────────
+    print("--- Add columns ---")
+    new_props: list[dict] = []
+    new_refs: list[dict] = []
+    while True:
+        if not _prompt_bool("Add a column"):
+            break
+        col_name = _prompt("  Column name")
+        is_ref = _prompt_bool("  References another collection?")
+        if is_ref:
+            ref_col = _prompt("    Referenced collection name")
+            print("    Content type options: note, date, phone_number, email, year")
+            ref_type = _prompt("    Content type", "note").upper()
+            if ref_type not in ("NOTE", "DATE", "PHONE_NUMBER", "EMAIL", "YEAR"):
+                ref_type = "NOTE"
+            wl_raw = input("    Whitelist values (comma-separated, or leave empty): ").strip()
+            whitelist = [v.strip() for v in wl_raw.split(",") if v.strip()] if wl_raw else []
+            ref_entry: dict = {"collection_name": ref_col, "property_name": col_name, "type": ref_type}
+            if whitelist:
+                ref_entry["whitelist"] = whitelist
+            new_refs.append(ref_entry)
+        else:
+            is_multiline = _prompt_bool("  Multiline field?")
+            print("  Validation options: none, not_empty, hh:mm, mm/dd, int, yyyy, re:<pattern>")
+            validation_type = _parse_vtype(_prompt("  Validation type", "none"))
+            prop_entry: dict = {"property_name": col_name, "validation_type": validation_type}
+            if is_multiline:
+                prop_entry["multiline"] = True
+            new_props.append(prop_entry)
+
+    additional_props_list.extend(new_props)
+    ref_collections_list.extend(new_refs)
+    for r in new_refs:
+        (dest / r["collection_name"]).mkdir(exist_ok=True)
+
+    # ── Introduction message ───────────────────────────────────────────────────
+    print(f"\n--- Introduction message (current: {intro_message!r}) ---")
+    if _prompt_bool("Update?"):
+        intro_message = _prompt("  New message", intro_message or main_collection)
+
+    # ── Column validations ─────────────────────────────────────────────────────
+    if additional_props_list:
+        print("\n--- Column validations ---")
+        for prop in additional_props_list:
+            col_name = prop["property_name"]
+            current_vtype = prop.get("validation_type", "NONE")
+            ml_note = ", multiline" if prop.get("multiline") else ""
+            if _prompt_bool(f"  Change validation for '{col_name}' (currently: {current_vtype}{ml_note})?"):
+                print("  Validation options: none, not_empty, hh:mm, mm/dd, int, yyyy, re:<pattern>")
+                prop["validation_type"] = _parse_vtype(_prompt("  New validation type", "none"))
+
+    # ── Write back ─────────────────────────────────────────────────────────────
+    all_col_names = (
+        [p["property_name"] for p in additional_props_list]
+        + [r["property_name"] for r in ref_collections_list]
+    )
+    if existing_order:
+        seen = set(existing_order)
+        updated_order = existing_order + [c for c in all_col_names if c not in seen]
+        property_order_str = ", ".join(updated_order)
+    else:
+        property_order_str = ""
+
+    repo_ini = (
+        "[main_collection]\n"
+        f"collection_name = {main_collection}\n"
+        f"partitioning_property = {partitioning_property}\n"
+    )
+    if property_order_str:
+        repo_ini += f"property_order = {property_order_str}\n"
+    repo_ini += f"\n[introduction]\nmessage = {intro_message}\n"
+
+    (dest / "repository.ini").write_text(repo_ini, encoding="utf-8")
+    (dest / "additional_properties.json").write_text(
+        json.dumps(additional_props_list, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    (dest / "reference_collections.json").write_text(
+        json.dumps(ref_collections_list, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    print(f"\nupdated: {dest}")
+
+
 def cmd_mkrepo(json_file: str, destination: str):
     json_path = Path(json_file).resolve()
     if not json_path.exists():
@@ -1540,6 +1699,13 @@ def main():
             print("usage: python3 src/app.py init <destination-directory>", file=sys.stderr)
             sys.exit(1)
         cmd_init(cli_args[1])
+        return
+
+    if cli_args and cli_args[0] == "update":
+        if len(cli_args) != 2:
+            print("usage: python3 src/app.py update <destination-directory>", file=sys.stderr)
+            sys.exit(1)
+        cmd_update(cli_args[1])
         return
 
     config = load_config()
