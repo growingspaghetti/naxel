@@ -223,6 +223,15 @@ fn main() {
         return;
     }
 
+    if raw_args.first().map(|s| s == "init").unwrap_or(false) {
+        if raw_args.len() != 2 {
+            eprintln!("usage: naxel init <destination-directory>");
+            std::process::exit(1);
+        }
+        cmd_init(&raw_args[1]);
+        return;
+    }
+
     let script_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))

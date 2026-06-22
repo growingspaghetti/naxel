@@ -73,15 +73,38 @@ ops-team
 > export systems inventory.csv --jtable
 ```
 
-### Use your own repository
+### Create a new repository
 
-1. Create a repository directory and add `repository.ini` (see [Configuration](#configuration)).
-2. Edit `settings.ini` at the project root and set `repository.root` to your directory.
-3. Run `python3 src/app.py`.
+Run the interactive wizard to bootstrap a fresh repository:
+
+```sh
+python3 src/app.py init /path/to/new-repo
+```
+
+The wizard asks for:
+- Main collection name and its partitioning property (the entry-name column)
+- Any number of columns — each with an optional validation type, multiline flag, and optional reference-collection wiring
+- Column display order
+- An introduction message shown at startup
+
+It writes `repository.ini`, `additional_properties.json`, and `reference_collections.json`, and creates the collection directories. Then point `settings.ini` at the new directory and run the app.
+
+### Use an existing repository
+
+1. Edit `settings.ini` at the project root and set `repository.root` to your directory.
+2. Run `python3 src/app.py`.
 
 ---
 
 ## Commands
+
+### CLI-only (run before the REPL starts)
+
+| Command | Description |
+|---|---|
+| `init <destination-directory>` | Bootstrap a new repository via an interactive wizard; creates the directory if absent |
+
+### REPL commands
 
 | Command | Description |
 |---|---|
@@ -279,6 +302,12 @@ cargo build --release
 ```
 
 The Rust binary supports the same commands and reads the same config files. `--jtable` commands open native webview table windows (fire-and-forget; the REPL continues immediately).
+
+`init` is also available:
+
+```sh
+./target/release/naxel init /path/to/new-repo
+```
 
 ---
 

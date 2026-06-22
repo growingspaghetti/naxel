@@ -210,6 +210,16 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 
 ## Commands
 
+`init` is a top-level CLI subcommand (not available in the REPL or `-c` batch mode). All other commands below are REPL / batch-mode commands.
+
+### CLI-only
+
+| Command                                  | Description |
+|------------------------------------------|-------------|
+| `init <destination-directory>`           | Bootstrap a new repository with an interactive wizard. Creates the destination if absent. Asks: main collection name, partitioning property, columns (with validation type, multiline flag, optional reference-collection wiring), column display order, and introduction message. Writes `repository.ini`, `additional_properties.json`, `reference_collections.json`, and creates collection directories. |
+
+### REPL / batch-mode
+
 | Command                                  | Description |
 |------------------------------------------|-------------|
 | `cd <path>`                              | Switch to a different repository; re-reads all config, resets collections, syncs cache for new repo. Downloads and cache are automatically scoped per-repo via MD5 namespace. |
