@@ -5,7 +5,7 @@ import gzip
 import json
 import os
 import re
-import readline  # noqa: F401 — enables up/down arrow history in input()
+from prompt_toolkit import PromptSession
 import shutil
 import subprocess
 import sys
@@ -1480,9 +1480,10 @@ def main():
         print(state.intro_message)
     print("Type 'help' for usage or 'exit' to quit.\n")
 
+    session: PromptSession = PromptSession()
     while True:
         try:
-            line = input(f"{state.repo_root.name} > ").strip()
+            line = session.prompt(f"{state.repo_root.name} > ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
