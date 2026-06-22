@@ -30,8 +30,6 @@ pub struct RepoConfig {
     pub collection_name: String,
     pub partitioning_property: String,
     pub property_order: Vec<String>,
-    pub additional_props_file: String,
-    pub ref_collections_file: String,
     pub intro_message: String,
 }
 
@@ -49,18 +47,12 @@ pub fn load_repo_config(repo_root: &Path) -> RepoConfig {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let additional_props_file = ini.get("additional_properties", "json")
-        .unwrap_or_else(|| "additional_properties.json".into());
-    let ref_collections_file = ini.get("reference_collections", "json")
-        .unwrap_or_else(|| "additional_mandatory_properties.json".into());
     let intro_message = ini.get("introduction", "message").unwrap_or_default();
 
     RepoConfig {
         collection_name,
         partitioning_property,
         property_order,
-        additional_props_file,
-        ref_collections_file,
         intro_message,
     }
 }

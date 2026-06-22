@@ -48,17 +48,15 @@ def repo_namespace(repo_root: Path) -> str:
     return hashlib.md5(str(repo_root.resolve()).encode()).hexdigest()
 
 
-def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], str, str, str]:
+def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], str]:
     repo_ini = configparser.ConfigParser()
     repo_ini.read(repo_root / "repository.ini", encoding="utf-8")
     collection_name = repo_ini.get("main_collection", "collection_name", fallback="systems")
     partitioning_property = repo_ini.get("main_collection", "partitioning_property", fallback="system")
     raw = repo_ini.get("main_collection", "property_order", fallback="")
     property_order = tuple(s.strip() for s in raw.split(",") if s.strip())
-    additional_props_file = repo_ini.get("additional_properties", "json", fallback="additional_properties.json")
-    ref_collections_file = repo_ini.get("reference_collections", "json", fallback="additional_mandatory_properties.json")
     intro_message = repo_ini.get("introduction", "message", fallback="")
-    return collection_name, partitioning_property, property_order, additional_props_file, ref_collections_file, intro_message
+    return collection_name, partitioning_property, property_order, intro_message
 
 
 def load_additional_properties(repo_root: Path, filename: str) -> tuple[tuple[str, str, bool], ...]:
@@ -938,23 +936,16 @@ def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
         return
 
     # JSON mode — embed config + latest-version data only (no history)
-    repo_ini_cfg = configparser.ConfigParser()
-    repo_ini_cfg.read(repo_root / "repository.ini", encoding="utf-8")
-    additional_props_file = repo_ini_cfg.get("additional_properties", "json",
-                                              fallback="additional_properties.json")
-    ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
-                                             fallback="additional_mandatory_properties.json")
-
     repo_ini_path = repo_root / "repository.ini"
     repo_ini_text = repo_ini_path.read_text(encoding="utf-8") if repo_ini_path.exists() else ""
 
     try:
-        additional_props_data = json.loads((repo_root / additional_props_file).read_text(encoding="utf-8"))
+        additional_props_data = json.loads((repo_root / "additional_properties.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         additional_props_data = []
 
     try:
-        ref_collections_data = json.loads((repo_root / ref_collections_file).read_text(encoding="utf-8"))
+        ref_collections_data = json.loads((repo_root / "reference_collections.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         ref_collections_data = []
 
@@ -1016,23 +1007,16 @@ def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: st
             print(f"error: already exists: {dest_file}")
             return
 
-        repo_ini_cfg = configparser.ConfigParser()
-        repo_ini_cfg.read(repo_root / "repository.ini", encoding="utf-8")
-        additional_props_file = repo_ini_cfg.get("additional_properties", "json",
-                                                  fallback="additional_properties.json")
-        ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
-                                                 fallback="additional_mandatory_properties.json")
-
         repo_ini_path = repo_root / "repository.ini"
         repo_ini_text = repo_ini_path.read_text(encoding="utf-8") if repo_ini_path.exists() else ""
 
         try:
-            additional_props_data = json.loads((repo_root / additional_props_file).read_text(encoding="utf-8"))
+            additional_props_data = json.loads((repo_root / "additional_properties.json").read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             additional_props_data = []
 
         try:
-            ref_collections_data = json.loads((repo_root / ref_collections_file).read_text(encoding="utf-8"))
+            ref_collections_data = json.loads((repo_root / "reference_collections.json").read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             ref_collections_data = []
 
@@ -1148,18 +1132,14 @@ def cmd_mkrepo(json_file: str, destination: str):
     repo_ini_cfg = configparser.ConfigParser()
     repo_ini_cfg.read_string(repo_ini_text)
     main_coll = repo_ini_cfg.get("main_collection", "collection_name", fallback="systems")
-    additional_props_file = repo_ini_cfg.get("additional_properties", "json",
-                                              fallback="additional_properties.json")
-    ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
-                                             fallback="additional_mandatory_properties.json")
 
     repo_dir.mkdir()
     (repo_dir / "repository.ini").write_text(repo_ini_text, encoding="utf-8")
-    (repo_dir / additional_props_file).write_text(
+    (repo_dir / "additional_properties.json").write_text(
         json.dumps(config.get("additional_properties", []), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    (repo_dir / ref_collections_file).write_text(
+    (repo_dir / "reference_collections.json").write_text(
         json.dumps(config.get("reference_collections", []), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -1192,20 +1172,20 @@ def initialize_repo(repo_root: Path, downloads_base: Path, cache_base: Path) -> 
     downloads_dir = downloads_base / ns
     cache_dir = cache_base / ns
 
-    main_coll, partition_prop, property_order, additional_props_file, ref_collections_file, intro_message = \
+    main_coll, partition_prop, property_order, intro_message = \
         load_repository_config(repo_root)
     MAIN_COLLECTION = main_coll
     PARTITIONING_PROPERTY = partition_prop
     COLLECTIONS.add(main_coll)
 
-    optional_prop_pairs = load_additional_properties(repo_root, additional_props_file)
+    optional_prop_pairs = load_additional_properties(repo_root, "additional_properties.json")
     optional_props = tuple(name for name, _, _ in optional_prop_pairs)
     prop_validation_types: dict[str, str] = {
         name: vtype for name, vtype, _ in optional_prop_pairs if vtype != "NONE"
     }
     multiline_props: frozenset[str] = frozenset(name for name, _, ml in optional_prop_pairs if ml)
 
-    dynamic_colls = load_dynamic_collections(repo_root, ref_collections_file)
+    dynamic_colls = load_dynamic_collections(repo_root, "reference_collections.json")
     for dc in dynamic_colls:
         cname = dc["collection_name"]
         COLLECTIONS.add(cname)

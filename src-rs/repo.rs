@@ -116,15 +116,13 @@ pub fn initialize_repo(
         collection_name: main_coll,
         partitioning_property,
         property_order,
-        additional_props_file,
-        ref_collections_file,
         intro_message,
     } = load_repo_config(repo_root);
 
     let mut collections = HashSet::new();
     collections.insert(main_coll.clone());
 
-    let optional_pairs = load_additional_properties(repo_root, &additional_props_file);
+    let optional_pairs = load_additional_properties(repo_root, "additional_properties.json");
     let mut prop_validation_types: HashMap<String, String> = optional_pairs.iter()
         .filter(|p| p.validation_type != "NONE")
         .map(|p| (p.name.clone(), p.validation_type.clone()))
@@ -134,7 +132,7 @@ pub fn initialize_repo(
         .map(|p| p.name.clone())
         .collect();
 
-    let dynamic_colls = load_dynamic_collections(repo_root, &ref_collections_file);
+    let dynamic_colls = load_dynamic_collections(repo_root, "reference_collections.json");
     let mut collection_type: HashMap<String, String> = HashMap::new();
 
     for dc in &dynamic_colls {
