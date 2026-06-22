@@ -1091,6 +1091,123 @@ def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: st
     print(f"created: {dest_dir}")
 
 
+def cmd_init(destination: str):
+    dest = Path(destination).resolve()
+    dest.mkdir(parents=True, exist_ok=True)
+
+    def _prompt(prompt: str, default: str = "") -> str:
+        suffix = f" [{default}]" if default else ""
+        while True:
+            answer = input(f"{prompt}{suffix}: ").strip()
+            if answer:
+                return answer
+            if default:
+                return default
+            print("  (required)")
+
+    def _prompt_bool(prompt: str) -> bool:
+        while True:
+            answer = input(f"{prompt} (y/n): ").strip().lower()
+            if answer in ("y", "yes"):
+                return True
+            if answer in ("n", "no"):
+                return False
+
+    print("Initializing new repository.\n")
+    main_collection = _prompt("Main collection name", "systems")
+    partitioning_property = _prompt("Partitioning property name", "system")
+
+    additional_props_list: list[dict] = []
+    ref_collections_list: list[dict] = []
+
+    print()
+    first = True
+    while True:
+        label = "Add a column" if first else "Add another column"
+        first = False
+        if not _prompt_bool(label):
+            break
+
+        col_name = _prompt("  Column name")
+        is_ref = _prompt_bool("  References another collection?")
+
+        if is_ref:
+            ref_col = _prompt("    Referenced collection name")
+            print("    Content type options: note, date, phone_number, email, year")
+            ref_type = _prompt("    Content type", "note").upper()
+            if ref_type not in ("NOTE", "DATE", "PHONE_NUMBER", "EMAIL", "YEAR"):
+                ref_type = "NOTE"
+            wl_raw = input("    Whitelist values (comma-separated, or leave empty): ").strip()
+            whitelist = [v.strip() for v in wl_raw.split(",") if v.strip()] if wl_raw else []
+            ref_entry: dict = {"collection_name": ref_col, "property_name": col_name, "type": ref_type}
+            if whitelist:
+                ref_entry["whitelist"] = whitelist
+            ref_collections_list.append(ref_entry)
+        else:
+            is_multiline = _prompt_bool("  Multiline field?")
+            print("  Validation options: none, not_empty, hh:mm, mm/dd, int, yyyy, re:<pattern>")
+            vtype_raw = _prompt("  Validation type", "none").lower()
+            _vmap = {
+                "none": "NONE", "not_empty": "NOT_EMPTY",
+                "hh:mm": "HH:MM", "mm/dd": "MM/DD",
+                "int": "INT", "yyyy": "YYYY",
+            }
+            if vtype_raw in _vmap:
+                validation_type = _vmap[vtype_raw]
+            elif vtype_raw.startswith("re:"):
+                validation_type = "RE:" + vtype_raw[3:]
+            else:
+                validation_type = "NONE"
+            prop_entry: dict = {"property_name": col_name, "validation_type": validation_type}
+            if is_multiline:
+                prop_entry["multiline"] = True
+            additional_props_list.append(prop_entry)
+
+    all_cols = (
+        [p["property_name"] for p in additional_props_list]
+        + [rc["property_name"] for rc in ref_collections_list]
+    )
+    property_order = ""
+    if len(all_cols) > 1:
+        print("\nColumn order:")
+        for i, col in enumerate(all_cols, 1):
+            print(f"  {i}. {col}")
+        order_raw = input("Enter numbers in desired order (or press Enter to keep current): ").strip()
+        if order_raw:
+            try:
+                indices = [int(x) - 1 for x in order_raw.replace(",", " ").split()]
+                ordered = [all_cols[i] for i in indices if 0 <= i < len(all_cols)]
+                seen = set(ordered)
+                ordered += [c for c in all_cols if c not in seen]
+                property_order = ", ".join(ordered)
+            except (ValueError, IndexError):
+                pass
+
+    print()
+    intro_message = _prompt("Introduction message", main_collection)
+
+    repo_ini = (
+        "[main_collection]\n"
+        f"collection_name = {main_collection}\n"
+        f"partitioning_property = {partitioning_property}\n"
+    )
+    if property_order:
+        repo_ini += f"property_order = {property_order}\n"
+    repo_ini += f"\n[introduction]\nmessage = {intro_message}\n"
+    (dest / "repository.ini").write_text(repo_ini, encoding="utf-8")
+    (dest / "additional_properties.json").write_text(
+        json.dumps(additional_props_list, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    (dest / "reference_collections.json").write_text(
+        json.dumps(ref_collections_list, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    (dest / main_collection).mkdir(exist_ok=True)
+    for rc in ref_collections_list:
+        (dest / rc["collection_name"]).mkdir(exist_ok=True)
+
+    print(f"\ncreated: {dest}")
+
+
 def cmd_mkrepo(json_file: str, destination: str):
     json_path = Path(json_file).resolve()
     if not json_path.exists():
@@ -1414,6 +1531,14 @@ def _do_cd(path_str: str, downloads_base: Path, cache_base: Path,
 
 
 def main():
+    cli_args = sys.argv[1:]
+    if cli_args and cli_args[0] == "init":
+        if len(cli_args) != 2:
+            print("usage: python3 src/app.py init <destination-directory>", file=sys.stderr)
+            sys.exit(1)
+        cmd_init(cli_args[1])
+        return
+
     config = load_config()
     repo_root = get_repo_root(config)
     downloads_base = SCRIPT_DIR / "downloads"
