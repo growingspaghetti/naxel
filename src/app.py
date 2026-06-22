@@ -24,7 +24,7 @@ def _launch_jtable(**kwargs):
 
 def load_config():
     config = configparser.ConfigParser()
-    config.read(SCRIPT_DIR / "settings.ini")
+    config.read(SCRIPT_DIR / "settings.ini", encoding="utf-8")
     return config
 
 
@@ -50,7 +50,7 @@ def repo_namespace(repo_root: Path) -> str:
 
 def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], str, str, str]:
     repo_ini = configparser.ConfigParser()
-    repo_ini.read(repo_root / "repository.ini")
+    repo_ini.read(repo_root / "repository.ini", encoding="utf-8")
     collection_name = repo_ini.get("main_collection", "collection_name", fallback="systems")
     partitioning_property = repo_ini.get("main_collection", "partitioning_property", fallback="system")
     raw = repo_ini.get("main_collection", "property_order", fallback="")
@@ -64,7 +64,7 @@ def load_repository_config(repo_root: Path) -> tuple[str, str, tuple[str, ...], 
 def load_additional_properties(repo_root: Path, filename: str) -> tuple[tuple[str, str, bool], ...]:
     path = repo_root / filename
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         result = []
         for item in data:
             if isinstance(item, dict):
@@ -84,7 +84,7 @@ def load_additional_properties(repo_root: Path, filename: str) -> tuple[tuple[st
 def load_dynamic_collections(repo_root: Path, filename: str) -> list[dict]:
     path = repo_root / filename
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         return [d for d in data if isinstance(d, dict) and d.get("collection_name")]
     except FileNotFoundError:
         return []
@@ -127,7 +127,7 @@ def build_ref_data(cache_dir: Path,
                 if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 4:
                     name = decode_name(parts[0])
                     if name is not None:
-                        mapping[name] = (col_dir / fname).read_text().strip()
+                        mapping[name] = (col_dir / fname).read_text(encoding="utf-8").strip()
         except FileNotFoundError:
             pass
         result[pname] = mapping
@@ -458,7 +458,7 @@ def cmd_add(repo_root: Path, collection: str, name: str,
         dest.write_bytes(gzip.compress(
             _empty_main_collection_json(additional_props, field_order=field_order).encode()))
     else:
-        dest.write_text("")
+        dest.write_text("", encoding="utf-8")
     print(f"created: {name}")
 
 
@@ -471,7 +471,7 @@ def cmd_len(repo_root: Path, collection: str, name: str):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         print(sum(1 for s in sections if any(v for v in s.values())))
     else:
-        content = filepath.read_text().strip()
+        content = filepath.read_text(encoding="utf-8").strip()
         print(len(content.split(",")) if content else 0)
 
 
@@ -494,13 +494,13 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
             dl_name = filepath.name[:-3]  # strip .gz
             dest = dl_dir / dl_name
             dest.write_text(_main_collection_sections_to_text(sections, additional_props,
-                                                      field_order=field_order))
+                                                      field_order=field_order), encoding="utf-8")
             print(f"saved: {dest}")
             _launch_jtable(path=dest, mode="main_text", readonly=True,
                            multiline_cols=multiline_props, ref_data=ref_data)
         else:
             dest = dl_dir / filepath.name
-            dest.write_text(filepath.read_text())
+            dest.write_text(filepath.read_text(encoding="utf-8"), encoding="utf-8")
             print(f"saved: {dest}")
             _launch_jtable(path=dest, mode="ref", readonly=True, title=f"{collection} {name}")
         return
@@ -509,7 +509,7 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
             sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
             print(json.dumps(sections, ensure_ascii=False, indent=2))
         else:
-            raw = filepath.read_text().strip()
+            raw = filepath.read_text(encoding="utf-8").strip()
             values = [v.strip() for v in raw.split(",") if v.strip()] if raw else []
             print(json.dumps(values, ensure_ascii=False, indent=2))
         return
@@ -519,7 +519,7 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
     elif filepath.name.endswith(".gz"):
         print(gzip.decompress(filepath.read_bytes()).decode(), end="")
     else:
-        content = filepath.read_text()
+        content = filepath.read_text(encoding="utf-8")
         print(content, end="" if content.endswith("\n") else "\n")
 
 
@@ -541,7 +541,7 @@ def cmd_clear(repo_root: Path, collection: str, name: str,
         template = _empty_main_collection_document(additional_props, field_order=field_order)
     else:
         template = ""
-    dest.write_text(template)
+    dest.write_text(template, encoding="utf-8")
     print(f"cleared: {dest}")
     if jtable:
         if collection == MAIN_COLLECTION:
@@ -570,17 +570,17 @@ def cmd_get(repo_root: Path, collection: str, name: str,
     dl_name = filepath.name[:-3] if filepath.name.endswith(".gz") else filepath.name
     dest = dl_dir / dl_name
     if stdin_content is not None:
-        dest.write_text(stdin_content)
+        dest.write_text(stdin_content, encoding="utf-8")
         print(f"saved: {dest}")
         return
     if collection == MAIN_COLLECTION and filepath.name.endswith(".gz"):
         sections = json.loads(gzip.decompress(filepath.read_bytes()).decode())
         dest.write_text(_main_collection_sections_to_text(sections, additional_props,
-                                                  field_order=field_order))
+                                                  field_order=field_order), encoding="utf-8")
     elif filepath.name.endswith(".gz"):
-        dest.write_text(gzip.decompress(filepath.read_bytes()).decode())
+        dest.write_text(gzip.decompress(filepath.read_bytes()).decode(), encoding="utf-8")
     else:
-        dest.write_text(filepath.read_text())
+        dest.write_text(filepath.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"saved: {dest}")
     if jtable:
         if collection == MAIN_COLLECTION:
@@ -644,7 +644,7 @@ def cmd_diff(repo_root: Path, collection: str, name: str,
             return
     else:
         def _parse_entries(path: Path) -> list[str]:
-            content = path.read_text().strip()
+            content = path.read_text(encoding="utf-8").strip()
             return [e.strip() for e in content.split(",") if e.strip()] if content else []
 
         prev_entries = _parse_entries(col_path / matches[-2])
@@ -681,14 +681,14 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
         print(f"error: not found in downloads: {name}")
         return
     if json_mode:
-        raw = json.loads(src.read_text())
+        raw = json.loads(src.read_text(encoding="utf-8"))
         if collection == MAIN_COLLECTION:
             content = _main_collection_sections_to_text(raw, additional_props, field_order=field_order)
         else:
             values = [v for v in raw if isinstance(v, str)]
             content = ",".join(values)
     else:
-        content = src.read_text()
+        content = src.read_text(encoding="utf-8")
     if not (collection == MAIN_COLLECTION and _is_initial_state_main_collection(
             content, additional_props, field_order=field_order, multiline_props=multiline_props)):
         mandatory_prop_names = frozenset(pname for pname, _, _ in mandatory_ref_props)
@@ -736,7 +736,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
                                          multiline_props=multiline_props)
         dest.write_bytes(gzip.compress(body.encode()))
     else:
-        dest.write_text(content)
+        dest.write_text(content, encoding="utf-8")
     print(f"pushed: {name} (version {new_version:04d})")
 
 
@@ -858,16 +858,16 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
                     for f in cols:
                         record[f] = sec.get(f, "")
                     records.append(record)
-            dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n")
+            dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         else:
             for encoded, fname in sorted(seen.items()):
                 entry_name = decode_name(encoded) or encoded
-                content = (col_path / fname).read_text().strip()
+                content = (col_path / fname).read_text(encoding="utf-8").strip()
                 if not content:
                     continue
                 values = [v.strip() for v in content.split(",") if v.strip()]
                 records.append({"name": entry_name, "values": values})
-            dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n")
+            dest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"exported: {dest}")
         subprocess.Popen([editor, str(dest)])
         return
@@ -905,13 +905,13 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
         rows.append(_csv_row("name", "values"))
         for encoded, fname in sorted(seen.items()):
             entry_name = decode_name(encoded) or encoded
-            content = (col_path / fname).read_text().strip()
+            content = (col_path / fname).read_text(encoding="utf-8").strip()
             if not content:
                 continue
             values = " ".join(content.split(","))
             rows.append(_csv_row(entry_name, values))
 
-    dest.write_text("\n".join(rows) + "\n")
+    dest.write_text("\n".join(rows) + "\n", encoding="utf-8")
     print(f"exported: {dest}")
     if jtable:
         ref = build_ref_data(cache_dir, mandatory_ref_props) if mandatory_ref_props else None
@@ -939,22 +939,22 @@ def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
 
     # JSON mode — embed config + latest-version data only (no history)
     repo_ini_cfg = configparser.ConfigParser()
-    repo_ini_cfg.read(repo_root / "repository.ini")
+    repo_ini_cfg.read(repo_root / "repository.ini", encoding="utf-8")
     additional_props_file = repo_ini_cfg.get("additional_properties", "json",
                                               fallback="additional_properties.json")
     ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
                                              fallback="additional_mandatory_properties.json")
 
     repo_ini_path = repo_root / "repository.ini"
-    repo_ini_text = repo_ini_path.read_text() if repo_ini_path.exists() else ""
+    repo_ini_text = repo_ini_path.read_text(encoding="utf-8") if repo_ini_path.exists() else ""
 
     try:
-        additional_props_data = json.loads((repo_root / additional_props_file).read_text())
+        additional_props_data = json.loads((repo_root / additional_props_file).read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         additional_props_data = []
 
     try:
-        ref_collections_data = json.loads((repo_root / ref_collections_file).read_text())
+        ref_collections_data = json.loads((repo_root / ref_collections_file).read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         ref_collections_data = []
 
@@ -981,7 +981,7 @@ def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
             if collection == MAIN_COLLECTION:
                 col_data[name] = json.loads(gzip.decompress((col_path / fname).read_bytes()).decode())
             else:
-                col_data[name] = (col_path / fname).read_text()
+                col_data[name] = (col_path / fname).read_text(encoding="utf-8")
         data_section[collection] = col_data
 
     output = {
@@ -996,7 +996,7 @@ def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
     if dest_file.exists():
         print(f"error: already exists: {dest_file}")
         return
-    dest_file.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
+    dest_file.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"exported: {dest_file}")
 
 
@@ -1017,22 +1017,22 @@ def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: st
             return
 
         repo_ini_cfg = configparser.ConfigParser()
-        repo_ini_cfg.read(repo_root / "repository.ini")
+        repo_ini_cfg.read(repo_root / "repository.ini", encoding="utf-8")
         additional_props_file = repo_ini_cfg.get("additional_properties", "json",
                                                   fallback="additional_properties.json")
         ref_collections_file = repo_ini_cfg.get("reference_collections", "json",
                                                  fallback="additional_mandatory_properties.json")
 
         repo_ini_path = repo_root / "repository.ini"
-        repo_ini_text = repo_ini_path.read_text() if repo_ini_path.exists() else ""
+        repo_ini_text = repo_ini_path.read_text(encoding="utf-8") if repo_ini_path.exists() else ""
 
         try:
-            additional_props_data = json.loads((repo_root / additional_props_file).read_text())
+            additional_props_data = json.loads((repo_root / additional_props_file).read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             additional_props_data = []
 
         try:
-            ref_collections_data = json.loads((repo_root / ref_collections_file).read_text())
+            ref_collections_data = json.loads((repo_root / ref_collections_file).read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             ref_collections_data = []
 
@@ -1061,7 +1061,7 @@ def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: st
                         col_data[entry_name] = json.loads(
                             gzip.decompress((col_path / fname).read_bytes()).decode())
                     else:
-                        col_data[entry_name] = (col_path / fname).read_text()
+                        col_data[entry_name] = (col_path / fname).read_text(encoding="utf-8")
                 else:
                     col_data[entry_name] = [] if col == MAIN_COLLECTION else ""
             data_section[col] = col_data
@@ -1074,7 +1074,7 @@ def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: st
             },
             "data": data_section,
         }
-        dest_file.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n")
+        dest_file.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"exported: {dest_file}")
         return
 
@@ -1121,7 +1121,7 @@ def cmd_mkrepo(json_file: str, destination: str):
         return
 
     try:
-        full_data = json.loads(json_path.read_text())
+        full_data = json.loads(json_path.read_text(encoding="utf-8"))
     except Exception as e:
         print(f"error: could not parse {json_path}: {e}")
         return
@@ -1154,12 +1154,14 @@ def cmd_mkrepo(json_file: str, destination: str):
                                              fallback="additional_mandatory_properties.json")
 
     repo_dir.mkdir()
-    (repo_dir / "repository.ini").write_text(repo_ini_text)
+    (repo_dir / "repository.ini").write_text(repo_ini_text, encoding="utf-8")
     (repo_dir / additional_props_file).write_text(
-        json.dumps(config.get("additional_properties", []), ensure_ascii=False, indent=2) + "\n"
+        json.dumps(config.get("additional_properties", []), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
     (repo_dir / ref_collections_file).write_text(
-        json.dumps(config.get("reference_collections", []), ensure_ascii=False, indent=2) + "\n"
+        json.dumps(config.get("reference_collections", []), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
 
     for collection_name, entries in data.items():
@@ -1174,7 +1176,7 @@ def cmd_mkrepo(json_file: str, destination: str):
                 body = json.dumps(entry_data, ensure_ascii=False, indent=2) + "\n"
                 dest_file.write_bytes(gzip.compress(body.encode()))
             else:
-                dest_file.write_text(entry_data)
+                dest_file.write_text(entry_data, encoding="utf-8")
 
     print(f"created: {repo_dir}")
 
