@@ -1230,6 +1230,221 @@ pub fn cmd_init(destination: &str) {
     println!("\ncreated: {}", dest.display());
 }
 
+// ── update ──────────────────────────────────────────────────────────────────────
+
+pub fn cmd_update(destination: &str) {
+    use std::io::Write;
+
+    let dest = std::path::PathBuf::from(destination);
+    if !dest.is_dir() {
+        eprintln!("error: not a directory: {}", dest.display());
+        return;
+    }
+    if !dest.join("repository.ini").exists() {
+        eprintln!("error: not an initialized repository (no repository.ini): {}", dest.display());
+        return;
+    }
+
+    fn readline() -> String {
+        let mut s = String::new();
+        std::io::stdin().read_line(&mut s).ok();
+        s.trim().to_string()
+    }
+
+    fn prompt(msg: &str, default: &str) -> String {
+        loop {
+            if default.is_empty() {
+                print!("{msg}: ");
+            } else {
+                print!("{msg} [{default}]: ");
+            }
+            std::io::stdout().flush().ok();
+            let answer = readline();
+            if !answer.is_empty() { return answer; }
+            if !default.is_empty() { return default.to_string(); }
+            println!("  (required)");
+        }
+    }
+
+    fn prompt_bool(msg: &str) -> bool {
+        loop {
+            print!("{msg} (y/n): ");
+            std::io::stdout().flush().ok();
+            match readline().to_lowercase().as_str() {
+                "y" | "yes" => return true,
+                "n" | "no" => return false,
+                _ => {}
+            }
+        }
+    }
+
+    fn parse_vtype(raw: &str) -> String {
+        let low = raw.to_lowercase();
+        if low == "none" { "NONE".to_string() }
+        else if low == "not_empty" { "NOT_EMPTY".to_string() }
+        else if low == "hh:mm" { "HH:MM".to_string() }
+        else if low == "mm/dd" { "MM/DD".to_string() }
+        else if low == "int" { "INT".to_string() }
+        else if low == "yyyy" { "YYYY".to_string() }
+        else if low.starts_with("re:") { format!("RE:{}", &raw[3..]) }
+        else { "NONE".to_string() }
+    }
+
+    // Read existing config
+    let repo_ini_text = std::fs::read_to_string(dest.join("repository.ini")).unwrap_or_default();
+    let mut ini = configparser::ini::Ini::new();
+    ini.read(repo_ini_text).ok();
+    let main_collection = ini.get("main_collection", "collection_name").unwrap_or_else(|| "systems".into());
+    let partitioning_property = ini.get("main_collection", "partitioning_property").unwrap_or_else(|| "system".into());
+    let property_order_raw = ini.get("main_collection", "property_order").unwrap_or_default();
+    let existing_order: Vec<String> = property_order_raw
+        .split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    let mut intro_message = ini.get("introduction", "message").unwrap_or_default();
+
+    let mut additional_props: Vec<serde_json::Value> = std::fs::read_to_string(dest.join("additional_properties.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter().filter(|v| v.is_object()).collect();
+
+    let mut ref_collections: Vec<serde_json::Value> = std::fs::read_to_string(dest.join("reference_collections.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter().filter(|v| v.is_object()).collect();
+
+    // Show current state
+    println!("Updating repository at {}\n", dest.display());
+    println!("  Main collection : {main_collection}  (partitioning property: {partitioning_property})");
+    println!("  Intro message   : {:?}", intro_message);
+    println!("  Columns:");
+    for p in &additional_props {
+        let name = p["property_name"].as_str().unwrap_or("");
+        let vtype = p["validation_type"].as_str().unwrap_or("NONE");
+        let ml = if p.get("multiline").and_then(|v| v.as_bool()).unwrap_or(false) { ", multiline" } else { "" };
+        println!("    {name}  [{vtype}{ml}]");
+    }
+    for r in &ref_collections {
+        let pname = r["property_name"].as_str().unwrap_or("");
+        let cname = r["collection_name"].as_str().unwrap_or("");
+        let rtype = r["type"].as_str().unwrap_or("STRING");
+        println!("    {pname} → {cname}  [{rtype}]");
+    }
+    println!();
+
+    // ── Add columns ──────────────────────────────────────────────────────────
+    println!("--- Add columns ---");
+    let mut new_props: Vec<serde_json::Value> = Vec::new();
+    let mut new_refs: Vec<serde_json::Value> = Vec::new();
+    loop {
+        if !prompt_bool("Add a column") { break; }
+        let col_name = prompt("  Column name", "");
+        let is_ref = prompt_bool("  References another collection?");
+        if is_ref {
+            let ref_col = prompt("    Referenced collection name", "");
+            println!("    Content type options: string, date, phone_number, email, year");
+            let ref_type_raw = prompt("    Content type", "string").to_uppercase();
+            let ref_type = match ref_type_raw.as_str() {
+                "STRING" | "DATE" | "PHONE_NUMBER" | "EMAIL" | "YEAR" => ref_type_raw.clone(),
+                _ => "STRING".to_string(),
+            };
+            print!("    Whitelist values (comma-separated, or leave empty): ");
+            std::io::stdout().flush().ok();
+            let wl_raw = readline();
+            let whitelist: Vec<serde_json::Value> = wl_raw
+                .split(',').map(|v| v.trim()).filter(|v| !v.is_empty())
+                .map(|v| serde_json::Value::String(v.to_string())).collect();
+            let mut entry = serde_json::json!({
+                "collection_name": ref_col,
+                "property_name": col_name,
+                "type": ref_type,
+            });
+            if !whitelist.is_empty() {
+                entry["whitelist"] = serde_json::Value::Array(whitelist);
+            }
+            new_refs.push(entry);
+        } else {
+            let is_multiline = prompt_bool("  Multiline field?");
+            println!("  Validation options: none, not_empty, hh:mm, mm/dd, int, yyyy, re:<pattern>");
+            let validation_type = parse_vtype(&prompt("  Validation type", "none"));
+            let mut prop_entry = serde_json::json!({
+                "property_name": col_name,
+                "validation_type": validation_type,
+            });
+            if is_multiline {
+                prop_entry["multiline"] = serde_json::Value::Bool(true);
+            }
+            new_props.push(prop_entry);
+        }
+    }
+    for r in &new_refs {
+        if let Some(cname) = r["collection_name"].as_str() {
+            let _ = std::fs::create_dir_all(dest.join(cname));
+        }
+    }
+    additional_props.extend(new_props);
+    ref_collections.extend(new_refs);
+
+    // ── Introduction message ─────────────────────────────────────────────────
+    println!("\n--- Introduction message (current: {:?}) ---", intro_message);
+    if prompt_bool("Update?") {
+        let default = if intro_message.is_empty() { main_collection.clone() } else { intro_message.clone() };
+        intro_message = prompt("  New message", &default);
+    }
+
+    // ── Column validations ───────────────────────────────────────────────────
+    if !additional_props.is_empty() {
+        println!("\n--- Column validations ---");
+        for prop in additional_props.iter_mut() {
+            let col_name = prop["property_name"].as_str().unwrap_or("").to_string();
+            let current_vtype = prop["validation_type"].as_str().unwrap_or("NONE").to_string();
+            let ml_note = if prop.get("multiline").and_then(|v| v.as_bool()).unwrap_or(false) { ", multiline" } else { "" };
+            if prompt_bool(&format!("  Change validation for '{col_name}' (currently: {current_vtype}{ml_note})?")) {
+                println!("  Validation options: none, not_empty, hh:mm, mm/dd, int, yyyy, re:<pattern>");
+                let new_vtype = parse_vtype(&prompt("  New validation type", "none"));
+                prop["validation_type"] = serde_json::Value::String(new_vtype);
+            }
+        }
+    }
+
+    // ── Write back ───────────────────────────────────────────────────────────
+    let all_col_names: Vec<String> = additional_props.iter()
+        .filter_map(|p| p["property_name"].as_str().map(|s| s.to_string()))
+        .chain(ref_collections.iter().filter_map(|r| r["property_name"].as_str().map(|s| s.to_string())))
+        .collect();
+
+    let property_order_str = if !existing_order.is_empty() {
+        let seen: std::collections::HashSet<String> = existing_order.iter().cloned().collect();
+        let mut updated = existing_order.clone();
+        updated.extend(all_col_names.iter().filter(|c| !seen.contains(*c)).cloned());
+        updated.join(", ")
+    } else {
+        String::new()
+    };
+
+    let mut repo_ini = format!(
+        "[main_collection]\ncollection_name = {main_collection}\npartitioning_property = {partitioning_property}\n"
+    );
+    if !property_order_str.is_empty() {
+        repo_ini.push_str(&format!("property_order = {property_order_str}\n"));
+    }
+    repo_ini.push_str(&format!("\n[introduction]\nmessage = {intro_message}\n"));
+
+    let _ = std::fs::write(dest.join("repository.ini"), &repo_ini);
+    let _ = std::fs::write(
+        dest.join("additional_properties.json"),
+        serde_json::to_string_pretty(&serde_json::Value::Array(additional_props)).unwrap() + "\n",
+    );
+    let _ = std::fs::write(
+        dest.join("reference_collections.json"),
+        serde_json::to_string_pretty(&serde_json::Value::Array(ref_collections)).unwrap() + "\n",
+    );
+
+    println!("\nupdated: {}", dest.display());
+}
+
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
