@@ -18,7 +18,7 @@ fn usage(state: &RepoState) {
     let mut colls: Vec<&str> = state.collections.iter().map(|s| s.as_str()).collect();
     colls.sort();
     println!(
-        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  cat <collection> <name> [--version=N] [--jtable] [--json]\n  get <collection> <name> [--version=N] [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  appenditems <collection> <name> [-] [--json]\n  searchitems <collection> <name> [-] [--json]\n  removeitems <collection> <name> [-] [--json]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
+        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  cat <collection> <name> [--version=N] [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  appenditems <collection> <name> [-] [--json]\n  searchitems <collection> <name> [-] [--json]\n  removeitems <collection> <name> [-] [--json]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
         colls.join(", ")
     );
 }
@@ -134,16 +134,11 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
         "get" => {
             let jtable = parts.contains(&"--jtable");
             let stdin_flag = parts.contains(&"-");
-            let version_flag = parts.iter().find(|p| p.starts_with("--version=")).copied();
-            let version: Option<String> = version_flag.map(|p| {
-                let raw = &p["--version=".len()..];
-                raw.parse::<u32>().map(|n| format!("{n:04}")).unwrap_or_else(|_| raw.to_string())
-            });
             let real_parts: Vec<&str> = parts.iter()
-                .filter(|&&p| p != "--jtable" && p != "-" && !p.starts_with("--version="))
+                .filter(|&&p| p != "--jtable" && p != "-")
                 .copied()
                 .collect();
-            if real_parts.len() != 3 { eprintln!("usage: get <collection> <name> [--version=N] [--jtable] [-]"); None }
+            if real_parts.len() != 3 { eprintln!("usage: get <collection> <name> [--jtable] [-]"); None }
             else {
                 let stdin_content = if stdin_flag {
                     use std::io::Read;
@@ -153,7 +148,7 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
                 } else {
                     None
                 };
-                cmd_get(state, collection, real_parts[2], editor, jtable, stdin_content, version.as_deref())
+                cmd_get(state, collection, real_parts[2], editor, jtable, stdin_content)
             }
         }
         "clear" => {

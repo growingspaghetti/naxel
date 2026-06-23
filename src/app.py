@@ -564,20 +564,11 @@ def cmd_get(repo_root: Path, collection: str, name: str,
             field_order: tuple[str, ...] | None = None,
             multiline_props: frozenset[str] = frozenset(),
             stdin_content: str | None = None,
-            push_callback=None,
-            version: str | None = None):
-    if version is not None:
-        suffix = _repo_suffix(collection)
-        encoded = encode_name(name)
-        filepath = collection_path(repo_root, collection) / f"{encoded}.{version}{suffix}"
-        if not filepath.exists():
-            print(f"error: version {version} not found: {name}")
-            return
-    else:
-        filepath = find_latest_file(repo_root, collection, name)
-        if filepath is None:
-            print(f"error: not found: {name}")
-            return
+            push_callback=None):
+    filepath = find_latest_file(repo_root, collection, name)
+    if filepath is None:
+        print(f"error: not found: {name}")
+        return
     dl_dir = downloads_dir / collection
     dl_dir.mkdir(parents=True, exist_ok=True)
     dl_name = filepath.name[:-3] if filepath.name.endswith(".gz") else filepath.name
@@ -2021,20 +2012,9 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     elif cmd == "get":
         jtable = "--jtable" in parts
         stdin_flag = "-" in parts
-        version_flags = [p for p in parts if p.startswith("--version=")]
-        get_parts = [p for p in parts if p not in ("--jtable", "-") and not p.startswith("--version=")]
-        _version = None
-        _version_err = None
-        if version_flags:
-            raw_ver = version_flags[0][len("--version="):]
-            try:
-                _version = f"{int(raw_ver):04d}"
-            except ValueError:
-                _version_err = raw_ver
-        if _version_err is not None:
-            print(f"error: invalid --version value: {_version_err}")
-        elif len(get_parts) != 3:
-            print("usage: get <collection> <name> [--version=N] [--jtable] [-]")
+        get_parts = [p for p in parts if p not in ("--jtable", "-")]
+        if len(get_parts) != 3:
+            print("usage: get <collection> <name> [--jtable] [-]")
         else:
             stdin_content = sys.stdin.read() if stdin_flag else None
             _name = get_parts[2]
@@ -2049,7 +2029,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             cmd_get(repo_root, collection, _name, downloads_dir, editor,
                     additional_props, jtable=jtable, field_order=field_order,
                     multiline_props=multiline_props, stdin_content=stdin_content,
-                    push_callback=_push_cb, version=_version)
+                    push_callback=_push_cb)
 
     elif cmd == "clear":
         jtable = "--jtable" in parts
