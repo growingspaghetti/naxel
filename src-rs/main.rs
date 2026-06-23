@@ -18,7 +18,7 @@ fn usage(state: &RepoState) {
     let mut colls: Vec<&str> = state.collections.iter().map(|s| s.as_str()).collect();
     colls.sort();
     println!(
-        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  cat <collection> <name> [--version=N] [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  appenditems <collection> <name> [-] [--json]\n  searchitems <collection> <name> [-] [--json]\n  removeitems <collection> <name> [-] [--json]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
+        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  del <collection> <name>\n  cat <collection> <name> [--version=N] [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  appenditems <collection> <name> [-] [--json]\n  searchitems <collection> <name> [-] [--json]\n  removeitems <collection> <name> [-] [--json]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
         colls.join(", ")
     );
 }
@@ -81,7 +81,7 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
 
     let needs_collection = matches!(
         cmd,
-        "ls" | "add" | "cat" | "get" | "clear" | "len" | "push" | "export" | "diff"
+        "ls" | "add" | "del" | "cat" | "get" | "clear" | "len" | "push" | "export" | "diff"
         | "partialcopy" | "appenditems" | "searchitems" | "removeitems"
     );
 
@@ -114,6 +114,11 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
         "add" => {
             if parts.len() != 3 { eprintln!("usage: add <collection> <name>"); }
             else { cmd_add(&state.repo_root, &state.main_collection, collection, parts[2], field_order); }
+            None
+        }
+        "del" => {
+            if parts.len() != 3 { eprintln!("usage: del <collection> <name>"); }
+            else { cmd_del(&state.repo_root, &state.main_collection, collection, parts[2], &state.cache_dir); }
             None
         }
         "cat" => {

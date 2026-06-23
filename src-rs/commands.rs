@@ -33,7 +33,7 @@ pub fn cmd_ls(repo_root: &Path, main_coll: &str, collection: &str) {
         .collect();
     fnames.sort();
     for fname in fnames {
-        if !fname.ends_with(suffix) { continue; }
+        if fname.starts_with('.') || !fname.ends_with(suffix) { continue; }
         let stem = &fname[..fname.len() - suffix.len()];
         let parts: Vec<&str> = stem.splitn(2, '.').collect();
         if parts.len() == 2 && parts[1].len() == 4 && parts[1].chars().all(|c| c.is_ascii_digit()) {
@@ -421,7 +421,7 @@ pub fn cmd_push_result(state: &RepoState, collection: &str, name: &str, json_mod
                         .map(|rd| {
                             rd.filter_map(|e| e.ok())
                                 .map(|e| e.file_name().to_string_lossy().into_owned())
-                                .filter(|f| f.ends_with(ref_suffix))
+                                .filter(|f| !f.starts_with('.') && f.ends_with(ref_suffix))
                                 .map(|f| {
                                     let stem = &f[..f.len() - ref_suffix.len()];
                                     stem.splitn(2, '.').next().unwrap_or("").to_string()
@@ -484,6 +484,58 @@ pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool
         Ok(msg)  => println!("{msg}"),
         Err(msg) => eprintln!("{msg}"),
     }
+}
+
+// ── del ────────────────────────────────────────────────────────────────────────
+
+pub fn cmd_del(
+    repo_root: &Path,
+    main_coll: &str,
+    collection: &str,
+    name: &str,
+    cache_dir: &Path,
+) {
+    let path = col_path(repo_root, collection);
+    let encoded = encode_name(name);
+    let suffix = repo_suffix(collection, main_coll);
+    let prefix = format!("{encoded}.");
+    let total_len = prefix.len() + 4 + suffix.len();
+
+    let matches: Vec<String> = match std::fs::read_dir(&path) {
+        Err(_) => {
+            eprintln!("error: directory not found: {}", path.display());
+            return;
+        }
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|f| {
+                f.len() == total_len
+                    && f.starts_with(&prefix)
+                    && f.ends_with(suffix)
+                    && f[prefix.len()..prefix.len() + 4].chars().all(|c| c.is_ascii_digit())
+            })
+            .collect(),
+    };
+
+    if matches.is_empty() {
+        eprintln!("error: not found: {name}");
+        return;
+    }
+
+    for fname in &matches {
+        let src = path.join(fname);
+        let dst = path.join(format!(".{fname}"));
+        if let Err(e) = std::fs::rename(&src, &dst) {
+            eprintln!("error: failed to rename {fname}: {e}");
+            return;
+        }
+    }
+    let cache_col = cache_dir.join(collection);
+    for fname in &matches {
+        let _ = std::fs::remove_file(cache_col.join(fname));
+    }
+    println!("deleted: {name} ({} version(s))", matches.len());
 }
 
 // ── diff ───────────────────────────────────────────────────────────────────────
@@ -623,7 +675,7 @@ pub fn cmd_export(
         .collect();
     fnames.sort();
     for fname in fnames {
-        if !fname.ends_with(suffix) { continue; }
+        if fname.starts_with('.') || !fname.ends_with(suffix) { continue; }
         let stem = &fname[..fname.len() - suffix.len()];
         let parts: Vec<&str> = stem.splitn(2, '.').collect();
         if parts.len() == 2 && parts[1].len() == 4 && parts[1].chars().all(|c| c.is_ascii_digit()) {
@@ -800,7 +852,7 @@ pub fn cmd_fullcopy(state: &RepoState, destination: &str, json_mode: bool) {
                 .collect();
             fnames.sort();
             for fname in fnames {
-                if !fname.ends_with(suffix) { continue; }
+                if fname.starts_with('.') || !fname.ends_with(suffix) { continue; }
                 let stem = &fname[..fname.len() - suffix.len()];
                 let parts: Vec<&str> = stem.splitn(2, '.').collect();
                 if parts.len() == 2 && parts[1].len() == 4 && parts[1].chars().all(|c| c.is_ascii_digit()) {
@@ -963,7 +1015,7 @@ pub fn cmd_partialcopy(
                     .collect();
                 fnames.sort();
                 for fname in fnames {
-                    if !fname.ends_with(suffix) { continue; }
+                    if fname.starts_with('.') || !fname.ends_with(suffix) { continue; }
                     let stem = &fname[..fname.len() - suffix.len()];
                     let parts: Vec<&str> = stem.splitn(2, '.').collect();
                     if parts.len() == 2 && parts[1].len() == 4 && parts[1].chars().all(|c| c.is_ascii_digit()) {

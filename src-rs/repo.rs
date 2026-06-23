@@ -209,6 +209,7 @@ pub fn initialize_repo(
 
 pub fn sync_cache(state: &RepoState) {
     let mut copied = 0usize;
+    let mut purged = 0usize;
     let mut coll_names: Vec<&str> = state.collections.iter().map(|s| s.as_str()).collect();
     coll_names.sort();
 
@@ -217,22 +218,40 @@ pub fn sync_cache(state: &RepoState) {
         let dst_dir = state.cache_dir.join(coll);
         if !src_dir.is_dir() { continue; }
         let _ = std::fs::create_dir_all(&dst_dir);
+
+        let src_files: HashSet<String> = std::fs::read_dir(&src_dir)
+            .ok()
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|f| !f.starts_with('.'))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let cached: HashSet<String> = std::fs::read_dir(&dst_dir)
             .ok()
             .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
             .unwrap_or_default();
-        if let Ok(rd) = std::fs::read_dir(&src_dir) {
-            for entry in rd.filter_map(|e| e.ok()) {
-                let fname = entry.file_name().to_string_lossy().into_owned();
-                if !cached.contains(&fname) {
-                    let _ = std::fs::copy(src_dir.join(&fname), dst_dir.join(&fname));
-                    copied += 1;
-                }
+
+        for fname in &src_files {
+            if !cached.contains(fname) {
+                let _ = std::fs::copy(src_dir.join(fname), dst_dir.join(fname));
+                copied += 1;
+            }
+        }
+        for fname in &cached {
+            if !src_files.contains(fname) {
+                let _ = std::fs::remove_file(dst_dir.join(fname));
+                purged += 1;
             }
         }
     }
     if copied > 0 {
         println!("cache: synced {copied} file(s)");
+    }
+    if purged > 0 {
+        println!("cache: purged {purged} file(s)");
     }
 }
 
@@ -251,7 +270,7 @@ pub fn build_ref_data(
             let mut fnames: Vec<String> = rd
                 .filter_map(|e| e.ok())
                 .map(|e| e.file_name().to_string_lossy().into_owned())
-                .filter(|f| f.ends_with(".txt"))
+                .filter(|f| !f.starts_with('.') && f.ends_with(".txt"))
                 .collect();
             fnames.sort();
             for fname in fnames {

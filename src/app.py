@@ -90,19 +90,30 @@ def load_dynamic_collections(repo_root: Path, filename: str) -> list[dict]:
 
 def sync_cache(repo_root: Path, cache_dir: Path):
     copied = 0
+    purged = 0
     for collection in sorted(COLLECTIONS):
         src_dir = collection_path(repo_root, collection)
         dst_dir = cache_dir / collection
         if not src_dir.is_dir():
             continue
         dst_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            src_files = {f for f in os.listdir(src_dir) if not f.startswith(".")}
+        except FileNotFoundError:
+            src_files = set()
         cached = set(os.listdir(dst_dir))
-        for fname in os.listdir(src_dir):
+        for fname in src_files:
             if fname not in cached:
                 (dst_dir / fname).write_bytes((src_dir / fname).read_bytes())
                 copied += 1
+        for fname in cached:
+            if fname not in src_files:
+                (dst_dir / fname).unlink(missing_ok=True)
+                purged += 1
     if copied:
         print(f"cache: synced {copied} file(s)")
+    if purged:
+        print(f"cache: purged {purged} file(s)")
 
 
 def build_ref_data(cache_dir: Path,
@@ -115,7 +126,7 @@ def build_ref_data(cache_dir: Path,
         mapping: dict[str, str] = {}
         try:
             for fname in sorted(os.listdir(col_dir)):
-                if not fname.endswith(".txt"):
+                if fname.startswith(".") or not fname.endswith(".txt"):
                     continue
                 stem = fname[:-4]
                 parts = stem.split(".")
@@ -425,7 +436,7 @@ def cmd_ls(repo_root: Path, collection: str):
     suffix = _repo_suffix(collection)
     seen: set[str] = set()
     for fname in sorted(os.listdir(path)):
-        if not fname.endswith(suffix):
+        if fname.startswith(".") or not fname.endswith(suffix):
             continue
         stem = fname[: -len(suffix)]  # e.g. "ON4XGMI.0000"
         parts = stem.split(".")
@@ -714,7 +725,7 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
                     existing_refs = {
                         f[: -len(ref_suffix)].split(".")[0]
                         for f in os.listdir(ref_dir)
-                        if f.endswith(ref_suffix)
+                        if f.endswith(ref_suffix) and not f.startswith(".")
                     }
                 except FileNotFoundError:
                     existing_refs = set()
@@ -742,6 +753,37 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
     else:
         dest.write_text(content, encoding="utf-8")
     print(f"pushed: {name} (version {new_version:04d})")
+
+
+def cmd_del(repo_root: Path, collection: str, name: str, cache_dir: Path | None = None):
+    col_path = collection_path(repo_root, collection)
+    encoded = encode_name(name)
+    suffix = _repo_suffix(collection)
+    prefix = encoded + "."
+    total = len(prefix) + 4 + len(suffix)
+    try:
+        entries = os.listdir(col_path)
+    except FileNotFoundError:
+        print(f"error: directory not found: {col_path}")
+        return
+    matches = [
+        f for f in entries
+        if len(f) == total
+        and f.startswith(prefix)
+        and f.endswith(suffix)
+        and f[len(prefix):len(prefix) + 4].isdigit()
+    ]
+    if not matches:
+        print(f"error: not found: {name}")
+        return
+    for fname in matches:
+        (col_path / fname).rename(col_path / ("." + fname))
+    if cache_dir is not None:
+        cache_col = cache_dir / collection
+        for fname in matches:
+            cached = cache_col / fname
+            cached.unlink(missing_ok=True)
+    print(f"deleted: {name} ({len(matches)} version(s))")
 
 
 def cmd_appenditems(repo_root: Path, collection: str, name: str,
@@ -1265,7 +1307,7 @@ def cmd_export(repo_root: Path, collection: str, filename: str,
     suffix = _repo_suffix(collection)
     seen: dict[str, str] = {}  # encoded → latest filename (sorted order gives highest version last)
     for fname in sorted(os.listdir(col_path)):
-        if not fname.endswith(suffix):
+        if fname.startswith(".") or not fname.endswith(suffix):
             continue
         stem = fname[: -len(suffix)]
         parts = stem.split(".")
@@ -1392,7 +1434,7 @@ def cmd_fullcopy(repo_root: Path, destination: str, json_mode: bool):
         seen: dict[str, str] = {}
         try:
             for fname in sorted(os.listdir(col_path)):
-                if not fname.endswith(suffix):
+                if fname.startswith(".") or not fname.endswith(suffix):
                     continue
                 stem = fname[: -len(suffix)]
                 parts = stem.split(".")
@@ -1463,7 +1505,7 @@ def cmd_partialcopy(repo_root: Path, collection: str, name: str, destination: st
             seen: dict[str, str] = {}
             try:
                 for fname in sorted(os.listdir(col_path)):
-                    if not fname.endswith(suffix):
+                    if fname.startswith(".") or not fname.endswith(suffix):
                         continue
                     stem = fname[: -len(suffix)]
                     parts = stem.split(".")
@@ -1946,6 +1988,7 @@ def usage_string() -> str:
         "  cd <path>\n"
         "  ls <collection>\n"
         "  add <collection> <name>\n"
+        "  del <collection> <name>\n"
         "  cat <collection> <name> [--jtable]\n"
         "  get <collection> <name> [--jtable]\n"
         "  clear <collection> <name> [--jtable]\n"
@@ -1977,7 +2020,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     if cmd == "exit":
         return False
 
-    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export", "diff", "partialcopy",
+    if cmd in ("ls", "add", "del", "cat", "get", "clear", "len", "push", "export", "diff", "partialcopy",
                "appenditems", "searchitems", "removeitems"):
         if len(parts) < 2:
             print("error: missing collection")
@@ -1998,6 +2041,12 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: add <collection> <name>")
         else:
             cmd_add(repo_root, collection, parts[2], additional_props, field_order=field_order)
+
+    elif cmd == "del":
+        if len(parts) != 3:
+            print("usage: del <collection> <name>")
+        else:
+            cmd_del(repo_root, collection, parts[2], cache_dir)
 
     elif cmd == "cat":
         jtable = "--jtable" in parts
