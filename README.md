@@ -391,3 +391,14 @@ src-rs/
   ...
 settings.ini                      points to samples/repo by default
 ```
+
+---
+
+## Documentation
+
+| File | Description |
+|---|---|
+| [README.md](README.md) | English README (this file) |
+| [README_ja.md](README_ja.md) | Japanese README / 日本語版README |
+| [SPECIFICATIONS.md](SPECIFICATIONS.md) | English specifications — detailed technical reference |
+| [SPECIFICATIONS_ja.md](SPECIFICATIONS_ja.md) | Japanese specifications / 日本語版仕様書 |

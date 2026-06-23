@@ -1,229 +1,226 @@
-# naxel 仕様書
+# naxel — Specifications
 
-## 概要
+## Overview
 
-naxel は、NAS上に保存された構造化ドキュメントや参照データをコマンドラインで管理するツールです。対話形式（REPL）で操作するほか、`-c` オプションによるバッチモードでスクリプトやパイプラインからも利用できます。ファイルの取得・編集・登録・比較・エクスポートができます。コレクションの種類や名称はすべて設定ファイルで定義します。
+naxel is a command-line tool for managing structured documents and reference data stored on a NAS or local filesystem. It operates interactively via a REPL, or non-interactively via batch mode (`-c`). Operations include fetching, editing, validating, pushing, comparing, and exporting data. All collection types and names are defined entirely through configuration files.
 
-### 起動方法
+### Starting the app
 
-Python版（`src/app.py`）と Rust/Tauri版（`naxel` バイナリ）の2つの実装があります。コマンドセット・ファイル形式・設定ファイルは共通です。
+Two implementations are available — a Python version (`src/app.py`) and a Rust/Tauri binary (`naxel`). They share the same command set, file formats, and configuration files.
 
 ```
-python3 src/app.py                    # Python版 — 対話モード（REPL）
-python3 src/app.py -c 'cmd1 && cmd2' # Python版 — バッチモード
-python3 src/app.py init <保存先>      # Python版 — 新規リポジトリの初期化ウィザード
-python3 src/app.py update <保存先>    # Python版 — 既存リポジトリの設定変更ウィザード
+python3 src/app.py                    # Python — interactive REPL
+python3 src/app.py -c 'cmd1 && cmd2' # Python — batch mode
+python3 src/app.py init <dest>        # Python — new-repository wizard
+python3 src/app.py update <dest>      # Python — existing-repository update wizard
 
-./naxel                               # Rust/Tauri版 — 対話モード（REPL）
-./naxel -c 'cmd1 && cmd2'            # Rust/Tauri版 — バッチモード
-./naxel init <保存先>                 # Rust/Tauri版 — 新規リポジトリの初期化ウィザード
-./naxel update <保存先>               # Rust/Tauri版 — 既存リポジトリの設定変更ウィザード
+./naxel                               # Rust/Tauri — interactive REPL
+./naxel -c 'cmd1 && cmd2'            # Rust/Tauri — batch mode
+./naxel init <dest>                   # Rust/Tauri — new-repository wizard
+./naxel update <dest>                 # Rust/Tauri — existing-repository update wizard
 ```
 
-`init` と `update` は REPL の外で動作するサブコマンドです。REPL 内では使用できません。
+`init` and `update` are top-level CLI subcommands that run outside the REPL. They are not available inside the REPL or in `-c` batch mode.
 
-バッチモードでは `&&` で区切ったコマンドを順番に実行して終了します。パイプラインと組み合わせて使えます。
+In batch mode the `&&`-separated commands are executed sequentially, then the process exits. Batch mode can be combined with shell pipelines:
 
 ```
 cat foo_main.txt | python3 src/app.py -c 'add systems foo && get systems foo - && push systems foo && diff systems foo'
 ```
 
-### プロンプト
+### Prompt
 
-対話モードのプロンプトには現在のリポジトリのディレクトリ名が表示されます。
+In interactive mode the prompt displays the current repository's directory name:
 
 ```
 dummy-repo > 
 ```
 
-`cd` でリポジトリを切り替えると、プロンプトも自動的に更新されます。
+When the repository is switched with `cd` the prompt updates automatically.
 
-### ダウンロード・キャッシュのディレクトリ構造
+### Downloads and cache directory layout
 
-複数リポジトリを切り替えて使用できるよう、`downloads` と `cache` のファイルはリポジトリごとにサブディレクトリへ分けて保存されます。サブディレクトリ名（リポジトリID）はリポジトリの絶対パスのMD5ハッシュです。
+Downloads and cache files are namespaced per repository so that switching repositories never mixes files. The subdirectory name (repository ID) is the MD5 hex digest of the repository's absolute path.
 
 ```
 downloads/
-  {リポジトリID}/
-    {コレクション}/    # get / clear / cat --jtable で保存されるファイル
-    {ファイル名}.csv   # export の出力ファイル（コレクションサブディレクトリには入らない）
+  {repo-id}/
+    {collection}/    # files written by get / clear / cat --jtable
+    {file}.csv       # export output (not inside a collection subdirectory)
 cache/
-  {リポジトリID}/
-    {コレクション}/    # NASリポジトリのローカルミラー
+  {repo-id}/
+    {collection}/    # local mirror of the NAS repository
 ```
 
-## コレクション
+---
 
-管理対象のデータは「コレクション」という単位に分類されます。コレクションはすべて設定ファイルで定義され、組み込みのコレクションはありません。
+## Collections
 
-| 種別 | 説明 | 設定場所 |
+All managed data is organised into **collections**. Collections are entirely defined in configuration files; there are no built-in collections.
+
+| Type | Description | Configured in |
 |---|---|---|
-| メインコレクション | 複数のセクションを持つ構造化ドキュメント（gzip圧縮） | `repository.ini [main_collection]` |
-| 参照コレクション | カンマ区切りの値リスト（プレーンテキスト） | `reference_collections.json` |
+| Main collection | Multi-section structured documents (gzip-compressed) | `repository.ini [main_collection]` |
+| Reference collections | Comma-separated value lists (plain text) | `reference_collections.json` |
 
-`schedules` や `contacts` なども `reference_collections.json` に記述することで利用できます（組み込みではなく、設定次第です）。
+`schedules`, `contacts`, and any other reference collection must be declared in `reference_collections.json` to be used — they are not built in.
 
 ---
 
-## コマンド一覧
+## Command Reference
 
-### CLIサブコマンド（REPLの外で実行）
+### CLI subcommands (run outside the REPL)
 
-| コマンド | 説明 |
+| Command | Description |
 |---|---|
-| `init <保存先ディレクトリ>` | 対話形式ウィザードで新規リポジトリを初期化する。保存先ディレクトリが存在しない場合は自動で作成する。`repository.ini` がすでに存在する場合はエラーで終了する |
-| `update <保存先ディレクトリ>` | 対話形式ウィザードで既存リポジトリの設定を変更する。`repository.ini` が存在しない場合はエラーで終了する |
+| `init <destination-directory>` | Bootstrap a new repository via an interactive wizard. Creates the directory if absent. Errors if `repository.ini` already exists. |
+| `update <destination-directory>` | Modify an existing repository's config via an interactive wizard. Errors if `repository.ini` does not exist. |
 
-### REPLコマンド
+### REPL commands
 
-| コマンド | 説明 |
+| Command | Description |
 |---|---|
-| `cd <パス>` | 操作対象のリポジトリを切り替える。設定・コレクション定義を読み直し、新しいリポジトリのキャッシュを同期する |
-| `ls <コレクション>` | コレクション内のエントリ名を一覧表示する |
-| `add <コレクション> <名前>` | 新規エントリを空のテンプレートで作成する |
-| `cat <コレクション> <名前>` | 最新バージョンの内容を標準出力に表示する |
-| `cat <コレクション> <名前> --version=N` | 指定バージョンの内容を標準出力に表示する |
-| `cat <コレクション> <名前> --jtable` | 最新バージョンを表形式（読み取り専用）で表示する |
-| `cat <コレクション> <名前> --version=N --jtable` | 指定バージョンを表形式（読み取り専用）で表示する |
-| `cat <コレクション> <名前> --json` | 最新バージョンをJSON形式で標準出力に表示する。メインコレクションはセクション配列のJSONを整形出力し、参照コレクションは値のJSON配列を出力する。`--jtable` とは同時に使用できない |
-| `cat <コレクション> <名前> --version=N --json` | 指定バージョンをJSON形式で標準出力に表示する |
-| `get <コレクション> <名前>` | 最新バージョンをローカルに取得してエディタで開く |
-| `get <コレクション> <名前> --jtable` | 最新バージョンを表形式（編集可能）で開く |
-| `get <コレクション> <名前> -` | 標準入力の内容を `downloads/{リポジトリID}/{コレクション}/` に保存する（エディタは起動しない）。`-c` バッチモードのパイプラインで使用する |
-| `clear <コレクション> <名前>` | ローカルの編集ファイルを空テンプレートに戻してエディタで開く |
-| `clear <コレクション> <名前> --jtable` | 空テンプレートを表形式（編集可能）で開く |
-| `len <コレクション> <名前>` | 最新バージョンの有効レコード数を表示する |
-| `push <コレクション> <名前>` | ローカルの編集ファイルを検証してリポジトリに登録する |
-| `push <コレクション> <名前> --json` | `.txt` ファイルの内容をJSONとして解釈し、テキスト形式に変換してからpushする（メインコレクション：セクション配列→👉👈形式、参照コレクション：文字列配列→カンマ区切り） |
-| `export <コレクション> <ファイル名>.csv` | 全エントリをCSVにまとめてエディタで開く |
-| `export <コレクション> <ファイル名>.csv --jtable` | 全エントリをCSVにまとめて表形式で開く |
-| `export <コレクション> <ファイル名>.json` | 全エントリをJSONにまとめてエディタで開く |
-| `diff <コレクション> <名前>` | 最新バージョンと1つ前のバージョンの差分をJSON形式で表示する |
-| `diff <コレクション> <名前> --jtable` | 差分を表形式で表示する（削除行：赤、追加行：緑） |
-| `appenditems <コレクション> <名前> [-] [--json]` | 空のレコードテンプレートをエディタで開き、保存・終了すると新しいレコードを既存エントリに追記してpushする。既存エントリが初期状態（全フィールド空）の場合は追記ではなく置換する。デフォルト入力形式：メインコレクションは👉👈テキスト、参照コレクションはカンマ区切り。`--json`：メインコレクションはJSONオブジェクトの配列、参照コレクションは文字列の配列。`-`：エディタを開かずstdinから読み込む（バッチモード用） |
-| `searchitems <コレクション> <名前> [-] [--json]` | フィルタクエリをエディタで入力し、保存・終了するとマッチしたレコードをJSON配列として標準出力に表示する。出力は常にJSON形式。デフォルトクエリ構文：`` `column`='value' `` / `` `column` like 'pattern%' ``（`and` / `or` 結合可）。`--json`：クエリをJSONオブジェクト形式で入力。`-`：stdinからクエリを読み込む |
-| `removeitems <コレクション> <名前> [-] [--json]` | `searchitems` と同じクエリエディタを開き、保存・終了するとマッチしたレコードを削除してpushし、「removed N items」を表示する。クエリが空（条件なし）の場合はエラーで処理を中断する。`--json` / `-` は `searchitems` と同様 |
-| `fullcopy <保存先ディレクトリ>` | リポジトリ全体（全バージョン）を `<保存先>/<リポジトリ名>/` にコピーする |
-| `fullcopy <保存先ディレクトリ> --json` | リポジトリを `<保存先>/<リポジトリ名>.json` に書き出す（最新バージョンのみ、履歴なし） |
-| `mkrepo <JSONファイル> <保存先ディレクトリ>` | `fullcopy --json` で作成したJSONファイルからリポジトリを `<保存先>/<ファイル名（拡張子なし）>/` に復元する |
-| `partialcopy <コレクション> <名前> <保存先ディレクトリ>` | リポジトリ全体（全バージョン）を `<保存先>/<リポジトリ名>/` にコピーするが、指定した `<コレクション> <名前>` 以外のエントリは消去する（`.txt.gz` は `gzip.compress(b"[]")`、`.txt` は空ファイル）。設定ファイルはそのままコピーされる |
-| `partialcopy <コレクション> <名前> <保存先ディレクトリ> --json` | `fullcopy --json` と同じ構造の `<保存先>/<リポジトリ名>.json` を作成するが、指定した `<コレクション> <名前>` のみ実データを格納し、他のメインコレクションエントリは `[]`、参照コレクションエントリは `""` とする |
-| `exit` | ツールを終了する |
+| `cd <path>` | Switch to a different repository; re-reads all config, resets collections, syncs cache for the new repo. |
+| `ls <collection>` | List all entry names in the collection. |
+| `add <collection> <name>` | Create a new entry with a blank document template. |
+| `cat <collection> <name>` | Print the latest version to stdout. |
+| `cat <collection> <name> --version=N` | Print a specific version to stdout. |
+| `cat <collection> <name> --jtable` | Save to `downloads/` and open in a read-only JTable window. |
+| `cat <collection> <name> --version=N --jtable` | Save a specific version to `downloads/` and open read-only JTable. |
+| `cat <collection> <name> --json` | Print the latest version as JSON: main collection outputs the raw JSON sections array (pretty-printed); reference collections output a JSON array of values. Mutually exclusive with `--jtable`. |
+| `cat <collection> <name> --version=N --json` | Print a specific version as JSON. |
+| `get <collection> <name>` | Download the latest version to `downloads/` and open in the editor. |
+| `get <collection> <name> --jtable` | Download and open in an editable JTable window. |
+| `get <collection> <name> -` | Write stdin to `downloads/` (no editor); intended for `-c` batch mode pipelines. |
+| `clear <collection> <name>` | Write a blank document template to `downloads/` and open in the editor. |
+| `clear <collection> <name> --jtable` | Write a blank template and open in an editable JTable window. |
+| `len <collection> <name>` | Print the count of non-empty records in the latest version. |
+| `push <collection> <name>` | Validate the downloaded file and write it as the next version in the repo. |
+| `push <collection> <name> --json` | Same, but treat the downloaded `.txt` as JSON and convert to text first (main: JSON sections array → 👉👈 text; ref: JSON string array → comma-separated). |
+| `export <collection> <file.csv>` | Sync cache, build a CSV from all entries, save to `downloads/`, open in the editor. |
+| `export <collection> <file.csv> --jtable` | Same but open the CSV in a JTable window. |
+| `export <collection> <file.json>` | Sync cache, build a JSON file from all entries, save to `downloads/`, open in the editor. |
+| `diff <collection> <name>` | Compare the latest and previous versions; print JSON with `"deleted"` and `"added"` arrays. |
+| `diff <collection> <name> --jtable` | Same comparison in a colour-coded JTable window (deleted: red, added: green). |
+| `appenditems <collection> <name> [-] [--json]` | Open a text editor with a blank record template; save-and-close appends the new records to the existing entry and pushes. If the entry is in its initial all-blank state the blank template is replaced rather than extended. Default input: main collection uses 👉👈 text; reference collection uses comma-separated values. `--json`: main uses JSON array of section objects; ref uses JSON array of strings. `-`: read from stdin instead of opening an editor. |
+| `searchitems <collection> <name> [-] [--json]` | Open a filter query editor; save-and-close prints matching records as a JSON array to stdout. Output is always JSON. Default query syntax: backtick mode. `--json`: query is a JSON object. `-`: read query from stdin. |
+| `removeitems <collection> <name> [-] [--json]` | Same query editor; save-and-close removes matching records, pushes, and prints "removed N items". An empty query (no conditions) is rejected to prevent accidental wipeout. Same `--json` and `-` semantics. |
+| `fullcopy <dest-dir>` | Copy the entire repository (all versions) into `<dest-dir>/<repo-name>/`. |
+| `fullcopy <dest-dir> --json` | Snapshot the repository (latest versions only) as a single JSON file at `<dest-dir>/<repo-name>.json`. |
+| `mkrepo <json-file> <dest-dir>` | Reconstruct a repository from a `fullcopy --json` file into `<dest-dir>/<stem>/`. |
+| `partialcopy <collection> <name> <dest-dir>` | Copy the repo (all versions) into `<dest-dir>/<repo-name>/`, blanking all entries except `<collection> <name>`. |
+| `partialcopy <collection> <name> <dest-dir> --json` | Same as a JSON snapshot, but only `<collection> <name>` carries real data. |
+| `exit` | Quit the tool. |
 
-`--jtable` は `.json` エクスポートには使用できません。
+`--jtable` is not supported for `.json` exports.
 
 ---
 
-## init ウィザード
+## init Wizard
 
-`init <保存先ディレクトリ>` を実行すると、対話形式のウィザードが起動します。保存先ディレクトリが存在しない場合は自動で作成されます。
+Running `init <destination-directory>` launches an interactive wizard. The destination directory is created if absent.
 
-ウィザードの質問順序:
+Wizard questions in order:
 
-1. **メインコレクション名**（デフォルト: `systems`）
-2. **パーティショニングプロパティ名**（デフォルト: `system`） — CSV/JSONの先頭列ヘッダー（エントリ名の列）
-3. **列の追加**（繰り返し） — 列を追加しない場合は `n` で終了
-   - 列名
-   - 別コレクションへの参照かどうか（`y` / `n`）
-     - **参照の場合**: 参照先コレクション名、コンテンツタイプ（`string` / `date` / `phone_number` / `email` / `year`）、ホワイトリスト値（カンマ区切り、省略可）
-     - **参照でない場合**: 複数行フィールドかどうか、バリデーションタイプ（`none` / `not_empty` / `hh:mm` / `mm/dd` / `int` / `yyyy` / `re:<パターン>`）
-4. **列の表示順序** — 列が2つ以上ある場合のみ質問。番号を並べ替えて入力（Enterで現在の順序を維持）
-5. **イントロダクションメッセージ**（デフォルト: メインコレクション名） — 起動時・`cd` 切り替え時に表示されるメッセージ
+1. **Main collection name** (default: `systems`)
+2. **Partitioning property name** (default: `system`) — the first CSV/JSON column header (entry-name column)
+3. **Column definitions** (repeating) — enter `n` to finish
+   - Column name
+   - Is it a reference to another collection? (`y` / `n`)
+     - **Reference:** reference collection name, content type (`string` / `date` / `phone_number` / `email` / `year`), whitelist values (comma-separated, optional)
+     - **Non-reference:** is it a multiline field, validation type (`none` / `not_empty` / `hh:mm` / `mm/dd` / `int` / `yyyy` / `re:<pattern>`)
+4. **Column display order** — asked only when there are two or more columns. Enter numbers in the desired order (Enter keeps the current order).
+5. **Introduction message** (default: main collection name) — displayed at startup and after `cd`.
 
-ウィザード完了後に以下のファイルとディレクトリが作成されます:
+Files and directories created on completion:
 
-| ファイル / ディレクトリ | 内容 |
+| File / Directory | Contents |
 |---|---|
-| `repository.ini` | `collection_name`・`partitioning_property`・`property_order`（順序指定時）・`[introduction] message` |
-| `additional_properties.json` | 参照でない列の定義（`property_name`・`validation_type`・`multiline`） |
-| `reference_collections.json` | 参照コレクションの定義（`collection_name`・`property_name`・`type`・`whitelist`） |
-| `<メインコレクション>/` | メインコレクションのデータディレクトリ |
-| `<参照コレクション名>/` | 各参照コレクションのデータディレクトリ |
+| `repository.ini` | `collection_name`, `partitioning_property`, `property_order` (if reordered), `[introduction] message` |
+| `additional_properties.json` | Definitions for non-reference columns |
+| `reference_collections.json` | Definitions for reference collections |
+| `<main-collection>/` | Data directory for the main collection |
+| `<ref-collection>/` | Data directory for each reference collection |
 
 ---
 
-## update ウィザード
+## update Wizard
 
-`update <保存先ディレクトリ>` を実行すると、既存リポジトリの現在の設定を表示した後、対話形式のウィザードが起動します。`repository.ini` が存在しない場合はエラーで終了します。
+Running `update <destination-directory>` displays the current configuration then launches an interactive wizard. Errors if `repository.ini` does not exist.
 
-ウィザードは3つのセクションで構成されます:
+The wizard has three sections:
 
-**1. 列の追加**（`init` と同じ手順の繰り返し）
+**1. Add columns** (same flow as `init`)
 
-- 列を追加しない場合は `n` で終了
-- 各列について: 列名 → 参照コレクションかどうか
-  - **参照の場合**: 参照先コレクション名、コンテンツタイプ、ホワイトリスト値
-  - **参照でない場合**: 複数行フィールドかどうか、バリデーションタイプ
+- Enter `n` to skip; otherwise: column name → reference or not → details as above.
 
-**2. イントロダクションメッセージの変更**
+**2. Change the introduction message**
 
-- 現在の値を表示し、変更するかどうかを確認
-- 変更する場合は新しいメッセージを入力（デフォルト: 現在の値）
+- Shows the current value and asks whether to change it. If yes, enter a new message (default: current value).
 
-**3. 列バリデーションの変更**
+**3. Change column validation types**
 
-- 既存の非参照列それぞれについて、現在のバリデーションタイプを表示し変更するかを確認
-- 変更する場合は新しいバリデーションタイプを入力（`none` で検証なしに戻す）
+- For each existing non-reference column, shows the current validation type and asks whether to change it. Enter the new type (`none` to remove validation).
 
-ウィザード完了後の書き戻し動作:
+Write-back behaviour on completion:
 
-| ファイル | 動作 |
+| File | Behaviour |
 |---|---|
-| `repository.ini` | `collection_name`・`partitioning_property` を保持。既存の `property_order` がある場合は新規列を末尾に追記。`[introduction] message` を更新 |
-| `additional_properties.json` | 既存の列定義を保持しつつ新規列を追記。バリデーションタイプの変更を反映 |
-| `reference_collections.json` | 既存の定義を保持しつつ新規参照列を追記 |
-| 新規参照コレクションのディレクトリ | 追加した参照コレクション分だけ作成 |
+| `repository.ini` | Preserves `collection_name` and `partitioning_property`. Appends new columns to existing `property_order`. Updates `[introduction] message`. |
+| `additional_properties.json` | Preserves existing column definitions, appends new columns, reflects validation-type changes. |
+| `reference_collections.json` | Preserves existing definitions, appends new reference columns. |
+| New reference collection directories | Created for each added reference collection. |
 
 ---
 
-## バージョン管理
+## Versioning
 
-各エントリはバージョン管理されます。
+Each entry is versioned.
 
-- `add` でバージョン `0000` のファイルを新規作成します。
-- `push` により、最新バージョン番号に1を加えた新しいファイルが書き込まれます。古いバージョンは削除されません。
-- `ls` / `cat` / `get` / `push` などはすべて最新バージョンのファイルを対象とします。
+- `add` creates a file at version `0000`.
+- `push` reads the latest version in the repo and writes a new file at `version + 1`. Old versions are never deleted.
+- `ls`, `cat`, `get`, `push`, and all other commands target the **latest version** (highest version number in the directory).
 
 ---
 
-## 編集フロー（メインコレクションの例）
+## Typical Edit Flow (main collection)
 
 ```
-get <メインコレクション> <名前>        # 最新版を取得しエディタで開く
-  （ファイルを編集・保存）
-push <メインコレクション> <名前>       # 検証して登録
+get <main-collection> <name>        # download latest version and open in editor
+  (edit and save the file)
+push <main-collection> <name>       # validate and push as next version
 ```
 
-`--jtable` を使う場合は表形式GUIで編集できます。Save & Push ボタンで保存と登録を一度に行えます。
+With `--jtable`, edit in a GUI table and use Save & Push to save and push in one step:
 
 ```
-get <メインコレクション> <名前> --jtable   # 表形式GUIで開く
-  （セルをダブルクリックして編集、Save & Push ボタンで保存・登録）
+get <main-collection> <name> --jtable
+  (double-click cells to edit, then click Save & Push)
 ```
 
-パイプラインで新規エントリを一括登録する場合は `-c` バッチモードと `get … -` を使います。
+For bulk-importing new entries via a pipeline, use `-c` batch mode with `get … -`:
 
 ```
 cat file.txt | python3 src/app.py -c 'add systems foo && get systems foo - && push systems foo'
 ```
 
-`get … -` は標準入力の内容をそのままダウンロードファイルに書き込みます（エディタは起動しません）。
+`get … -` writes stdin directly to the downloads file without opening an editor.
 
 ---
 
-## ドキュメント形式
+## Document Formats
 
-### メインコレクション（👉👈 形式）
+### Main collection — 👉👈 text format
 
-`get` / `cat` / `clear` で出力されるテキスト形式です。`push` はこの形式を受け取ってリポジトリに登録します。
+`get`, `cat`, and `clear` output this separator format. `push` accepts it and converts to JSON before writing to the repo.
 
-1つ以上のセクションで構成され、各セクションは区切り行（🏔 × 20）で始まります。
+One or more sections, each starting with the separator line (20 × 🏔):
 
 ```
 🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔🏔
 👉notes👈
-ノート1行目
-ノート2行目
+notes line 1
+notes line 2
 👉machine👈
 machine_value
 👉time👈
@@ -238,88 +235,83 @@ contact_value
 prop1_value
 ```
 
-ハードコードされたコアフィールドはありません。`notes`・`machine`・`time`・`id`・`schedule`・`contact` をはじめとする全フィールドは、`additional_properties.json` または `reference_collections.json` で定義された追加プロパティです。フィールドの表示順は `repository.ini` の `[main_collection] property_order` で制御できます（後述）。
+There are no hardcoded core fields. Every field — including `notes`, `machine`, `time`, `id`, `schedule`, and `contact` — is an additional property declared in `additional_properties.json` or `reference_collections.json`. Field display order is controlled by `[main_collection] property_order` in `repository.ini`.
 
-#### push 時の検証ルール
+#### Validation rules enforced on `push`
 
-`push` 実行時に以下の内容が検証されます。いずれかに違反すると登録が拒否されます。
-
-| フィールド | 検証内容 |
+| Field type | Rule |
 |---|---|
-| 追加プロパティ（任意） | ラベルが存在すること。`validation_type` に応じた入力検証が行われる（`NONE` — 制約なし; `NOT_EMPTY` — 空値を拒否; `HH:MM` — `\d{2}:\d{2}` 形式でない値を拒否; `MM/DD` — `\d{2}/\d{2}` 形式でない値を拒否; `INT` — `[0-9]+` にマッチしない値を拒否; `YYYY` — `\d{4}` 形式でない値を拒否; `RE:<pattern>` — 正規表現にマッチしない値を拒否）。`multiline: true` のフィールドは次のラベルまでの複数行を値として読み込む |
-| 追加プロパティ（必須） | ラベルが存在し、値が空でないこと、かつ対応するコレクションに存在すること（`schedule`・`contact` も `reference_collections.json` で定義した場合はここに含まれる） |
+| Optional additional property | Label must be present. Value is checked according to `validation_type`: `NONE` — any value (including empty); `NOT_EMPTY` — rejects empty; `HH:MM` — must match `\d{2}:\d{2}`; `MM/DD` — must match `\d{2}/\d{2}`; `INT` — must match `[0-9]+`; `YYYY` — must match `\d{4}`; `RE:<pattern>` — must fully match the regex. Multiline fields (`multiline: true`) consume all lines until the next label or separator. |
+| Mandatory reference property | Label must be present, value must be non-empty, and the value must exist as an entry in the corresponding reference collection (or appear in its `whitelist`). |
 
-**例外：** すべてのセクションの全フィールドが空（`add` / `clear` 直後の状態）、またはファイル内容が空白のみの場合は検証をスキップして空テンプレートとして登録されます。
+**Exception:** if every section in the document has all fields blank (initial state written by `add`/`clear`), or if the file content is empty/whitespace, the push is accepted without validation and the empty template is written to the repo.
 
-### schedules
+### Reference collections — plain text format
 
-`yyyy/mm/dd` 形式の日付をカンマ区切りで1行に記述します。
+Comma-separated values on a single line (optional trailing newline):
 
 ```
 2024/01/01,2024/06/15,2025/03/20
 ```
 
-### contacts
-
-電話番号など `[0-9\-\+]+` にマッチする文字列をカンマ区切りで1行に記述します。
-
-```
-03-1234-5678,09012345678,+81-0100-0331
-```
+Content validation on `push` is determined by `type` in `reference_collections.json`:
+- `"DATE"`: each value must match `yyyy/mm/dd`
+- `"PHONE_NUMBER"`: each value must match `[0-9\-\+]+`
+- `"EMAIL"`: each value must match `user@domain.tld`
+- `"YEAR"`: each value must match `\d{4}`
+- `"STRING"` or absent: no validation
 
 ---
 
-## CSVエクスポート形式
+## CSV Export Format
 
-`export` コマンドで出力されるCSVの形式です。
-
-### メインコレクション
+### Main collection
 
 ```csv
 system, notes, machine, time, id, schedule, contact, prop1, prop2
-sys1, ノート内容, m1, 09:00, id1, sche1, cont1, val1, val2
+sys1, note content, m1, 09:00, id1, sche1, cont1, val1, val2
 sys1, , m2, 12:30, id2, sche2, cont2, ,
 ```
 
-- セクションごとに1行出力されます。
-- 先頭列のヘッダーは `repository.ini` の `[main_collection] partitioning_property` の値です（例: `partitioning_property = system` → `system`）。
-- 残りの列名はフィールド名そのままです（リネームなし）。
-- `multiline: true` のフィールド（`notes` など）は複数行がスペースで結合されます。
-- すべてのセクションの全フィールドが空のエントリは出力されません。
-- 列の順序は `repository.ini` の `[main_collection] property_order` の設定に従います。
-- `,` / `"` / 改行を含む値はRFC 4180に従いダブルクォートで囲まれます。
+- One row per section.
+- The first column header is `partitioning_property` from `repository.ini`.
+- Remaining column headers are the field names as declared (no renaming).
+- `multiline: true` fields are joined with a space.
+- Documents where every field in every section is blank are excluded.
+- Column order follows `property_order` in `repository.ini`.
+- Values containing `,`, `"`, or newlines are quoted per RFC 4180.
 
-### 参照コレクション
+### Reference collections
 
 ```csv
 name, values
 sche1, 2024/01/01 2024/06/15 2025/03/20
 ```
 
-メインコレクション以外はすべて `name, values` の共通ヘッダーを使用します。カンマ区切りの値はスペース区切りに変換されます。空のエントリは出力されません。
+All non-main collections use the `name, values` header. Comma-separated values from the file are converted to space-separated in the CSV. Empty entries are excluded.
 
 ---
 
-## JSONエクスポート形式
+## JSON Export Format
 
-`export` コマンドでファイル名が `.json` で終わる場合に出力されるJSON形式です。エディタで開きます（`--jtable` は使用できません）。
+Triggered when the filename passed to `export` ends with `.json`. Opens in the editor (`--jtable` is not supported).
 
-### メインコレクション
+### Main collection
 
 ```json
 [
-  {"system": "sys1", "notes": "ノート内容", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche1", "contact": "cont1"},
+  {"system": "sys1", "notes": "note content", "machine": "m1", "time": "09:00", "id": "id1", "schedule": "sche1", "contact": "cont1"},
   {"system": "sys1", "notes": "", "machine": "m2", "time": "12:30", "id": "id2", "schedule": "sche2", "contact": "cont2"}
 ]
 ```
 
-- セクションごとに1オブジェクト出力されます。
-- 先頭キーは `partitioning_property` の値です（例: `system`）。
-- 残りのキーは `field_order` に従ったフィールド名です。
-- `multiline: true` のフィールドは改行 `\n` をそのまま保持します（CSVではスペースに変換されます）。
-- すべてのセクションの全フィールドが空のエントリは出力されません。
+- One object per section.
+- The first key is the `partitioning_property` value.
+- Remaining keys follow `field_order`.
+- `multiline: true` fields keep their `\n` characters (unlike CSV, which joins with a space).
+- Documents where every field in every section is blank are excluded.
 
-### 参照コレクション
+### Reference collections
 
 ```json
 [
@@ -328,96 +320,101 @@ sche1, 2024/01/01 2024/06/15 2025/03/20
 ]
 ```
 
-- カンマ区切りの値をJSON配列に分割して出力します（CSVではスペース区切りに変換されます）。
-- 空のエントリは出力されません。
+Comma-separated values from the file are split into a JSON array. Empty entries are excluded.
 
 ---
 
 ## fullcopy / mkrepo
 
-### `fullcopy <保存先ディレクトリ>`
+### `fullcopy <destination-directory>`
 
-リポジトリ全体（全バージョンのファイルおよび設定ファイルを含む）を `<保存先ディレクトリ>/<リポジトリ名>/` にコピーします。保存先ディレクトリが存在しない場合、またはコピー先ディレクトリが既に存在する場合はエラーになります。
+Copies the entire repository tree (all versions of every file plus all config files) into `<destination-directory>/<repo-name>/` via `shutil.copytree`. Errors if the destination does not exist or `<destination-directory>/<repo-name>` already exists.
 
-### `fullcopy <保存先ディレクトリ> --json`
+### `fullcopy <destination-directory> --json`
 
-リポジトリの内容を `<保存先ディレクトリ>/<リポジトリ名>.json` に書き出します。**最新バージョンのみ**が含まれ、履歴は省略されます。
+Creates `<destination-directory>/<repo-name>.json`. Only the latest version of each entry is included; history is omitted.
 
-出力されるJSONの構造:
+Output JSON structure:
 
 ```json
 {
   "config": {
-    "repository_ini": "...(repository.ini の内容)...",
-    "additional_properties": [...（additional_properties.json の配列）...],
-    "reference_collections": [...（reference_collections.json の配列）...]
+    "repository_ini": "...(raw text of repository.ini)...",
+    "additional_properties": [...parsed JSON array...],
+    "reference_collections": [...parsed JSON array...]
   },
   "data": {
-    "<メインコレクション>": {
-      "<エントリ名>": [...（セクション配列）...],
+    "<main-collection>": {
+      "<entry-name>": [...JSON sections array...],
       ...
     },
-    "<参照コレクション>": {
-      "<エントリ名>": "...(カンマ区切りのテキスト)...",
+    "<ref-collection>": {
+      "<entry-name>": "...(raw comma-separated text)...",
       ...
     }
   }
 }
 ```
 
-### `mkrepo <JSONファイル> <保存先ディレクトリ>`
+Errors if the destination does not exist or `<repo-name>.json` already exists.
 
-`fullcopy --json` で作成したJSONファイルからリポジトリを復元します。`<保存先ディレクトリ>/<ファイル名（拡張子なし）>/` にリポジトリが作成されます。
+### `mkrepo <json-file> <destination-directory>`
 
-- `config.repository_ini` の内容から `repository.ini` を書き出します。また `additional_properties.json` と `reference_collections.json` を書き出します。
-- `data` の各コレクションについてディレクトリを作成し、各エントリをバージョン `0000` で書き出します。メインコレクションは gzip 圧縮された JSON（`.txt.gz`）、参照コレクションはプレーンテキスト（`.txt`）です。
-- JSONファイルが存在しない場合、保存先ディレクトリが存在しない場合、JSONが `fullcopy --json` の形式でない場合（`config` または `data` キーがない場合）、または復元先ディレクトリが既に存在する場合はエラーになります。
+Reconstructs a repository from a `fullcopy --json` file into `<destination-directory>/<stem>/` (stem = filename without `.json`):
+
+1. Parses `config.repository_ini` to determine the main collection name.
+2. Writes `repository.ini`, `additional_properties.json`, and `reference_collections.json`.
+3. For each collection in `data`, creates the collection directory and writes each entry at version `0000`: main collection as gzip-compressed JSON (`.txt.gz`), reference collections as plain text (`.txt`).
+
+Errors if the JSON file does not exist, the destination is not a directory, the JSON is not a valid fullcopy payload (missing `config` or `data` keys), or `<dest>/<stem>` already exists.
 
 ---
 
 ## partialcopy
 
-### `partialcopy <コレクション> <名前> <保存先ディレクトリ>`
+### `partialcopy <collection> <name> <destination-directory>`
 
-リポジトリの全ファイル（全バージョン）を `<保存先ディレクトリ>/<リポジトリ名>/` にコピーしますが、指定した `<コレクション> <名前>` に属するファイル以外のエントリは消去されます。
+Copies the entire repository (all versions) into `<destination-directory>/<repo-name>/`, but blanks all entries except `<collection> <name>`:
 
-- 指定エントリのファイル（すべてのバージョン）は内容をそのままコピーします。
-- 他のメインコレクションエントリのファイル（`.txt.gz`）は `gzip.compress(b"[]")` で上書きします（`export` 実行時に空として無視されます）。
-- 他の参照コレクションエントリのファイル（`.txt`）は空ファイルとして作成します。
-- リポジトリルートの設定ファイル（`repository.ini` など）はそのままコピーします。
-- 保存先ディレクトリが存在しない場合、またはコピー先ディレクトリが既に存在する場合はエラーになります。
+- The specified entry's files (all versions) are copied as-is.
+- Other main-collection `.txt.gz` files are replaced with `gzip.compress(b"[]")` (treated as empty by `export`).
+- Other reference-collection `.txt` files are created empty.
+- Config files in the repo root (`repository.ini`, etc.) are copied as-is.
 
-### `partialcopy <コレクション> <名前> <保存先ディレクトリ> --json`
+Errors if the destination does not exist or the target directory already exists.
 
-`<保存先ディレクトリ>/<リポジトリ名>.json` を作成します。`fullcopy --json` と同じ `config` / `data` 構造ですが、指定した `<コレクション> <名前>` のエントリのみ実データを格納し、それ以外は消去されます。
+### `partialcopy <collection> <name> <destination-directory> --json`
 
-- 指定エントリ（`<コレクション>/<名前>`）は最新バージョンの実データを格納します。
-- 他のメインコレクションエントリの値は `[]`（空配列）になります。
-- 他の参照コレクションエントリの値は `""`（空文字列）になります。
-- 保存先ディレクトリが存在しない場合、または出力ファイルが既に存在する場合はエラーになります。
+Creates `<destination-directory>/<repo-name>.json` with the same `config`/`data` structure as `fullcopy --json`, but only `<collection> <name>` carries real data:
+
+- The specified entry holds the latest-version real data.
+- All other main-collection entries are `[]` (empty array).
+- All other reference-collection entries are `""` (empty string).
+
+Errors if the destination does not exist or the output file already exists.
 
 ---
 
 ## appenditems / searchitems / removeitems
 
-`get` → 編集 → `push` の一連のフローを経ずに、エントリ内の個々のレコードを操作するコマンドです。
+These commands operate on individual records within an entry without requiring a full `get` → edit → `push` cycle.
 
 ### appenditems
 
-空のレコードテンプレートをテキストエディタで開き、保存・終了すると新しいレコードを既存エントリに追記して自動的にpushします。
+Opens a text editor pre-filled with a blank record template. After saving and closing, the new records are appended to the existing entry and pushed automatically.
 
-- 既存エントリが初期状態（`add` / `clear` 直後の全フィールド空の状態）の場合は、空テンプレートを削除した上で新しいレコードのみで置き換えます。
-- `--json` を指定すると入力形式が変わります：メインコレクションはJSONオブジェクトの配列、参照コレクションは文字列の配列。
-- `-` を指定するとエディタを開かずstdinから入力を読み込みます（`-c` バッチモードのパイプライン用）。
+- If the entry is in its initial all-blank state (`add`/`clear` just ran) the blank template is replaced rather than extended.
+- `--json`: changes the input format — main collection expects a JSON array of section objects; reference collection expects a JSON array of strings.
+- `-`: reads content from stdin instead of opening an editor (for `-c` pipelines).
 
 ### searchitems / removeitems
 
-フィルタクエリをテキストエディタで入力し、保存・終了するとクエリに一致するレコードを操作します。
+Opens a filter query editor. After saving and closing, the query is applied to the records.
 
-- `searchitems`：マッチしたレコードをJSON配列として標準出力に表示します（出力は常にJSONです）。
-- `removeitems`：マッチしたレコードを削除してpushし、「removed N items」を表示します。クエリが空（条件なし）の場合はエラーで中断します（誤った全削除を防ぐため）。
+- `searchitems`: prints matching records as a JSON array to stdout (output is always JSON).
+- `removeitems`: deletes matching records, pushes, and prints "removed N items". An empty query (no conditions) is rejected to prevent accidental wipeout.
 
-### フィルタクエリ構文（デフォルト — バッククォート構文）
+### Filter query syntax — default (backtick mode)
 
 ```
 `column`='exact value'
@@ -426,70 +423,70 @@ sche1, 2024/01/01 2024/06/15 2025/03/20
 `column`='val1' or `column2`='val2'
 ```
 
-| 演算子 | 説明 |
+| Operator | Behaviour |
 |---|---|
-| `=` | 値が完全一致（大文字小文字を区別しない） |
-| `like` | LIKEパターンマッチ：`%` — 任意の文字列、`_` — 任意の1文字 |
-| `and` | AND 結合（OR より優先度が高い） |
-| `or` | OR 結合 |
+| `=` | Exact match (case-insensitive) |
+| `like` | SQL LIKE pattern: `%` = any chars, `_` = one char |
+| `and` | AND (binds tighter than OR) |
+| `or` | OR |
 
-空クエリ（条件なし）は `searchitems` ではすべてのレコードにマッチします。`removeitems` では空クエリはエラーになります。
+An empty query (no conditions) matches everything in `searchitems`. In `removeitems` an empty query is an error.
 
-### フィルタクエリ構文（`--json` — JSONオブジェクト形式）
+### Filter query syntax — `--json` (JSON object mode)
 
 ```json
 {"column1": "exact value", "column2": "prefix%"}
 ```
 
-- すべてのキーと値はAND結合されます。
-- 値に `%` または `_` が含まれる場合は自動的にLIKEマッチになります。
-- 空オブジェクト `{}` はすべてにマッチします（`removeitems` では空クエリとして扱われません — 全削除になるため注意）。
+- All key-value pairs are ANDed.
+- Values containing `%` or `_` are treated as LIKE patterns automatically.
+- An empty object `{}` matches everything (`removeitems` treats this as a full-wipe and proceeds — unlike the backtick empty query, it is not rejected).
 
-### 参照コレクションでのクエリ
+### Querying reference collections
 
-参照コレクションに対してフィルタを使用する場合、列名として `values` を使います。
+Use `values` as the column name:
 
 ```
 `values`='2024/01/01'
 `values` like '2024%'
 ```
 
-### バッチモードでの使用例
+### Batch-mode examples
 
 ```sh
-# stdinからレコードを追記
+# Append a new record from stdin
 cat new-section.txt | python3 src/app.py -c 'appenditems systems web-01 -'
 
-# JSONクエリでレコードを検索
+# Search with a JSON query
 echo '{"status": "active"}' | python3 src/app.py -c 'searchitems systems web-01 - --json'
 
-# バッククォートクエリでレコードを削除
+# Remove records matching a backtick query
 echo '`status`='"'"'deprecated'"'"'' | python3 src/app.py -c 'removeitems systems web-01 -'
 ```
 
 ---
 
-## 設定ファイル
+## Configuration Files
 
 ### settings.ini
 
-| セクション | キー | デフォルト | 説明 |
+| Section | Key | Default | Meaning |
 |---|---|---|---|
-| `[repository]` | `root` | `dummy-repo` | リポジトリ（NAS）のルートパス |
-| `[editor]` | `command` | `mousepad` | `get` / `clear` / `export` で起動するエディタ |
+| `[repository]` | `root` | `dummy-repo` | Path to the repository (NAS) root |
+| `[editor]` | `command` | `mousepad` | Editor opened by `get` / `clear` / `export` |
 
 ### repository.ini
 
-リポジトリルート（`{repo_root}/repository.ini`）に配置します。
+Located at `{repo_root}/repository.ini`.
 
-| セクション | キー | デフォルト | 説明 |
+| Section | Key | Default | Meaning |
 |---|---|---|---|
-| `[main_collection]` | `collection_name` | `systems` | メインコレクション（gzip圧縮・複数セクション形式）のコレクション名 |
-| `[main_collection]` | `partitioning_property` | `system` | CSV/JSONの先頭列ヘッダー（エントリ名の列） |
-| `[main_collection]` | `property_order` | （空） | システムドキュメントの先頭に表示するフィールド名（カンマ区切り）。記載したフィールドが先頭に並び、残りはデフォルト順で続く |
-| `[introduction]` | `message` | （空） | 起動時および `cd` でリポジトリを切り替えた直後に表示するメッセージ |
+| `[main_collection]` | `collection_name` | `systems` | Name of the main (gzip-compressed, multi-section) collection |
+| `[main_collection]` | `partitioning_property` | `system` | First CSV/JSON column header (entry-name column) |
+| `[main_collection]` | `property_order` | *(empty)* | Comma-separated field names that appear first; others follow in default order |
+| `[introduction]` | `message` | *(empty)* | Message displayed at startup and after `cd` |
 
-### 設定例
+#### Example
 
 ```ini
 # settings.ini
@@ -501,7 +498,7 @@ command = gedit
 ```
 
 ```ini
-# repository.ini（リポジトリルートに配置）
+# repository.ini (at the repository root)
 [main_collection]
 collection_name = systems
 partitioning_property = system
@@ -510,11 +507,11 @@ property_order = team,notes,id
 
 ---
 
-## 追加プロパティの設定
+## Additional Properties Configuration
 
-### 任意プロパティ（additional_properties.json）
+### Optional properties — `additional_properties.json`
 
-`additional_properties.json` に、システムの各セクションに追加するフィールドをオブジェクトの配列で記述します。
+A JSON array of objects defining optional fields appended to every main-collection section:
 
 ```json
 [
@@ -526,163 +523,143 @@ property_order = team,notes,id
 ]
 ```
 
-| フィールド | 説明 |
+| Field | Meaning |
 |---|---|
-| `property_name` | フィールド名 |
-| `validation_type` | `push` 時の入力検証: `"NONE"` — 検証なし（値が空でも可）; `"NOT_EMPTY"` — 空値を拒否; `"HH:MM"` — `\d{2}:\d{2}` 形式でない値を拒否; `"MM/DD"` — `\d{2}/\d{2}` 形式でない値を拒否; `"INT"` — `[0-9]+` にマッチしない値を拒否; `"YYYY"` — `\d{4}` 形式でない値を拒否; `"RE:<pattern>"` — 正規表現 `<pattern>` に完全マッチしない値を拒否（`re.fullmatch` 使用）。省略時は `"NONE"` として扱われる |
-| `multiline` | `true` — 次のラベルまでの複数行を値として読み込む。JSON には `"\n"` 区切りで保存され、CSV エクスポート時はスペースで結合される。JTable の編集モードでダブルクリックするとモーダルテキストエディタが開く。`false` または省略時は1行フィールド |
+| `property_name` | Field name |
+| `validation_type` | Validation on `push`: `"NONE"` — any value (including empty); `"NOT_EMPTY"` — rejects empty; `"HH:MM"` — rejects values not matching `\d{2}:\d{2}`; `"MM/DD"` — rejects values not matching `\d{2}/\d{2}`; `"INT"` — rejects values not matching `[0-9]+`; `"YYYY"` — rejects values not matching `\d{4}`; `"RE:<pattern>"` — rejects values that don't fully match the regex (via `re.fullmatch`). Defaults to `"NONE"` if omitted. |
+| `multiline` | `true` — value spans multiple lines until the next label; stored with `"\n"` in JSON, joined with `" "` in CSV export. In JTable editable mode, double-clicking opens a modal text-editor dialog instead of inline editing. `false` or absent — single-line field. |
 
-オブジェクト以外のエントリは無視されます。
+Non-object entries in the array are silently ignored. If the file is absent, no additional properties are loaded.
 
-### 必須プロパティ・動的コレクション（reference_collections.json）
+### Mandatory properties and dynamic collections — `reference_collections.json`
 
-`reference_collections.json` に、動的コレクションの定義を記述します。
+A JSON array of objects, each defining a reference collection:
 
 ```json
 [
   {"collection_name": "teams",     "property_name": "team",     "type": "STRING",         "whitelist": []},
-  {"collection_name": "schedules", "property_name": "schedule", "type": "DATE",         "whitelist": ["everyday", "weekends"]},
-  {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER", "whitelist": ["ceo", "無用"]}
+  {"collection_name": "schedules", "property_name": "schedule", "type": "DATE",           "whitelist": ["everyday", "weekends"]},
+  {"collection_name": "contacts",  "property_name": "contact",  "type": "PHONE_NUMBER",   "whitelist": ["none"]}
 ]
 ```
 
-| フィールド | 説明 |
+| Field | Meaning |
 |---|---|
-| `collection_name` | コレクションのディレクトリ名（コマンドでもこの名前を使用） |
-| `property_name` | システムドキュメントのフィールド名。`push` 時に値が検証される |
-| `type` | `push` 時のコンテンツ検証: `"DATE"` — `yyyy/mm/dd` 形式の日付をカンマ区切り; `"PHONE_NUMBER"` — `[0-9\-\+]+` 形式の文字列をカンマ区切り; `"EMAIL"` — `user@domain.tld` 形式のメールアドレスをカンマ区切り; `"YEAR"` — `\d{4}` 形式の年をカンマ区切り; `"STRING"` または未指定 — 検証なし |
-| `whitelist` | コレクションへの存在チェックをスキップして受け入れる値のリスト（省略または空配列 `[]` でホワイトリストなし） |
+| `collection_name` | Directory name in the repo; also the collection name used in commands |
+| `property_name` | Main-collection field that references this collection; validated on `push` |
+| `type` | Content validation on `push`: `"DATE"` — comma-separated `yyyy/mm/dd`; `"PHONE_NUMBER"` — comma-separated `[0-9\-\+]+`; `"EMAIL"` — comma-separated `user@domain.tld`; `"YEAR"` — comma-separated `\d{4}`; `"STRING"` or absent — no validation |
+| `whitelist` | Values accepted without checking the collection. Omit or use `[]` for no whitelist. |
 
-- 定義したコレクションはツール起動時に自動で利用可能になります。
-- 全 `property_name` がメインコレクションドキュメントの必須項目として追加されます。
-- `push` 時、各 `property_name` の値が空でないこと、かつ対応する `collection_name` コレクションに登録されていること（または `whitelist` に含まれること）が検証されます。
-- `schedule` や `contact` をここで定義することで、コレクション参照チェックを含む全検証をこの設定ファイルで一元管理できます。
+- All defined collections become available at startup.
+- All `property_name` values become mandatory fields in the main-collection document.
+- On `push`, each `property_name` value must be non-empty and must exist as an entry in the corresponding `collection_name` collection, or appear in `whitelist`.
+
+If the file is absent, no reference collections are loaded.
 
 ---
 
-## 表形式GUI（JTable）について
+## JTable GUI
 
-`--jtable` オプションを指定すると、テキストエディタの代わりに表形式のGUIウィンドウが開きます。
+`--jtable` commands open a table-view window instead of a text editor.
 
-### cat \<コレクション\> \<名前\> --jtable（読み取り専用）
+### `cat --jtable` — read-only
 
-- 内容を表形式で閲覧できます。
-- 列ヘッダーのクリックでソートできます。
-- 編集・保存はできません。
-- ウィンドウ上部に**検索バー**が表示されます（下記「検索バー」節を参照）。
+- View content in a table.
+- Click column headers to sort.
+- No editing or saving.
+- A **search bar** is shown at the top (see Read-only search bar below).
 
-### cat \<コレクション\> \<名前\> --json
+### `export --jtable` — CSV view (read-only)
 
-- 最新バージョンの内容をJSON形式で標準出力に表示します。
-- メインコレクション：リポジトリに保存されているJSONセクション配列をそのまま整形出力します（👉👈形式への変換は行いません）。
-- 参照コレクション：カンマ区切りの値をJSON配列として出力します。
-- `--jtable` との同時指定はエラーになります。
+- View the exported CSV as a table.
+- No editing or saving.
+- A **search bar** is shown at the top.
 
-### export \<コレクション\> \<ファイル名\> --jtable（CSVエクスポートの表示）
+### `get <main-collection> <name> --jtable` — editable (main collection)
 
-- エクスポートされたCSVを表形式で閲覧できます。
-- 編集・保存はできません。
-- ウィンドウ上部に**検索バー**が表示されます（下記「検索バー」節を参照）。
+- Double-click a cell to edit it inline.
+- For columns with `multiline: true` (e.g. `notes`), double-clicking opens a modal text-editor dialog.
+- **Save & Push** writes the 👉👈 format back to the downloads file and immediately pushes.
+- **Add Row** inserts an empty row after the selection (or at the end).
+- **Duplicate Row** copies the selected row.
+- **Delete Row** removes the selected row.
+- A **search bar** is shown at the top (see Edit-mode search bar below).
 
-### get \<メインコレクション\> \<名前\> --jtable（編集可能・メインコレクション）
+### `get <ref-collection> <name> --jtable` — editable (reference collection)
 
-- セルをダブルクリックするとその場で編集できます。
-- `multiline: true` のフィールド（`notes` など）をダブルクリックすると、複数行入力用のダイアログが開きます。
-- **Save & Push** ボタンで編集内容を保存し、即座にリポジトリへ登録します（検証・バージョンアップも自動で行われます）。
-- **Add Row** で末尾または選択行の後に空行を追加します。
-- **Duplicate Row** で選択行を複製します。
-- **Delete Row** で選択行を削除します。
-- ウィンドウ上部に**検索バー**が表示されます（下記「編集モードの検索バー」節を参照）。
+- Displays the comma-separated `.txt` file as a single-column table with header `"values"`.
+- Double-click a cell to edit inline.
+- **Save & Push** writes back as `val1,val2,...\n` (empty rows excluded) and pushes.
+- **Add Row** / **Delete Row** available. No Duplicate Row.
+- A **search bar** is shown at the top.
 
-### get \<参照コレクション\> \<名前\> --jtable（編集可能・参照コレクション）
+### `clear --jtable` — editable (blank template)
 
-- カンマ区切りのファイルを1行1値の単一列テーブルとして表示します（列ヘッダー: `values`）。
-- セルをダブルクリックするとその場で編集できます。
-- **Save & Push** ボタンで編集内容をカンマ区切り形式で保存し、即座にリポジトリへ登録します（空行は除外されます）。
-- **Add Row** で末尾または選択行の後に空行を追加します。
-- **Delete Row** で選択行を削除します（Duplicate Row はありません）。
-- ウィンドウ上部に**検索バー**が表示されます（下記「編集モードの検索バー」節を参照）。
+Same as `get --jtable` but starts from a blank template. Full edit and Save & Push functionality is available for both main and reference collections.
 
-### clear \<メインコレクション\> \<名前\> --jtable（編集可能・メインコレクション）
+### `diff --jtable` — diff view (read-only)
 
-- 空テンプレートを表形式で開きます（`get --jtable` の編集可能モードと同一）。
-- セルをダブルクリックするとその場で編集できます。
-- `multiline: true` のフィールドをダブルクリックすると、複数行入力用のダイアログが開きます。
-- **Save & Push** ボタンで編集内容を保存し、即座にリポジトリへ登録します。
-- **Add Row** / **Duplicate Row** / **Delete Row** ボタンが使用できます。
-- ウィンドウ上部に**検索バー**が表示されます（下記「編集モードの検索バー」節を参照）。
+Deleted rows shown in red with `−`, added rows in green with `+`. Columns are sortable. No search bar.
 
-### clear \<参照コレクション\> \<名前\> --jtable（編集可能・参照コレクション）
+---
 
-- 空テンプレートを表形式で開きます（`get --jtable` の参照コレクション編集モードと同一）。
-- セルをダブルクリックするとその場で編集できます。
-- **Save & Push** ボタンで編集内容をカンマ区切り形式で保存し、即座にリポジトリへ登録します（空行は除外されます）。
-- **Add Row** / **Delete Row** ボタンが使用できます（Duplicate Row はありません）。
-- ウィンドウ上部に**検索バー**が表示されます（下記「編集モードの検索バー」節を参照）。
+### Edit-mode search bar
 
-### diff \<コレクション\> \<名前\> --jtable（差分表示）
+Shown in editable mode (`get --jtable` / `clear --jtable`). Case-insensitive substring filter across all cell values; non-matching rows are hidden (not deleted). A hit count is shown at the right (`N / total rows`).
 
-- 削除されたレコードを赤（`−`）、追加されたレコードを緑（`+`）で表示します。
-- 列ヘッダーのクリックでソートできます。
+- Filtering affects **display only** — hidden rows are still saved when Save & Push is clicked.
+- **Add Row** / **Duplicate Row** clear the search filter first to ensure correct row positioning.
+- **Delete Row** permanently deletes the currently selected (visible) row; hidden rows are unaffected.
 
-### 編集モードの検索バー
+---
 
-`get --jtable` / `clear --jtable`（編集可能）では、ウィンドウ上部に**シンプルな検索バー**が表示されます。入力した文字列をすべての列のセル値に対して大文字小文字を区別せず部分一致で検索し、一致しない行を非表示にします。右端にヒット件数（`N / 合計 rows` または `合計 rows`）が表示されます。
+### Read-only search bar
 
-- 絞り込みは**表示のみ**に影響します。非表示になった行も Save 時には保存されます（データは失われません）。
-- **Add Row** / **Duplicate Row** を実行すると検索がリセットされ、全行が再表示された状態で新しい行が挿入されます。
-- **Delete Row** は表示中の選択行を完全に削除します（非表示行は削除されません）。
-- 差分表示（`diff --jtable`）には検索バーはありません。
+Shown in read-only mode (`cat --jtable`, `export --jtable`). Supports a rich query syntax; the table updates in real time.
 
-### 読み取り専用の検索バー
+#### Query syntax
 
-`cat --jtable`（読み取り専用）と `export --jtable`（CSV表示）では、ウィンドウ上部に**高機能な検索バー**が表示されます。入力内容に応じてリアルタイムにテーブルが絞り込まれ、右端にヒット件数が表示されます。
+All keywords are case-insensitive.
 
-#### クエリ構文
-
-キーワード・演算子はすべて大文字小文字を区別しません。
-
-| クエリ例 | 動作 |
+| Query | Behaviour |
 |---|---|
-| `foo` | すべての列に対して部分一致検索。参照コレクション列は参照先の内容も対象とする（ディープサーチ） |
-| `where col = 'val'` | `col` 列の値が `val` に完全一致する行を絞り込む |
-| `where col like '%foo%'` | `col` 列に対してLIKEパターンで絞り込む（`%`：任意の文字列、`_`：任意の1文字）。参照コレクション列はディープサーチ |
-| `where col.contents like 'pat'` | 参照コレクション列 `col` の参照先エントリの**内容文字列**（例: `"2024/01/01,2025/06/15"`）に対してLIKEパターンで検索 |
-| `where 'val' in col` | メンバーシップ検索：`col` 列のセル値をカンマ区切りで分割し、`val` がその中に含まれるかを確認する（大文字小文字を区別しない）。`val` に `%` または `_` が含まれる場合は各トークンに対してLIKEマッチを行う |
-| `where 'val' in col.contents` | 参照コレクション列の内容に対するメンバーシップ検索：`col` 列のエントリの内容文字列をカンマ区切りで分割し、`val`（LIKEパターン可）が含まれるかを確認する |
-| `[select *] where cond` | `select *` は省略可。`where` のみでも同じ動作 |
-| `select count where cond` | フィルタ条件に合致する件数のみを右端ラベルに表示する（`count: N / 合計`）。テーブルの表示行は変化しない |
-| `select prop.entry.contents` | ルックアップモード：参照コレクション列 `prop` のエントリ `entry` の内容（カンマ区切り値）を1行ずつテーブルに表示する。右端ラベルは `N values — prop.entry` となり、先頭列ヘッダーが `prop.entry` に変化する（通常モードに戻ると元に戻る） |
-| `cond1 and cond2` | AND 結合。OR より優先度が高い（SQL と同様） |
-| `cond1 or cond2` | OR 結合 |
+| `foo bar` | Substring search across all columns. For reference-collection columns the search also covers the referenced entry's content (deep search). |
+| `where col = 'val'` | Exact match (case-insensitive) on `col`. No deep search. |
+| `where col like 'pat%'` | SQL LIKE pattern on `col` (`%` = any chars, `_` = one char). Deep search for reference columns. |
+| `where col.contents like 'pat'` | LIKE pattern applied to the raw content string of the ref entry named in `col` (e.g. `"2024/01/01,2025/06/15"`). |
+| `where 'val' in col` | Membership check: `val` must be one of the comma-separated tokens in `col`. If `val` contains `%` or `_`, LIKE matching is used per token. |
+| `where 'val' in col.contents` | Membership check against the content of the ref entry named in `col`. Supports LIKE patterns in `val`. |
+| `[select *] where cond` | `select *` prefix is optional — identical to omitting it. |
+| `select count where cond` | Count matches without updating the table view; only the count label changes to `count: N / total`. |
+| `select prop.entry.contents` | Lookup mode: displays the comma-split values of `ref_data[prop][entry]` as rows. Count label shows `N values — prop.entry`. The first column header changes to `prop.entry`. |
+| `cond1 and cond2` | AND (binds tighter than OR). |
+| `cond1 or cond2` | OR. |
 
-#### ディープサーチ（参照コレクション列）
+#### Deep search (reference-collection columns)
 
-参照コレクション列（`schedule`・`contact` など）のセルには参照先エントリの**名前**が表示されています。`like` および平文検索では、この名前だけでなく参照先エントリの**内容**も検索対象に含まれます。たとえば `2024/01/01` と入力すると、`schedule` 列のエントリがその日付を含んでいる行がヒットします。
+For `like` and plain-text queries, reference-column cells are expanded to `"entry_name ref_content"` before matching. For example, searching `2024/01/01` will match rows whose `schedule` entry contains that date, even though the cell displays only the entry name. Exact-match (`=`) always checks the original cell value only.
 
-`where col = 'val'` による完全一致検索は名前のみを対象とします（内容は展開しません）。
-
-#### 使用例
+#### Query examples
 
 ```
 where schedule like '%2024%'
-  → schedule 参照先の内容に "2024" が含まれる行を絞り込む
+  → rows whose schedule entry content contains "2024"
 
 where schedule.contents like '%/01%'
-  → schedule 参照先の内容文字列中に "/01" が含まれるエントリを持つ行を絞り込む
+  → rows whose schedule entry content string contains "/01"
 
 where '2024/01/01' in schedule.contents
-  → schedule 参照先の内容をカンマ区切りで分割し、"2024/01/01" が含まれる行を絞り込む
+  → rows whose schedule entry contains "2024/01/01" as one of the comma-separated values
 
 where '2044%' in schedule.contents
-  → schedule 参照先の内容をカンマ区切りで分割し、"2044" で始まるトークンが含まれる行を絞り込む（LIKEパターン）
+  → same but with LIKE matching — tokens starting with "2044"
 
 select schedule.everyday.contents
-  → schedule コレクションの "everyday" エントリの内容を値ごとに表示する（先頭列ヘッダーが "schedule.everyday" に変わる）
+  → lookup mode: shows the values of the "everyday" schedule entry
 
 select count where team = 'alpha' and notes like '%urgent%'
-  → team が "alpha" かつ notes に "urgent" を含む行数をカウントする（表示は変えない）
+  → counts rows matching both conditions without changing the view
 
 where team = 'alpha' or team = 'beta'
-  → team が "alpha" または "beta" の行を絞り込む
+  → rows where team is "alpha" or "beta"
 ```
