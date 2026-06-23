@@ -24,10 +24,30 @@ pub struct PushInfo {
     pub collection_type: HashMap<String, String>,
 }
 
+/// All repo state the nx subprocess needs to reconstruct a mini RepoState.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NxInfo {
+    pub repo_root: PathBuf,
+    pub downloads_dir: PathBuf,
+    pub cache_dir: PathBuf,
+    pub main_collection: String,
+    pub additional_props: Vec<String>,
+    pub field_order: Option<Vec<String>>,
+    pub multiline_props: Vec<String>,
+    pub mandatory_ref_props: Vec<SerMandatoryRefProp>,
+    pub collection_type: HashMap<String, String>,
+    pub prop_validation_types: HashMap<String, String>,
+    pub editor: String,
+}
+
 /// Serializable description of what the table window should display.
 /// Passed from the REPL to the table process via stdin JSON.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TableData {
+    Nx {
+        collections: Vec<String>,
+        nx_info: NxInfo,
+    },
     Csv {
         path: PathBuf,
         ref_data: HashMap<String, HashMap<String, String>>,

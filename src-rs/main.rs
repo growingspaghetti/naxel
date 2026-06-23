@@ -18,7 +18,7 @@ fn usage(state: &RepoState) {
     let mut colls: Vec<&str> = state.collections.iter().map(|s| s.as_str()).collect();
     colls.sort();
     println!(
-        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  del <collection> <name>\n  cat <collection> <name> [--version=N] [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  appenditems <collection> <name> [-] [--json]\n  searchitems <collection> <name> [-] [--json]\n  removeitems <collection> <name> [-] [--json]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
+        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  del <collection> <name>\n  cat <collection> <name> [--version=N] [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  appenditems <collection> <name> [-] [--json]\n  searchitems <collection> <name> [-] [--json]\n  removeitems <collection> <name> [-] [--json]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  nx\n  exit\ncollections: {}",
         colls.join(", ")
     );
 }
@@ -265,6 +265,10 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
                 cmd_partialcopy(state, collection, real_parts[2], real_parts[3], json_mode);
             }
             None
+        }
+        "nx" => {
+            if parts.len() != 1 { eprintln!("usage: nx"); None }
+            else { cmd_nx(state, editor) }
         }
         _ => {
             eprintln!("unknown command: {cmd:?}");
