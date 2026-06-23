@@ -227,8 +227,11 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `ls <collection>`                        | Print decoded names (one per line, latest-version files only, deduped) |
 | `add <collection> <name>`                | Create `{encoded}.0000{ext}` with the empty document template |
 | `cat <collection> <name>`               | Print latest version content to stdout (decompresses the main collection) |
+| `cat <collection> <name> --version=N`   | Print a specific version to stdout; N is a bare integer or zero-padded (e.g. `3` or `0003`) |
 | `cat <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open read-only JTable window |
+| `cat <collection> <name> --version=N --jtable` | Save a specific version to `downloads/{collection}/`, open read-only JTable window |
 | `cat <collection> <name> --json`        | Print latest version as JSON to stdout: main collection outputs the raw JSON sections array (pretty-printed); reference collections output a JSON array of values. Mutually exclusive with `--jtable`. |
+| `cat <collection> <name> --version=N --json` | Print a specific version as JSON to stdout. Mutually exclusive with `--jtable`. |
 | `get <collection> <name>`               | Copy latest version to `downloads/{collection}/` as `.txt`, open with editor |
 | `get <collection> <name> --jtable`      | Save to `downloads/{collection}/`, open editable JTable window. Main collection: Save & Push / Add Row / Duplicate Row / Delete Row. Reference collections: Save & Push / Add Row / Delete Row. |
 | `get <collection> <name> -`             | Write stdin to `downloads/{collection}/` (same filename as `get`) without opening an editor; intended for use with `-c` batch mode pipelines |

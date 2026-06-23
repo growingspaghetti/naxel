@@ -476,11 +476,20 @@ def cmd_cat(repo_root: Path, collection: str, name: str,
             as_json: bool = False,
             field_order: tuple[str, ...] | None = None,
             multiline_props: frozenset[str] = frozenset(),
-            ref_data: dict | None = None):
-    filepath = find_latest_file(repo_root, collection, name)
-    if filepath is None:
-        print(f"error: not found: {name}")
-        return
+            ref_data: dict | None = None,
+            version: str | None = None):
+    if version is not None:
+        suffix = _repo_suffix(collection)
+        encoded = encode_name(name)
+        filepath = collection_path(repo_root, collection) / f"{encoded}.{version}{suffix}"
+        if not filepath.exists():
+            print(f"error: version {version} not found: {name}")
+            return
+    else:
+        filepath = find_latest_file(repo_root, collection, name)
+        if filepath is None:
+            print(f"error: not found: {name}")
+            return
     if jtable:
         dl_dir = downloads_dir / collection
         dl_dir.mkdir(parents=True, exist_ok=True)
@@ -1977,16 +1986,28 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     elif cmd == "cat":
         jtable = "--jtable" in parts
         as_json = "--json" in parts
-        cat_parts = [p for p in parts if p not in ("--jtable", "--json")]
-        if len(cat_parts) != 3:
-            print("usage: cat <collection> <name> [--jtable] [--json]")
+        version_flags = [p for p in parts if p.startswith("--version=")]
+        cat_parts = [p for p in parts if p not in ("--jtable", "--json") and not p.startswith("--version=")]
+        _version = None
+        _version_err = None
+        if version_flags:
+            raw_ver = version_flags[0][len("--version="):]
+            try:
+                _version = f"{int(raw_ver):04d}"
+            except ValueError:
+                _version_err = raw_ver
+        if _version_err is not None:
+            print(f"error: invalid --version value: {_version_err}")
+        elif len(cat_parts) != 3:
+            print("usage: cat <collection> <name> [--version=N] [--jtable] [--json]")
         elif jtable and as_json:
             print("error: --jtable and --json are mutually exclusive")
         else:
             ref = build_ref_data(cache_dir, mandatory_ref_props) if jtable and collection == MAIN_COLLECTION else None
             cmd_cat(repo_root, collection, cat_parts[2], additional_props,
                     downloads_dir=downloads_dir, jtable=jtable, as_json=as_json,
-                    field_order=field_order, multiline_props=multiline_props, ref_data=ref)
+                    field_order=field_order, multiline_props=multiline_props, ref_data=ref,
+                    version=_version)
 
     elif cmd == "get":
         jtable = "--jtable" in parts
