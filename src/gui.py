@@ -863,7 +863,8 @@ class NxCommander:
             row = ttk.Frame(root, padding=(4, 2))
             row.pack(fill=tk.X)
             for cmd in ("cat", "get", "diff"):
-                ttk.Button(row, text=cmd,
+                label = f"{cmd}\ngui" if jtable else cmd
+                ttk.Button(row, text=label,
                            command=lambda c=cmd, j=jtable: run_cmd(c, j)).pack(
                     side=tk.LEFT, padx=2)
 
