@@ -113,10 +113,22 @@ pub fn cmd_cat(
     name: &str,
     jtable: bool,
     as_json: bool,
+    version: Option<&str>,
 ) -> Option<crate::table_spec::TableData> {
-    let filepath = match find_latest(&state.repo_root, &state.main_collection, collection, name) {
-        Some(p) => p,
-        None => { eprintln!("error: not found: {name}"); return None; }
+    let filepath = if let Some(ver) = version {
+        let suffix = repo_suffix(collection, &state.main_collection);
+        let encoded = encode_name(name);
+        let p = col_path(&state.repo_root, collection).join(format!("{encoded}.{ver}{suffix}"));
+        if !p.exists() {
+            eprintln!("error: version {ver} not found: {name}");
+            return None;
+        }
+        p
+    } else {
+        match find_latest(&state.repo_root, &state.main_collection, collection, name) {
+            Some(p) => p,
+            None => { eprintln!("error: not found: {name}"); return None; }
+        }
     };
     if jtable {
         let dl_dir = state.downloads_dir.join(collection);
@@ -215,10 +227,22 @@ pub fn cmd_get(
     editor: &str,
     jtable: bool,
     stdin_content: Option<String>,
+    version: Option<&str>,
 ) -> Option<crate::table_spec::TableData> {
-    let filepath = match find_latest(&state.repo_root, &state.main_collection, collection, name) {
-        Some(p) => p,
-        None => { eprintln!("error: not found: {name}"); return None; }
+    let filepath = if let Some(ver) = version {
+        let suffix = repo_suffix(collection, &state.main_collection);
+        let encoded = encode_name(name);
+        let p = col_path(&state.repo_root, collection).join(format!("{encoded}.{ver}{suffix}"));
+        if !p.exists() {
+            eprintln!("error: version {ver} not found: {name}");
+            return None;
+        }
+        p
+    } else {
+        match find_latest(&state.repo_root, &state.main_collection, collection, name) {
+            Some(p) => p,
+            None => { eprintln!("error: not found: {name}"); return None; }
+        }
     };
     let dl_dir = state.downloads_dir.join(collection);
     let _ = std::fs::create_dir_all(&dl_dir);
