@@ -2036,7 +2036,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
              mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
              field_order: tuple[str, ...] | None = None,
              prop_validation_types: dict[str, str] = {},
-             multiline_props: frozenset[str] = frozenset()) -> bool:
+             multiline_props: frozenset[str] = frozenset(),
+             history_fn=None) -> bool:
     """Return False to exit."""
     cmd = parts[0]
 
@@ -2252,6 +2253,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             collections=sorted(COLLECTIONS),
             get_names_fn=lambda col: _get_collection_names(repo_root, col),
             dispatch_fn=_dispatch_fn,
+            history_fn=history_fn,
         )
         schedule_on_gui(lambda: commander.run(master=get_gui_root()))
 
@@ -2364,7 +2366,8 @@ def main():
                         state.additional_props, state.mandatory_ref_props,
                         field_order=state.field_order,
                         prop_validation_types=state.prop_validation_types,
-                        multiline_props=state.multiline_props):
+                        multiline_props=state.multiline_props,
+                        history_fn=session.history.append_string):
             break
 
 

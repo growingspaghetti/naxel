@@ -813,10 +813,11 @@ class TextEditorWindow:
 class NxCommander:
     """Collection/name navigator with cat · get · diff buttons (with and without --jtable)."""
 
-    def __init__(self, collections: list[str], get_names_fn, dispatch_fn):
+    def __init__(self, collections: list[str], get_names_fn, dispatch_fn, history_fn=None):
         self._collections = collections
         self._get_names_fn = get_names_fn
         self._dispatch_fn = dispatch_fn
+        self._history_fn = history_fn
 
     def run(self, master: "tk.Tk | None" = None):
         own_root = master is None
@@ -857,7 +858,10 @@ class NxCommander:
             parts = [cmd, col, name]
             if jtable:
                 parts.append("--jtable")
-            print(" ".join(parts), flush=True)
+            cmd_str = " ".join(parts)
+            print(cmd_str, flush=True)
+            if self._history_fn:
+                self._history_fn(cmd_str)
             threading.Thread(target=lambda: self._dispatch_fn(parts), daemon=True).start()
 
         for jtable in (True, False):
