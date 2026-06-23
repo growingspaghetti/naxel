@@ -371,19 +371,17 @@ pub fn cmd_clear(
 
 // ── push ───────────────────────────────────────────────────────────────────────
 
-pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool) {
+pub fn cmd_push_result(state: &RepoState, collection: &str, name: &str, json_mode: bool) -> Result<String, String> {
     let encoded = encode_name(name);
     let field_order = state.field_order.as_deref().unwrap_or(&state.additional_props);
     let src = match latest_in_dir(&state.downloads_dir.join(collection), &encoded, ".txt") {
         Some(p) => p,
-        None => { eprintln!("error: not found in downloads: {name}"); return; }
+        None => return Err(format!("error: not found in downloads: {name}")),
     };
     let raw_text = std::fs::read_to_string(&src).unwrap_or_default();
     let content = if json_mode {
-        let parsed: serde_json::Value = match serde_json::from_str(&raw_text) {
-            Ok(v) => v,
-            Err(e) => { eprintln!("error: invalid JSON: {e}"); return; }
-        };
+        let parsed: serde_json::Value = serde_json::from_str(&raw_text)
+            .map_err(|e| format!("error: invalid JSON: {e}"))?;
         if collection == state.main_collection {
             let sections = parsed.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
             sections_to_text(sections, field_order)
@@ -406,17 +404,13 @@ pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool
             .collect();
 
         if collection == state.main_collection {
-            if let Err(e) = validate_main_collection(
+            validate_main_collection(
                 &content,
                 field_order,
                 &mandatory_prop_names,
                 &state.prop_validation_types,
                 &state.multiline_props,
-            ) {
-                eprintln!("rejected: {e}");
-                return;
-            }
-            // Reference validation
+            ).map_err(|e| format!("rejected: {e}"))?;
             if !state.mandatory_ref_props.is_empty() {
                 let sections = parse_sections_lenient(&content, field_order, &state.multiline_props);
                 for mrp in &state.mandatory_ref_props {
@@ -435,7 +429,6 @@ pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool
                                 .collect()
                         })
                         .unwrap_or_default();
-
                     for sec in &sections {
                         let val = sec.get(&mrp.property_name)
                             .and_then(|v| v.as_str())
@@ -444,21 +437,18 @@ pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool
                             && !mrp.whitelist.contains(val)
                             && !existing.contains(&encode_name(val))
                         {
-                            eprintln!(
+                            return Err(format!(
                                 "rejected: {} {:?} not found in {} collection",
                                 mrp.property_name, val, mrp.collection_name
-                            );
-                            return;
+                            ));
                         }
                     }
                 }
             }
         } else {
             let ctype = state.collection_type.get(collection).map(|s| s.as_str()).unwrap_or("");
-            if let Err(e) = validate_ref_collection(ctype, &content) {
-                eprintln!("rejected: {e}");
-                return;
-            }
+            validate_ref_collection(ctype, &content)
+                .map_err(|e| format!("rejected: {e}"))?;
         }
     }
 
@@ -466,7 +456,7 @@ pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool
     let suffix = repo_suffix(collection, &state.main_collection);
     let latest = match latest_in_dir(&col_dir, &encoded, suffix) {
         Some(p) => p,
-        None => { eprintln!("error: not found in repository: {name}"); return; }
+        None => return Err(format!("error: not found in repository: {name}")),
     };
     let fname = latest.file_name().unwrap().to_string_lossy();
     let version_str = &fname[encoded.len() + 1..encoded.len() + 5];
@@ -481,14 +471,19 @@ pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool
             let sections = text_to_sections(&content, field_order, &state.multiline_props);
             serde_json::to_string_pretty(&sections).unwrap() + "\n"
         };
-        match gzip_compress(body.as_bytes()) {
-            Ok(bytes) => { let _ = std::fs::write(&dest, bytes); }
-            Err(e) => { eprintln!("error: {e}"); return; }
-        }
+        let bytes = gzip_compress(body.as_bytes()).map_err(|e| format!("error: {e}"))?;
+        std::fs::write(&dest, bytes).map_err(|e| format!("error: {e}"))?;
     } else {
-        let _ = std::fs::write(&dest, &content);
+        std::fs::write(&dest, &content).map_err(|e| format!("error: {e}"))?;
     }
-    println!("pushed: {name} (version {new_version:04})");
+    Ok(format!("pushed: {name} (version {new_version:04})"))
+}
+
+pub fn cmd_push(state: &RepoState, collection: &str, name: &str, json_mode: bool) {
+    match cmd_push_result(state, collection, name, json_mode) {
+        Ok(msg)  => println!("{msg}"),
+        Err(msg) => eprintln!("{msg}"),
+    }
 }
 
 // ── diff ───────────────────────────────────────────────────────────────────────
@@ -1638,10 +1633,201 @@ fn resolve_filter(raw: &str, json_mode: bool) -> Result<ItemFilter, String> {
 
 // ---- helpers --------------------------------------------------------------
 
-fn open_editor_blocking(editor: &str, path: &Path) -> bool {
-    match std::process::Command::new(editor).arg(path).status() {
-        Ok(_)  => true,
-        Err(e) => { eprintln!("error: could not open editor: {e}"); false }
+fn spawn_tauri_blocking(td: crate::table_spec::TableData) {
+    let json = match serde_json::to_string(&td) {
+        Ok(j) => j,
+        Err(e) => { eprintln!("error: {e}"); return; }
+    };
+    let exe = std::env::current_exe()
+        .unwrap_or_else(|_| std::path::PathBuf::from("naxel"));
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = match Command::new(&exe).arg("--table").stdin(Stdio::piped()).spawn() {
+        Ok(c) => c,
+        Err(e) => { eprintln!("error: could not open text editor: {e}"); return; }
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(json.as_bytes());
+    }
+    let _ = child.wait();
+}
+
+fn build_push_info_from_state(
+    state: &RepoState, collection: &str, name: &str,
+) -> crate::table_spec::PushInfo {
+    crate::table_spec::PushInfo {
+        repo_root: state.repo_root.clone(),
+        downloads_dir: state.downloads_dir.clone(),
+        main_collection: state.main_collection.clone(),
+        collection: collection.to_string(),
+        name: name.to_string(),
+        additional_props: state.additional_props.clone(),
+        field_order: state.field_order.clone(),
+        prop_validation_types: state.prop_validation_types.clone(),
+        multiline_props: state.multiline_props.iter().cloned().collect(),
+        mandatory_ref_props: state.mandatory_ref_props.iter().map(|m| {
+            crate::table_spec::SerMandatoryRefProp {
+                property_name: m.property_name.clone(),
+                collection_name: m.collection_name.clone(),
+                whitelist: m.whitelist.iter().cloned().collect(),
+            }
+        }).collect(),
+        collection_type: state.collection_type.clone(),
+    }
+}
+
+fn mini_state_from_push_info(info: &crate::table_spec::PushInfo) -> RepoState {
+    use std::collections::HashSet;
+    RepoState {
+        repo_root: info.repo_root.clone(),
+        downloads_dir: info.downloads_dir.clone(),
+        cache_dir: std::path::PathBuf::new(),
+        main_collection: info.main_collection.clone(),
+        partitioning_property: String::new(),
+        collections: HashSet::new(),
+        collection_type: info.collection_type.clone(),
+        additional_props: info.additional_props.clone(),
+        mandatory_ref_props: info.mandatory_ref_props.iter().map(|m| {
+            crate::repo::MandatoryRefProp {
+                property_name: m.property_name.clone(),
+                collection_name: m.collection_name.clone(),
+                whitelist: m.whitelist.iter().cloned().collect(),
+            }
+        }).collect(),
+        field_order: info.field_order.clone(),
+        prop_validation_types: info.prop_validation_types.clone(),
+        multiline_props: info.multiline_props.iter().cloned().collect(),
+        intro_message: String::new(),
+    }
+}
+
+pub fn process_text_edit_submit(
+    context: &crate::table_spec::TextEditContext,
+    content: &str,
+) -> Result<String, String> {
+    let info = &context.push_info;
+    let mini_state = mini_state_from_push_info(info);
+    let field_order: &[String] = info.field_order.as_deref().unwrap_or(&info.additional_props);
+    let multiline_props: std::collections::HashSet<String> =
+        info.multiline_props.iter().cloned().collect();
+    let is_main = info.collection == info.main_collection;
+
+    match context.action.as_str() {
+        "appenditems" => {
+            let stripped = strip_comments(content);
+            if is_main {
+                let new_sections: Vec<serde_json::Value> = if context.json_mode {
+                    let v = serde_json::from_str::<serde_json::Value>(stripped.trim())
+                        .map_err(|e| format!("invalid JSON: {e}"))?;
+                    if let Some(arr) = v.as_array() { arr.clone() } else { vec![v] }
+                } else {
+                    text_to_sections(&stripped, field_order, &multiline_props)
+                        .into_iter().map(serde_json::Value::Object).collect()
+                };
+                if new_sections.is_empty() { return Err("nothing to append".to_string()); }
+
+                let bytes = std::fs::read(&context.existing_path).unwrap_or_default();
+                let mut existing: Vec<serde_json::Value> = gzip_decompress(&bytes)
+                    .ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+                if is_initial_state(&sections_to_text(&existing, field_order),
+                                    field_order, &multiline_props) {
+                    existing.clear();
+                }
+                let n_new = new_sections.len();
+                existing.extend(new_sections);
+                let dl_dir = info.downloads_dir.join(&info.collection);
+                let _ = std::fs::create_dir_all(&dl_dir);
+                let fname = context.existing_path.file_name().unwrap().to_string_lossy().into_owned();
+                let dl_name = fname.strip_suffix(".gz").unwrap_or(&fname).to_string();
+                let _ = std::fs::write(dl_dir.join(&dl_name), sections_to_text(&existing, field_order));
+                cmd_push_result(&mini_state, &info.collection, &info.name, false)
+                    .map(|msg| format!("appended {n_new} items\n{msg}"))
+            } else {
+                let stripped = strip_comments(content);
+                let new_values: Vec<String> = if context.json_mode {
+                    let v = serde_json::from_str::<serde_json::Value>(stripped.trim())
+                        .map_err(|e| format!("invalid JSON: {e}"))?;
+                    match v.as_array() {
+                        Some(arr) => arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
+                        None => return Err("expected a JSON array".to_string()),
+                    }
+                } else {
+                    stripped.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect()
+                };
+                if new_values.is_empty() { return Err("nothing to append".to_string()); }
+                let existing_raw = std::fs::read_to_string(&context.existing_path).unwrap_or_default();
+                let mut combined: Vec<String> = existing_raw.trim().split(',')
+                    .map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
+                let n_new = new_values.len();
+                combined.extend(new_values);
+                let dl_dir = info.downloads_dir.join(&info.collection);
+                let _ = std::fs::create_dir_all(&dl_dir);
+                let fname = context.existing_path.file_name().unwrap().to_string_lossy().into_owned();
+                let _ = std::fs::write(
+                    dl_dir.join(&fname),
+                    if combined.is_empty() { String::new() } else { combined.join(",") + "\n" },
+                );
+                cmd_push_result(&mini_state, &info.collection, &info.name, false)
+                    .map(|msg| format!("appended {n_new} items\n{msg}"))
+            }
+        }
+        "searchitems" => {
+            let filter = resolve_filter(content, context.json_mode)?;
+            if is_main {
+                let bytes = std::fs::read(&context.existing_path).unwrap_or_default();
+                let sections: Vec<serde_json::Value> = gzip_decompress(&bytes)
+                    .ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+                let matched: Vec<&serde_json::Value> = sections.iter()
+                    .filter(|s| s.as_object().map_or(false, |o| filter.matches(o)))
+                    .collect();
+                serde_json::to_string_pretty(&matched).map_err(|e| e.to_string())
+            } else {
+                let raw_content = std::fs::read_to_string(&context.existing_path).unwrap_or_default();
+                let matched: Vec<&str> = raw_content.trim().split(',')
+                    .map(|v| v.trim()).filter(|v| !v.is_empty())
+                    .filter(|v| filter.matches_value(v))
+                    .collect();
+                serde_json::to_string_pretty(&matched).map_err(|e| e.to_string())
+            }
+        }
+        "removeitems" => {
+            let filter = resolve_filter(content, context.json_mode)?;
+            if is_main {
+                let bytes = std::fs::read(&context.existing_path).unwrap_or_default();
+                let sections: Vec<serde_json::Value> = gzip_decompress(&bytes)
+                    .ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+                let remaining: Vec<serde_json::Value> = sections.iter()
+                    .filter(|s| !s.as_object().map_or(false, |o| filter.matches(o)))
+                    .cloned().collect();
+                let n_removed = sections.len() - remaining.len();
+                if n_removed == 0 { return Err("no matching sections — nothing removed".to_string()); }
+                let dl_dir = info.downloads_dir.join(&info.collection);
+                let _ = std::fs::create_dir_all(&dl_dir);
+                let fname = context.existing_path.file_name().unwrap().to_string_lossy().into_owned();
+                let dl_name = fname.strip_suffix(".gz").unwrap_or(&fname);
+                let _ = std::fs::write(dl_dir.join(dl_name), sections_to_text(&remaining, field_order));
+                cmd_push_result(&mini_state, &info.collection, &info.name, false)
+                    .map(|msg| format!("removed {n_removed} items\n{msg}"))
+            } else {
+                let raw_content = std::fs::read_to_string(&context.existing_path).unwrap_or_default();
+                let values: Vec<String> = raw_content.trim().split(',')
+                    .map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
+                let remaining: Vec<String> = values.iter()
+                    .filter(|v| !filter.matches_value(v)).cloned().collect();
+                let n_removed = values.len() - remaining.len();
+                if n_removed == 0 { return Err("no matching values — nothing removed".to_string()); }
+                let dl_dir = info.downloads_dir.join(&info.collection);
+                let _ = std::fs::create_dir_all(&dl_dir);
+                let fname = context.existing_path.file_name().unwrap().to_string_lossy().into_owned();
+                let _ = std::fs::write(
+                    dl_dir.join(&fname),
+                    if remaining.is_empty() { String::new() } else { remaining.join(",") + "\n" },
+                );
+                cmd_push_result(&mini_state, &info.collection, &info.name, false)
+                    .map(|msg| format!("removed {n_removed} items\n{msg}"))
+            }
+        }
+        other => Err(format!("unknown action: {other}")),
     }
 }
 
@@ -1686,7 +1872,6 @@ pub fn cmd_appenditems(
     state: &RepoState,
     collection: &str,
     name: &str,
-    editor: &str,
     json_mode: bool,
     stdin_content: Option<String>,
 ) {
@@ -1698,29 +1883,48 @@ pub fn cmd_appenditems(
     let encoded = encode_name(name);
     let dl_dir = state.downloads_dir.join(collection);
     let _ = std::fs::create_dir_all(&dl_dir);
+
+    let content = match stdin_content {
+        Some(s) => s,
+        None => {
+            // Editor mode: spawn Tauri subprocess, which handles processing and push.
+            let temp_path = dl_dir.join(format!("_append_{encoded}.txt"));
+            let template = if collection == state.main_collection {
+                if json_mode {
+                    format!("# Write new sections as a JSON array, then submit:\n{}\n",
+                            crate::formats::empty_main_collection_json(field_order).trim_end())
+                } else {
+                    format!("# Write new sections below (👉👈 format), then submit:\n{}",
+                            empty_main_collection_document(field_order))
+                }
+            } else if json_mode {
+                "# Write new values as a JSON array, then submit:\n[]\n".to_string()
+            } else {
+                "# Enter new comma-separated values, then submit:\n".to_string()
+            };
+            let _ = std::fs::write(&temp_path, &template);
+            let context = crate::table_spec::TextEditContext {
+                action: "appenditems".to_string(),
+                existing_path: filepath.clone(),
+                push_info: build_push_info_from_state(state, collection, name),
+                json_mode,
+            };
+            spawn_tauri_blocking(crate::table_spec::TableData::TextEdit {
+                path: temp_path,
+                title: format!("appenditems {collection} {name}"),
+                context,
+            });
+            return;
+        }
+    };
+
+    // Stdin mode: process directly in parent.
     let dl_name_full = filepath.file_name().unwrap().to_string_lossy().into_owned();
     let dl_name = dl_name_full.strip_suffix(".gz").unwrap_or(&dl_name_full).to_string();
     let dest = dl_dir.join(&dl_name);
 
     if collection == state.main_collection {
-        let content = match stdin_content {
-            Some(s) => s,
-            None => {
-                let temp_path = dl_dir.join(format!("_append_{encoded}.txt"));
-                let template = if json_mode {
-                    format!("# Write new sections as a JSON array, then save and close:\n{}\n",
-                            crate::formats::empty_main_collection_json(field_order).trim_end())
-                } else {
-                    format!("# Write new sections below (👉👈 format), then save and close:\n{}",
-                            empty_main_collection_document(field_order))
-                };
-                let _ = std::fs::write(&temp_path, &template);
-                if !open_editor_blocking(editor, &temp_path) { return; }
-                std::fs::read_to_string(&temp_path).unwrap_or_default()
-            }
-        };
         let stripped = strip_comments(&content);
-
         let new_sections: Vec<serde_json::Value> = if json_mode {
             match serde_json::from_str::<serde_json::Value>(stripped.trim()) {
                 Ok(v) => if let Some(arr) = v.as_array() { arr.clone() } else { vec![v] },
@@ -1731,7 +1935,6 @@ pub fn cmd_appenditems(
                 .into_iter().map(serde_json::Value::Object).collect()
         };
         if new_sections.is_empty() { println!("nothing to append"); return; }
-
         let bytes = std::fs::read(&filepath).unwrap_or_default();
         let mut existing: Vec<serde_json::Value> = gzip_decompress(&bytes)
             .ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -1745,22 +1948,7 @@ pub fn cmd_appenditems(
         println!("appended {n_new} items");
         cmd_push(state, collection, name, false);
     } else {
-        let content = match stdin_content {
-            Some(s) => s,
-            None => {
-                let temp_path = dl_dir.join(format!("_append_{encoded}.txt"));
-                let template = if json_mode {
-                    "# Write new values as a JSON array, then save and close:\n[]\n".to_string()
-                } else {
-                    "# Enter new comma-separated values, then save and close:\n".to_string()
-                };
-                let _ = std::fs::write(&temp_path, &template);
-                if !open_editor_blocking(editor, &temp_path) { return; }
-                std::fs::read_to_string(&temp_path).unwrap_or_default()
-            }
-        };
         let stripped = strip_comments(&content);
-
         let new_values: Vec<String> = if json_mode {
             match serde_json::from_str::<serde_json::Value>(stripped.trim()) {
                 Ok(v) => match v.as_array() {
@@ -1773,7 +1961,6 @@ pub fn cmd_appenditems(
             stripped.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect()
         };
         if new_values.is_empty() { println!("nothing to append"); return; }
-
         let existing_raw = std::fs::read_to_string(&filepath).unwrap_or_default();
         let mut combined: Vec<String> = existing_raw.trim().split(',')
             .map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
@@ -1790,7 +1977,6 @@ pub fn cmd_searchitems(
     state: &RepoState,
     collection: &str,
     name: &str,
-    editor: &str,
     json_mode: bool,
     stdin_content: Option<String>,
 ) {
@@ -1799,22 +1985,35 @@ pub fn cmd_searchitems(
         None => { eprintln!("error: not found: {name}"); return; }
     };
     let field_order = state.field_order.as_deref().unwrap_or(&state.additional_props);
+
     let raw = match stdin_content {
         Some(s) => s,
         None => {
+            // Editor mode: spawn Tauri subprocess to handle query and display results.
             let _ = std::fs::create_dir_all(&state.downloads_dir);
             let query_path = state.downloads_dir
                 .join(format!("_searchquery_{}_{}.txt", collection, name));
             let _ = std::fs::write(&query_path, query_template(field_order, json_mode, "search"));
-            if !open_editor_blocking(editor, &query_path) { return; }
-            std::fs::read_to_string(&query_path).unwrap_or_default()
+            let context = crate::table_spec::TextEditContext {
+                action: "searchitems".to_string(),
+                existing_path: filepath,
+                push_info: build_push_info_from_state(state, collection, name),
+                json_mode,
+            };
+            spawn_tauri_blocking(crate::table_spec::TableData::TextEdit {
+                path: query_path,
+                title: format!("searchitems {collection} {name}"),
+                context,
+            });
+            return;
         }
     };
+
+    // Stdin mode: process and print in parent.
     let filter = match resolve_filter(&raw, json_mode) {
         Ok(f)  => f,
         Err(e) => { eprintln!("error: {e}"); return; }
     };
-
     if collection == state.main_collection {
         let bytes = std::fs::read(&filepath).unwrap_or_default();
         let sections: Vec<serde_json::Value> = gzip_decompress(&bytes)
@@ -1837,7 +2036,6 @@ pub fn cmd_removeitems(
     state: &RepoState,
     collection: &str,
     name: &str,
-    editor: &str,
     json_mode: bool,
     stdin_content: Option<String>,
 ) {
@@ -1846,22 +2044,35 @@ pub fn cmd_removeitems(
         None => { eprintln!("error: not found: {name}"); return; }
     };
     let field_order = state.field_order.as_deref().unwrap_or(&state.additional_props);
+
     let raw = match stdin_content {
         Some(s) => s,
         None => {
+            // Editor mode: spawn Tauri subprocess to handle query, removal, and push.
             let _ = std::fs::create_dir_all(&state.downloads_dir);
             let query_path = state.downloads_dir
                 .join(format!("_removequery_{}_{}.txt", collection, name));
             let _ = std::fs::write(&query_path, query_template(field_order, json_mode, "remove"));
-            if !open_editor_blocking(editor, &query_path) { return; }
-            std::fs::read_to_string(&query_path).unwrap_or_default()
+            let context = crate::table_spec::TextEditContext {
+                action: "removeitems".to_string(),
+                existing_path: filepath,
+                push_info: build_push_info_from_state(state, collection, name),
+                json_mode,
+            };
+            spawn_tauri_blocking(crate::table_spec::TableData::TextEdit {
+                path: query_path,
+                title: format!("removeitems {collection} {name}"),
+                context,
+            });
+            return;
         }
     };
+
+    // Stdin mode: process directly in parent.
     let filter = match resolve_filter(&raw, json_mode) {
         Ok(f)  => f,
         Err(e) => { eprintln!("error: {e}"); return; }
     };
-
     if collection == state.main_collection {
         let bytes = std::fs::read(&filepath).unwrap_or_default();
         let sections: Vec<serde_json::Value> = gzip_decompress(&bytes)
@@ -1871,7 +2082,6 @@ pub fn cmd_removeitems(
             .cloned().collect();
         let n_removed = sections.len() - remaining.len();
         if n_removed == 0 { println!("no matching sections — nothing removed"); return; }
-
         let dl_dir = state.downloads_dir.join(collection);
         let _ = std::fs::create_dir_all(&dl_dir);
         let dl_name_full = filepath.file_name().unwrap().to_string_lossy().into_owned();
@@ -1887,7 +2097,6 @@ pub fn cmd_removeitems(
             .filter(|v| !filter.matches_value(v)).cloned().collect();
         let n_removed = values.len() - remaining.len();
         if n_removed == 0 { println!("no matching values — nothing removed"); return; }
-
         let dl_dir = state.downloads_dir.join(collection);
         let _ = std::fs::create_dir_all(&dl_dir);
         let dl_name_full = filepath.file_name().unwrap().to_string_lossy().into_owned();

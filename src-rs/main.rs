@@ -199,7 +199,7 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
                     std::io::stdin().read_to_string(&mut s).ok();
                     Some(s)
                 } else { None };
-                cmd_appenditems(state, collection, real_parts[2], editor, json_mode, stdin_content);
+                cmd_appenditems(state, collection, real_parts[2], json_mode, stdin_content);
             }
             None
         }
@@ -217,7 +217,7 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
                     std::io::stdin().read_to_string(&mut s).ok();
                     Some(s)
                 } else { None };
-                cmd_searchitems(state, collection, real_parts[2], editor, json_mode, stdin_content);
+                cmd_searchitems(state, collection, real_parts[2], json_mode, stdin_content);
             }
             None
         }
@@ -235,7 +235,7 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
                     std::io::stdin().read_to_string(&mut s).ok();
                     Some(s)
                 } else { None };
-                cmd_removeitems(state, collection, real_parts[2], editor, json_mode, stdin_content);
+                cmd_removeitems(state, collection, real_parts[2], json_mode, stdin_content);
             }
             None
         }

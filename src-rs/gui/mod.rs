@@ -21,6 +21,29 @@ fn save_file(path: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn submit_text_edit(state: tauri::State<AppState>, path: String, content: String) -> Result<String, String> {
+    std::fs::write(&path, &content).map_err(|e| e.to_string())?;
+    let context = {
+        let data = state.data.lock().unwrap();
+        match data.as_ref() {
+            Some(TableData::TextEdit { context, .. }) => context.clone(),
+            _ => return Err("invalid state".to_string()),
+        }
+    };
+    let result = crate::commands::process_text_edit_submit(&context, &content);
+    match &result {
+        Ok(msg)  => println!("{msg}"),
+        Err(msg) => eprintln!("{msg}"),
+    }
+    result
+}
+
+#[tauri::command]
+fn cancel_text_edit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
 fn save_and_push(state: tauri::State<AppState>, path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, &content).map_err(|e| e.to_string())?;
     let push_info = {
@@ -68,11 +91,19 @@ pub fn show_table(data: TableData) {
         TableData::MainText { title, .. } => title.clone(),
         TableData::Ref { title, .. }      => title.clone(),
         TableData::Diff { title, .. }     => title.clone(),
+        TableData::TextEdit { title, .. } => title.clone(),
+    };
+    let (width, height) = match &data {
+        TableData::TextEdit { .. } => (700.0_f64, 500.0_f64),
+        _                          => (960.0_f64, 540.0_f64),
     };
 
     tauri::Builder::default()
         .manage(AppState { data: Mutex::new(Some(data)) })
-        .invoke_handler(tauri::generate_handler![get_table_data, read_file, save_file, save_and_push])
+        .invoke_handler(tauri::generate_handler![
+            get_table_data, read_file, save_file, save_and_push,
+            submit_text_edit, cancel_text_edit
+        ])
         .setup(move |app| {
             tauri::WebviewWindowBuilder::new(
                 app,
@@ -80,7 +111,7 @@ pub fn show_table(data: TableData) {
                 tauri::WebviewUrl::App("index.html".into()),
             )
             .title(title.as_str())
-            .inner_size(960.0, 540.0)
+            .inner_size(width, height)
             .build()?;
             Ok(())
         })

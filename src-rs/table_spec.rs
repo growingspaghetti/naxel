@@ -53,4 +53,17 @@ pub enum TableData {
         added: Vec<Vec<String>>,
         title: String,
     },
+    TextEdit {
+        path: PathBuf,
+        title: String,
+        context: TextEditContext,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TextEditContext {
+    pub action: String,         // "appenditems" | "searchitems" | "removeitems"
+    pub existing_path: PathBuf, // path to the current data file in the repo
+    pub push_info: PushInfo,
+    pub json_mode: bool,
 }
