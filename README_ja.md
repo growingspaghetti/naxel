@@ -24,6 +24,10 @@ Rust/Tauri版（`src-rs/`）は同じREPLに加えて、組み込みウェブビ
 
 ![JTable diff](readme-imgs/jtable-diff.png)
 
+### nx — ナビゲータ
+
+![nx ナビゲータ](readme-imgs/nx-gui.png)
+
 ---
 
 ## クイックスタート
