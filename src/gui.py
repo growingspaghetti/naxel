@@ -697,6 +697,59 @@ class JTable:
         self._root.mainloop()
 
 
+class TextEditorWindow:
+    """Lightweight tk.Text window for entering or viewing text."""
+
+    def __init__(self, title: str = "", initial_text: str = "", hint: str = "",
+                 submit_label: str = "Submit", callback=None, readonly: bool = False):
+        self._callback = callback
+        self._root = tk.Tk()
+        self._root.title(title or "Text Editor")
+        self._root.geometry("720x520")
+        self._build(initial_text, hint, submit_label, readonly)
+
+    def _build(self, initial_text: str, hint: str, submit_label: str, readonly: bool):
+        if hint:
+            lbl = tk.Label(self._root, text=hint, wraplength=680, justify="left",
+                           fg="#555555", anchor="w")
+            lbl.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(6, 0))
+
+        btn_frame = tk.Frame(self._root)
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 4))
+        if readonly:
+            tk.Button(btn_frame, text="Close", command=self._root.destroy).pack(side=tk.RIGHT)
+        else:
+            tk.Button(btn_frame, text="Cancel", command=self._root.destroy).pack(side=tk.RIGHT, padx=(2, 0))
+            tk.Button(btn_frame, text=submit_label, command=self._submit).pack(side=tk.RIGHT)
+
+        frame = tk.Frame(self._root)
+        frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        vsb = ttk.Scrollbar(frame, orient="vertical")
+        hsb = ttk.Scrollbar(frame, orient="horizontal")
+        self._text = tk.Text(frame, wrap="none", undo=True,
+                             state="disabled" if readonly else "normal",
+                             yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        vsb.config(command=self._text.yview)
+        hsb.config(command=self._text.xview)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        self._text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        if initial_text:
+            state = self._text["state"]
+            self._text.configure(state="normal")
+            self._text.insert("1.0", initial_text)
+            self._text.configure(state=state)
+
+    def _submit(self):
+        content = self._text.get("1.0", "end-1c")
+        if self._callback:
+            self._callback(content)
+
+    def run(self):
+        self._root.mainloop()
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     readonly = "--readonly" in args
