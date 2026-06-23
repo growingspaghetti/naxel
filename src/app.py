@@ -13,17 +13,17 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from gui import JTable, TextEditorWindow
+from gui import JTable, NxCommander, TextEditorWindow, get_gui_root, schedule_on_gui
 
 SCRIPT_DIR = Path(__file__).parent.parent
 
 
 def _launch_jtable(**kwargs):
-    threading.Thread(target=lambda: JTable(**kwargs).run(), daemon=True).start()
+    schedule_on_gui(lambda: JTable(master=get_gui_root(), **kwargs))
 
 
 def _launch_text_editor(**kwargs):
-    threading.Thread(target=lambda: TextEditorWindow(**kwargs).run(), daemon=True).start()
+    schedule_on_gui(lambda: TextEditorWindow(master=get_gui_root(), **kwargs))
 
 
 def load_config():
@@ -427,6 +427,29 @@ def validate(collection: str, content: str, additional_props: tuple[str, ...] = 
 
 
 # ── commands ──────────────────────────────────────────────────────────────────
+
+def _get_collection_names(repo_root: Path, collection: str) -> list[str]:
+    path = collection_path(repo_root, collection)
+    suffix = _repo_suffix(collection)
+    seen: set[str] = set()
+    names: list[str] = []
+    try:
+        for fname in sorted(os.listdir(path)):
+            if fname.startswith(".") or not fname.endswith(suffix):
+                continue
+            stem = fname[: -len(suffix)]
+            fparts = stem.split(".")
+            if len(fparts) == 2 and fparts[1].isdigit() and len(fparts[1]) == 4:
+                encoded = fparts[0]
+                if encoded not in seen:
+                    seen.add(encoded)
+                    name = decode_name(encoded)
+                    if name is not None:
+                        names.append(name)
+    except FileNotFoundError:
+        pass
+    return names
+
 
 def cmd_ls(repo_root: Path, collection: str):
     path = collection_path(repo_root, collection)
@@ -2216,6 +2239,21 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             print("usage: partialcopy <collection> <name> <destination-directory> [--json]")
         else:
             cmd_partialcopy(repo_root, collection, pc_parts[2], pc_parts[3], json_mode)
+
+    elif cmd == "nx":
+        def _dispatch_fn(nx_parts):
+            dispatch(nx_parts, repo_root, downloads_dir, cache_dir, editor,
+                     additional_props, mandatory_ref_props,
+                     field_order=field_order,
+                     prop_validation_types=prop_validation_types,
+                     multiline_props=multiline_props)
+
+        commander = NxCommander(
+            collections=sorted(COLLECTIONS),
+            get_names_fn=lambda col: _get_collection_names(repo_root, col),
+            dispatch_fn=_dispatch_fn,
+        )
+        schedule_on_gui(lambda: commander.run(master=get_gui_root()))
 
     else:
         print(f"unknown command: {cmd!r}")
