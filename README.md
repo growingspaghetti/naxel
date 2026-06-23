@@ -24,6 +24,10 @@ A parallel Rust/Tauri implementation (`src-rs/`) provides the same REPL plus nat
 
 ![JTable diff](readme-imgs/jtable-diff.png)
 
+### nx — navigator
+
+![nx navigator](readme-imgs/nx-gui.png)
+
 ---
 
 ## Quick Start
