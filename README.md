@@ -111,6 +111,7 @@ It writes `repository.ini`, `additional_properties.json`, and `reference_collect
 |---|---|
 | `ls <collection>` | List all entry names in the collection |
 | `add <collection> <name>` | Create a new entry with a blank template |
+| `del <collection> <name>` | Soft-delete all versions of an entry (renames files to a dot-prefix; ignored by all read commands) |
 | `cat <collection> <name>` | Print the latest version to stdout |
 | `cat <collection> <name> --version=N` | Print a specific version to stdout |
 | `cat <collection> <name> --jtable` | Open the latest version in a read-only JTable window |

@@ -83,6 +83,7 @@ All managed data is organised into **collections**. Collections are entirely def
 | `cd <path>` | Switch to a different repository; re-reads all config, resets collections, syncs cache for the new repo. |
 | `ls <collection>` | List all entry names in the collection. |
 | `add <collection> <name>` | Create a new entry with a blank document template. |
+| `del <collection> <name>` | Soft-delete all versions of an entry: renames every versioned file in the repo to a dot-prefixed name and immediately purges those files from the local cache. Deleted entries are ignored by all read commands. |
 | `cat <collection> <name>` | Print the latest version to stdout. |
 | `cat <collection> <name> --version=N` | Print a specific version to stdout. |
 | `cat <collection> <name> --jtable` | Save to `downloads/` and open in a read-only JTable window. |
@@ -180,6 +181,22 @@ Each entry is versioned.
 - `add` creates a file at version `0000`.
 - `push` reads the latest version in the repo and writes a new file at `version + 1`. Old versions are never deleted.
 - `ls`, `cat`, `get`, `push`, and all other commands target the **latest version** (highest version number in the directory).
+
+---
+
+## Deletion
+
+`del <collection> <name>` performs a **soft delete**: every versioned file for that entry is renamed in-place in the repository directory by prepending a `.` to the filename.
+
+| Before | After |
+|---|---|
+| `ENCODED.0000.txt.gz` | `.ENCODED.0000.txt.gz` |
+| `ENCODED.0001.txt.gz` | `.ENCODED.0001.txt.gz` |
+
+- The renamed files remain in the repository and are never physically removed.
+- Dot-prefixed files are **invisible to all read commands**: `ls`, `cat`, `get`, `clear`, `len`, `diff`, `push` (ref validation), `export`, `fullcopy --json`, and `partialcopy --json` all skip filenames starting with `.`.
+- `del` immediately purges the corresponding files from the **local cache** so the deletion is reflected in the current session without restarting.
+- On the next `sync_cache` run (startup, `cd`, or `export`) on any other machine, cache files whose non-dot counterpart is absent from the repo are automatically purged, propagating the deletion to other users.
 
 ---
 
