@@ -296,6 +296,8 @@ These three commands operate on individual records within an entry without requi
 
 **`searchitems`** opens a filter query editor. After saving and closing, matching records are printed as a JSON array to stdout — useful for scripting.
 
+![searchitems query editor](readme-imgs/searchitems-gui.png)
+
 **`removeitems`** works the same way but deletes matching records and pushes the result.
 
 ### Filter query syntax (default — backtick mode)
