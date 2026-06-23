@@ -124,6 +124,15 @@ It writes `repository.ini`, `additional_properties.json`, and `reference_collect
 | `push <collection> <name> --json` | Same, but treat the downloaded file as JSON and convert first |
 | `diff <collection> <name>` | Compare the latest two versions; print JSON with `deleted`/`added` |
 | `diff <collection> <name> --jtable` | Same comparison in a colour-coded JTable window |
+| `appenditems <collection> <name>` | Open a text editor with an empty record template; save and close to append new records to the entry and push |
+| `appenditems <collection> <name> --json` | Same, but write the new records as a JSON array instead of 👉👈 text |
+| `appenditems <collection> <name> -` | Read new records from stdin and append without opening an editor |
+| `searchitems <collection> <name>` | Open a filter query editor; matching records printed as a JSON array to stdout |
+| `searchitems <collection> <name> --json` | Same, but write the filter query as a JSON object instead of backtick syntax |
+| `searchitems <collection> <name> -` | Read the filter query from stdin |
+| `removeitems <collection> <name>` | Open a filter query editor; matching records removed, entry pushed, "removed N items" printed |
+| `removeitems <collection> <name> --json` | Same, but write the filter query as a JSON object |
+| `removeitems <collection> <name> -` | Read the filter query from stdin |
 | `export <collection> <file.csv>` | Build a CSV from all entries and open it in your editor |
 | `export <collection> <file.csv> --jtable` | Same, but open in JTable |
 | `export <collection> <file.json>` | Build a JSON file from all entries |
@@ -272,6 +281,55 @@ Reference collections export as:
 ```csv
 name, values
 business-hours, 2025/01/06 2025/01/07 2025/01/08 2025/01/09 2025/01/10
+```
+
+---
+
+## appenditems / searchitems / removeitems
+
+These three commands operate on individual records within an entry without requiring a full `get` → edit → `push` cycle.
+
+**`appenditems`** opens an editor pre-filled with a blank record template. After saving and closing, the new records are appended to the existing entry and pushed automatically. If the entry is in its initial all-blank state, the blank template is replaced rather than extended.
+
+**`searchitems`** opens a filter query editor. After saving and closing, matching records are printed as a JSON array to stdout — useful for scripting.
+
+**`removeitems`** works the same way but deletes matching records and pushes the result.
+
+### Filter query syntax (default — backtick mode)
+
+```
+`column`='exact value'
+`column` like 'prefix%'
+`column` like '%suffix'
+`column1`='val' and `column2` like 'pat%'
+`column1`='val' or `column2`='other'
+```
+
+- `%` matches any sequence of characters; `_` matches any single character (SQL LIKE semantics).
+- `and` binds tighter than `or`.
+- An empty query (no conditions) matches everything.
+
+### Filter query syntax (`--json` mode)
+
+```json
+{"column1": "exact value", "column2": "prefix%"}
+```
+
+- All key-value pairs are ANDed together.
+- Values containing `%` or `_` are automatically treated as LIKE patterns.
+- An empty object `{}` matches everything.
+
+### Batch-mode examples
+
+```sh
+# Append a new record from a file
+python3 src/app.py -c 'appenditems systems web-01 -' < new-section.txt
+
+# Search and pipe results
+python3 src/app.py -c 'searchitems systems web-01 - --json' <<< '{"status": "active"}'
+
+# Remove all records matching a pattern
+echo '`status`='"'"'deprecated'"'"'' | python3 src/app.py -c 'removeitems systems web-01 -'
 ```
 
 ---
