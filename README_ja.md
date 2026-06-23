@@ -24,6 +24,10 @@ Rust/Tauri版（`src-rs/`）は同じREPLに加えて、組み込みウェブビ
 
 ![JTable diff](readme-imgs/jtable-diff.png)
 
+### nx — ナビゲータ
+
+![nx ナビゲータ](readme-imgs/nx-gui.png)
+
 ---
 
 ## クイックスタート
@@ -145,6 +149,7 @@ python3 src/app.py init /path/to/new-repo
 | `mkrepo <JSONファイル> <保存先ディレクトリ>` | `fullcopy --json` のスナップショットからリポジトリを復元する |
 | `partialcopy <コレクション> <名前> <保存先ディレクトリ>` | リポジトリをコピーするが、指定エントリ以外を消去する |
 | `partialcopy <コレクション> <名前> <保存先ディレクトリ> --json` | 同様をJSONスナップショットとして保存する |
+| `nx` | ナビゲータGUIを開く：コレクションとエントリをドロップダウンで選択し、ボタンで `cat`・`get`・`diff`（`--jtable` あり/なし）を実行する |
 | `cd <パス>` | 別のリポジトリに切り替える |
 | `exit` | 終了する |
 

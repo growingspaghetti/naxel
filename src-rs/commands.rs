@@ -2199,3 +2199,58 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+// ── nx ─────────────────────────────────────────────────────────────────────────
+
+/// Returns decoded names for a collection (same logic as cmd_ls but returns Vec).
+pub fn ls_names(repo_root: &Path, main_coll: &str, collection: &str) -> Vec<String> {
+    let path = col_path(repo_root, collection);
+    let suffix = repo_suffix(collection, main_coll);
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut names: Vec<String> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(&path) else { return names; };
+    let mut fnames: Vec<String> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    fnames.sort();
+    for fname in fnames {
+        if fname.starts_with('.') || !fname.ends_with(suffix) { continue; }
+        let stem = &fname[..fname.len() - suffix.len()];
+        let parts: Vec<&str> = stem.splitn(2, '.').collect();
+        if parts.len() == 2 && parts[1].len() == 4 && parts[1].chars().all(|c| c.is_ascii_digit()) {
+            let encoded = parts[0];
+            if seen.insert(encoded.to_string()) {
+                if let Some(name) = decode_name(encoded) {
+                    names.push(name);
+                }
+            }
+        }
+    }
+    names
+}
+
+pub fn cmd_nx(state: &RepoState, editor: &str) -> Option<crate::table_spec::TableData> {
+    let mut collections: Vec<String> = state.collections.iter().cloned().collect();
+    collections.sort();
+
+    let nx_info = crate::table_spec::NxInfo {
+        repo_root: state.repo_root.clone(),
+        downloads_dir: state.downloads_dir.clone(),
+        cache_dir: state.cache_dir.clone(),
+        main_collection: state.main_collection.clone(),
+        additional_props: state.additional_props.clone(),
+        field_order: state.field_order.clone(),
+        multiline_props: state.multiline_props.iter().cloned().collect(),
+        mandatory_ref_props: state.mandatory_ref_props.iter().map(|m| crate::table_spec::SerMandatoryRefProp {
+            property_name: m.property_name.clone(),
+            collection_name: m.collection_name.clone(),
+            whitelist: m.whitelist.iter().cloned().collect(),
+        }).collect(),
+        collection_type: state.collection_type.clone(),
+        prop_validation_types: state.prop_validation_types.clone(),
+        editor: editor.to_string(),
+    };
+
+    Some(crate::table_spec::TableData::Nx { collections, nx_info })
+}

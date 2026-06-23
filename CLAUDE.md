@@ -42,9 +42,9 @@ src-rs/
   encoding.rs       base32 encode/decode, latest_in_dir, repo_namespace
   formats.rs        👉👈 ↔ JSON conversion, empty templates
   validation.rs     validate_main_collection, validate_ref_collection
-  table_spec.rs     TableData enum + PushInfo struct (serialised between REPL and table window)
+  table_spec.rs     TableData enum + PushInfo struct + NxInfo struct (serialised between REPL and table window)
   gui/
-    mod.rs          Tauri commands (get_table_data, read_file, save_file, save_and_push), show_table
+    mod.rs          Tauri commands (get_table_data, read_file, save_file, save_and_push, get_nx_names, run_nx_cmd), show_table
     query.rs        query parser (mirrors the JS parser in frontend/index.html)
 frontend/
   index.html        single-file HTML/JS table UI (loaded by the Tauri webview)
@@ -68,8 +68,11 @@ The binary runs in two modes selected by the first argument:
 | `MainText`   | `cat --jtable` (readonly) and `get --jtable` / `clear --jtable` (editable) on the main collection |
 | `Ref`        | `cat --jtable` / `get --jtable` / `clear --jtable` on reference collections |
 | `Diff`       | `diff --jtable` |
+| `Nx`         | `nx` — navigator window (collection dropdown + name list + cat/get/diff buttons) |
 
 `MainText` and `Ref` carry an optional `PushInfo` field containing all repo state needed for push (repo root, downloads dir, validation config, mandatory ref props, …). This is populated by `cmd_get` and `cmd_clear` when building editable windows and left `None` for readonly windows (`cat --jtable`). The `save_and_push` Tauri command in `gui/mod.rs` reconstructs a minimal `RepoState` from `PushInfo` and calls `cmd_push` after saving.
+
+`Nx` carries a `collections` list and an `NxInfo` struct (all repo state). The `get_nx_names` Tauri command calls `ls_names()` to populate the name list for a chosen collection. The `run_nx_cmd` Tauri command reconstructs a mini `RepoState` from `NxInfo`, calls `cmd_cat`/`cmd_get`/`cmd_diff`, and spawns a child table process if a `TableData` is returned. The dispatched command string is printed to the terminal by `run_nx_cmd` (Rust) or by `NxCommander` (Python). In the Python version, buttons also call `session.history.append_string` so the command lands in readline history.
 
 ## Project layout
 
@@ -253,6 +256,7 @@ On startup `sync_cache` runs: one `os.listdir` per collection on the NAS and one
 | `mkrepo <json-file> <destination-directory>`          | Reconstruct a repository from a `fullcopy --json` file into `<destination-directory>/<stem>/` |
 | `partialcopy <collection> <name> <destination-directory>` | Copy the repository into `<destination-directory>/<repo-name>/` (all versions), but erase all entries except `<collection> <name>`: other `.txt.gz` files are replaced with `gzip.compress(b"[]")`, other `.txt` files are empty. Config files are copied as-is. |
 | `partialcopy <collection> <name> <destination-directory> --json` | Create `<destination-directory>/<repo-name>.json` like `fullcopy --json`, but with only `<collection> <name>` carrying real data; all other main-collection entries are `[]` and reference-collection entries are `""`. |
+| `nx`                                     | Open a navigator GUI window: a collection drop-down on top, an entry name list below, and two rows of `cat`/`get`/`diff` buttons. The top row appends `--jtable`; the bottom row does not. The dispatched command string is printed to the terminal and added to readline history. Implemented in Python (`NxCommander` in `gui.py`, launched via `schedule_on_gui`) and Rust/Tauri (`cmd_nx` → `TableData::Nx`; `get_nx_names` / `run_nx_cmd` Tauri commands; `Nx` branch in `frontend/index.html`). |
 | `exit`                                   | Quit |
 
 All collections are fully dynamic. The main collection is configured in `repository.ini [main_collection]`; all reference collections come from `reference_collections.json`. There are no built-in collections.

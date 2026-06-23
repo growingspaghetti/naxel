@@ -24,6 +24,10 @@ A parallel Rust/Tauri implementation (`src-rs/`) provides the same REPL plus nat
 
 ![JTable diff](readme-imgs/jtable-diff.png)
 
+### nx — navigator
+
+![nx navigator](readme-imgs/nx-gui.png)
+
 ---
 
 ## Quick Start
@@ -145,6 +149,7 @@ It writes `repository.ini`, `additional_properties.json`, and `reference_collect
 | `mkrepo <json-file> <dest-dir>` | Reconstruct a repository from a `fullcopy --json` snapshot |
 | `partialcopy <collection> <name> <dest-dir>` | Copy the repository but blank out all entries except one |
 | `partialcopy <collection> <name> <dest-dir> --json` | Same as a JSON snapshot |
+| `nx` | Open the navigator GUI: pick a collection and entry from drop-down lists, then run `cat`, `get`, or `diff` (with or without `--jtable`) via buttons |
 | `cd <path>` | Switch to a different repository |
 | `exit` | Quit |
 

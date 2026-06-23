@@ -111,6 +111,7 @@ All managed data is organised into **collections**. Collections are entirely def
 | `mkrepo <json-file> <dest-dir>` | Reconstruct a repository from a `fullcopy --json` file into `<dest-dir>/<stem>/`. |
 | `partialcopy <collection> <name> <dest-dir>` | Copy the repo (all versions) into `<dest-dir>/<repo-name>/`, blanking all entries except `<collection> <name>`. |
 | `partialcopy <collection> <name> <dest-dir> --json` | Same as a JSON snapshot, but only `<collection> <name>` carries real data. |
+| `nx` | Open the navigator GUI window. A drop-down lists all collections; selecting one populates a name list below it. Two rows of buttons — `cat`, `get`, `diff` — execute the corresponding command on the selected entry; the top row appends `--jtable`, the bottom row does not. The dispatched command string is printed to the terminal and added to readline history. |
 | `exit` | Quit the tool. |
 
 `--jtable` is not supported for `.json` exports.

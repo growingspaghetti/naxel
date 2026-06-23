@@ -1,12 +1,65 @@
 import csv
 import json
+import queue as _queue
 import re
 import sys
+import threading
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
 
 _SEP = "🏔" * 20
+
+# ── shared GUI thread ──────────────────────────────────────────────────────────
+# All Tk widget creation must happen on a single thread. `_gui_root` is a hidden
+# Tk() that owns the event loop; JTable / TextEditorWindow / NxCommander create
+# Toplevel() children of it. `schedule_on_gui(fn)` posts fn() to that thread.
+#
+# Cross-thread delivery uses a SimpleQueue polled every 20 ms by the GUI thread
+# itself — calling after() from non-GUI threads is not reliably thread-safe
+# because the underlying _register() call mutates Tcl interpreter state.
+_gui_root: "tk.Tk | None" = None
+_gui_queue: _queue.SimpleQueue = _queue.SimpleQueue()
+_gui_root_lock = threading.Lock()
+
+
+def _poll_gui_queue(root: "tk.Tk") -> None:
+    try:
+        while True:
+            fn = _gui_queue.get_nowait()
+            try:
+                fn()
+            except Exception as exc:
+                print(f"[gui] {exc}", file=sys.stderr)
+    except _queue.Empty:
+        pass
+    root.after(20, lambda: _poll_gui_queue(root))
+
+
+def get_gui_root() -> "tk.Tk":
+    global _gui_root
+    if _gui_root is not None:
+        return _gui_root
+    with _gui_root_lock:
+        if _gui_root is not None:
+            return _gui_root
+        ready = threading.Event()
+        def _run():
+            global _gui_root
+            _gui_root = tk.Tk()
+            _gui_root.withdraw()
+            ready.set()
+            _poll_gui_queue(_gui_root)
+            _gui_root.mainloop()
+        threading.Thread(target=_run, daemon=True).start()
+        ready.wait()
+    return _gui_root
+
+
+def schedule_on_gui(fn) -> None:
+    """Post fn() to the shared GUI thread. Safe to call from any thread."""
+    get_gui_root()  # ensure GUI thread is started
+    _gui_queue.put(fn)
 
 
 def _is_label(line: str) -> bool:
@@ -233,7 +286,8 @@ class JTable:
     def __init__(self, path: str | Path | None = None, mode: str = "csv",
                  readonly: bool = False, diff_data: dict | None = None,
                  title: str | None = None, multiline_cols: frozenset = frozenset(),
-                 ref_data: dict | None = None, push_callback=None):
+                 ref_data: dict | None = None, push_callback=None,
+                 master: "tk.Tk | None" = None):
         """
         mode          : "csv" for CSV files, "main_text" for 👉👈 text files
         readonly      : hide Save button and disable editing (cat --jtable)
@@ -242,6 +296,7 @@ class JTable:
         multiline_cols: set of column names that open a multiline dialog on double-click
         ref_data      : {property_name: {entry_name: content}} for deep reference search
                         (only used when readonly=True)
+        master        : shared Tk root; when given, a Toplevel is created instead of Tk()
         """
         self._path = Path(path) if path else None
         self._mode = mode
@@ -260,7 +315,8 @@ class JTable:
         self._count_label: tk.Label | None = None
         self._original_headings: list[str] | None = None  # saved when in lookup mode
 
-        self._root = tk.Tk()
+        self._own_root = master is None
+        self._root = tk.Tk() if master is None else tk.Toplevel(master)
         self._root.title(title or (self._path.name if self._path else "diff"))
         self._root.geometry("960x540")
         self._build()
@@ -694,16 +750,19 @@ class JTable:
             self._push_callback()
 
     def run(self):
-        self._root.mainloop()
+        if self._own_root:
+            self._root.mainloop()
 
 
 class TextEditorWindow:
     """Lightweight tk.Text window for entering or viewing text."""
 
     def __init__(self, title: str = "", initial_text: str = "", hint: str = "",
-                 submit_label: str = "Submit", callback=None, readonly: bool = False):
+                 submit_label: str = "Submit", callback=None, readonly: bool = False,
+                 master: "tk.Tk | None" = None):
         self._callback = callback
-        self._root = tk.Tk()
+        self._own_root = master is None
+        self._root = tk.Tk() if master is None else tk.Toplevel(master)
         self._root.title(title or "Text Editor")
         self._root.geometry("720x520")
         self._build(initial_text, hint, submit_label, readonly)
@@ -744,10 +803,82 @@ class TextEditorWindow:
     def _submit(self):
         content = self._text.get("1.0", "end-1c")
         if self._callback:
-            self._callback(content)
+            threading.Thread(target=lambda: self._callback(content), daemon=True).start()
 
     def run(self):
-        self._root.mainloop()
+        if self._own_root:
+            self._root.mainloop()
+
+
+class NxCommander:
+    """Collection/name navigator with cat · get · diff buttons (with and without --jtable)."""
+
+    def __init__(self, collections: list[str], get_names_fn, dispatch_fn, history_fn=None):
+        self._collections = collections
+        self._get_names_fn = get_names_fn
+        self._dispatch_fn = dispatch_fn
+        self._history_fn = history_fn
+
+    def run(self, master: "tk.Tk | None" = None):
+        own_root = master is None
+        root = tk.Tk() if master is None else tk.Toplevel(master)
+        root.title("nx")
+        root.geometry("360x480")
+
+        top = ttk.Frame(root, padding=4)
+        top.pack(fill=tk.X)
+        col_var = tk.StringVar()
+        combo = ttk.Combobox(top, textvariable=col_var,
+                             values=self._collections, state="readonly")
+        combo.pack(fill=tk.X)
+
+        mid = ttk.Frame(root, padding=4)
+        mid.pack(fill=tk.BOTH, expand=True)
+        listbox = tk.Listbox(mid, selectmode=tk.SINGLE, activestyle="none")
+        vsb = ttk.Scrollbar(mid, orient=tk.VERTICAL, command=listbox.yview)
+        listbox.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        listbox.pack(fill=tk.BOTH, expand=True)
+
+        def refresh_list(*_):
+            col = col_var.get()
+            listbox.delete(0, tk.END)
+            if col:
+                for name in self._get_names_fn(col):
+                    listbox.insert(tk.END, name)
+
+        col_var.trace_add("write", refresh_list)
+
+        def run_cmd(cmd, jtable):
+            col = col_var.get()
+            sel = listbox.curselection()
+            if not col or not sel:
+                return
+            name = listbox.get(sel[0])
+            parts = [cmd, col, name]
+            if jtable:
+                parts.append("--jtable")
+            cmd_str = " ".join(parts)
+            print(cmd_str, flush=True)
+            if self._history_fn:
+                self._history_fn(cmd_str)
+            threading.Thread(target=lambda: self._dispatch_fn(parts), daemon=True).start()
+
+        for jtable in (True, False):
+            row = ttk.Frame(root, padding=(4, 2))
+            row.pack(fill=tk.X)
+            for cmd in ("cat", "get", "diff"):
+                label = f"{cmd}\ngui" if jtable else cmd
+                ttk.Button(row, text=label,
+                           command=lambda c=cmd, j=jtable: run_cmd(c, j)).pack(
+                    side=tk.LEFT, padx=2)
+
+        if self._collections:
+            combo.current(0)
+            refresh_list()
+
+        if own_root:
+            root.mainloop()
 
 
 if __name__ == "__main__":
