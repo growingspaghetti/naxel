@@ -857,6 +857,7 @@ class NxCommander:
             parts = [cmd, col, name]
             if jtable:
                 parts.append("--jtable")
+            print(" ".join(parts), flush=True)
             threading.Thread(target=lambda: self._dispatch_fn(parts), daemon=True).start()
 
         for jtable in (True, False):
