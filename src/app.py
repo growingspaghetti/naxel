@@ -741,7 +741,8 @@ def cmd_appenditems(repo_root: Path, collection: str, name: str,
                     field_order: tuple[str, ...] | None = None,
                     prop_validation_types: dict[str, str] = {},
                     multiline_props: frozenset[str] = frozenset(),
-                    json_mode: bool = False):
+                    json_mode: bool = False,
+                    stdin_content: str | None = None):
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
         print(f"error: not found: {name}")
@@ -796,9 +797,12 @@ def cmd_appenditems(repo_root: Path, collection: str, name: str,
                      prop_validation_types=prop_validation_types,
                      multiline_props=multiline_props)
 
-        _launch_text_editor(title=f"appenditems {collection} {name}",
-                            initial_text=initial_text, hint=hint,
-                            submit_label="Append & Push", callback=_append_cb)
+        if stdin_content is not None:
+            _append_cb(stdin_content)
+        else:
+            _launch_text_editor(title=f"appenditems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Append & Push", callback=_append_cb)
     else:
         if json_mode:
             initial_text = "[]"
@@ -841,9 +845,12 @@ def cmd_appenditems(repo_root: Path, collection: str, name: str,
                      prop_validation_types=prop_validation_types,
                      multiline_props=multiline_props)
 
-        _launch_text_editor(title=f"appenditems {collection} {name}",
-                            initial_text=initial_text, hint=hint,
-                            submit_label="Append & Push", callback=_append_cb_ref)
+        if stdin_content is not None:
+            _append_cb_ref(stdin_content)
+        else:
+            _launch_text_editor(title=f"appenditems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Append & Push", callback=_append_cb_ref)
 
 
 def _make_query_editor(collection: str, name: str, cols: list[str],
@@ -897,7 +904,8 @@ def cmd_searchitems(repo_root: Path, collection: str, name: str,
                     additional_props: tuple[str, ...] = (), *,
                     field_order: tuple[str, ...] | None = None,
                     multiline_props: frozenset[str] = frozenset(),
-                    json_mode: bool = False):
+                    json_mode: bool = False,
+                    stdin_content: str | None = None):
     """--json changes query INPUT to JSON format; results are always JSON."""
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
@@ -917,9 +925,12 @@ def cmd_searchitems(repo_root: Path, collection: str, name: str,
             matched = [s for s in sections if filter_fn(s)]
             print(json.dumps(matched, ensure_ascii=False, indent=2), flush=True)
 
-        _launch_text_editor(title=f"searchitems {collection} {name}",
-                            initial_text=initial_text, hint=hint,
-                            submit_label="Search", callback=_search_cb)
+        if stdin_content is not None:
+            _search_cb(stdin_content)
+        else:
+            _launch_text_editor(title=f"searchitems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Search", callback=_search_cb)
     else:
         initial_text, hint = _make_query_editor(collection, name, [], json_mode, "search")
 
@@ -933,9 +944,12 @@ def cmd_searchitems(repo_root: Path, collection: str, name: str,
             matched = [v for v in values if filter_fn({"values": v})]
             print(json.dumps(matched, ensure_ascii=False, indent=2), flush=True)
 
-        _launch_text_editor(title=f"searchitems {collection} {name}",
-                            initial_text=initial_text, hint=hint,
-                            submit_label="Search", callback=_search_cb_ref)
+        if stdin_content is not None:
+            _search_cb_ref(stdin_content)
+        else:
+            _launch_text_editor(title=f"searchitems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Search", callback=_search_cb_ref)
 
 
 def cmd_removeitems(repo_root: Path, collection: str, name: str,
@@ -944,7 +958,8 @@ def cmd_removeitems(repo_root: Path, collection: str, name: str,
                     field_order: tuple[str, ...] | None = None,
                     prop_validation_types: dict[str, str] = {},
                     multiline_props: frozenset[str] = frozenset(),
-                    json_mode: bool = False):
+                    json_mode: bool = False,
+                    stdin_content: str | None = None):
     """--json changes query INPUT to JSON format; output is always 'removed N items'."""
     filepath = find_latest_file(repo_root, collection, name)
     if filepath is None:
@@ -979,9 +994,12 @@ def cmd_removeitems(repo_root: Path, collection: str, name: str,
                      multiline_props=multiline_props)
             print(f"removed {n_removed} items", flush=True)
 
-        _launch_text_editor(title=f"removeitems {collection} {name}",
-                            initial_text=initial_text, hint=hint,
-                            submit_label="Remove", callback=_remove_cb)
+        if stdin_content is not None:
+            _remove_cb(stdin_content)
+        else:
+            _launch_text_editor(title=f"removeitems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Remove", callback=_remove_cb)
     else:
         initial_text, hint = _make_query_editor(collection, name, [], json_mode, "remove")
 
@@ -1008,9 +1026,12 @@ def cmd_removeitems(repo_root: Path, collection: str, name: str,
                      multiline_props=multiline_props)
             print(f"removed {n_removed} items", flush=True)
 
-        _launch_text_editor(title=f"removeitems {collection} {name}",
-                            initial_text=initial_text, hint=hint,
-                            submit_label="Remove", callback=_remove_cb_ref)
+        if stdin_content is not None:
+            _remove_cb_ref(stdin_content)
+        else:
+            _launch_text_editor(title=f"removeitems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Remove", callback=_remove_cb_ref)
 
 
 def _parse_main_collection_sections(content: str, additional_props: tuple[str, ...] = (), *,
@@ -1905,9 +1926,9 @@ def usage_string() -> str:
         "  clear <collection> <name> [--jtable]\n"
         "  len <collection> <name>\n"
         "  push <collection> <name>\n"
-        "  appenditems <collection> <name> [--json]\n"
-        "  searchitems <collection> <name> [--json]\n"
-        "  removeitems <collection> <name> [--json]\n"
+        "  appenditems <collection> <name> [-] [--json]\n"
+        "  searchitems <collection> <name> [-] [--json]\n"
+        "  removeitems <collection> <name> [-] [--json]\n"
         "  export <collection> <file.csv> [--jtable]\n"
         "  export <collection> <file.json>\n"
         "  diff <collection> <name> [--jtable]\n"
@@ -2027,40 +2048,46 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
 
     elif cmd == "appenditems":
         json_mode = "--json" in parts
-        ap_parts = [p for p in parts if p != "--json"]
+        stdin_flag = "-" in parts
+        ap_parts = [p for p in parts if p not in ("--json", "-")]
         if len(ap_parts) != 3:
-            print("usage: appenditems <collection> <name> [--json]")
+            print("usage: appenditems <collection> <name> [-] [--json]")
         else:
             cmd_appenditems(repo_root, collection, ap_parts[2], downloads_dir,
                             additional_props, mandatory_ref_props,
                             field_order=field_order,
                             prop_validation_types=prop_validation_types,
                             multiline_props=multiline_props,
-                            json_mode=json_mode)
+                            json_mode=json_mode,
+                            stdin_content=sys.stdin.read() if stdin_flag else None)
 
     elif cmd == "searchitems":
         json_mode = "--json" in parts
-        si_parts = [p for p in parts if p != "--json"]
+        stdin_flag = "-" in parts
+        si_parts = [p for p in parts if p not in ("--json", "-")]
         if len(si_parts) != 3:
-            print("usage: searchitems <collection> <name> [--json]")
+            print("usage: searchitems <collection> <name> [-] [--json]")
         else:
             cmd_searchitems(repo_root, collection, si_parts[2], additional_props,
                             field_order=field_order,
                             multiline_props=multiline_props,
-                            json_mode=json_mode)
+                            json_mode=json_mode,
+                            stdin_content=sys.stdin.read() if stdin_flag else None)
 
     elif cmd == "removeitems":
         json_mode = "--json" in parts
-        ri_parts = [p for p in parts if p != "--json"]
+        stdin_flag = "-" in parts
+        ri_parts = [p for p in parts if p not in ("--json", "-")]
         if len(ri_parts) != 3:
-            print("usage: removeitems <collection> <name> [--json]")
+            print("usage: removeitems <collection> <name> [-] [--json]")
         else:
             cmd_removeitems(repo_root, collection, ri_parts[2], downloads_dir,
                             additional_props, mandatory_ref_props,
                             field_order=field_order,
                             prop_validation_types=prop_validation_types,
                             multiline_props=multiline_props,
-                            json_mode=json_mode)
+                            json_mode=json_mode,
+                            stdin_content=sys.stdin.read() if stdin_flag else None)
 
     elif cmd == "export":
         jtable = "--jtable" in parts

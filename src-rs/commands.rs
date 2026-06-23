@@ -1676,6 +1676,7 @@ pub fn cmd_appenditems(
     name: &str,
     editor: &str,
     json_mode: bool,
+    stdin_content: Option<String>,
 ) {
     let filepath = match find_latest(&state.repo_root, &state.main_collection, collection, name) {
         Some(p) => p,
@@ -1685,23 +1686,27 @@ pub fn cmd_appenditems(
     let encoded = encode_name(name);
     let dl_dir = state.downloads_dir.join(collection);
     let _ = std::fs::create_dir_all(&dl_dir);
-
-    let temp_path = dl_dir.join(format!("_append_{encoded}.txt"));
     let dl_name_full = filepath.file_name().unwrap().to_string_lossy().into_owned();
     let dl_name = dl_name_full.strip_suffix(".gz").unwrap_or(&dl_name_full).to_string();
     let dest = dl_dir.join(&dl_name);
 
     if collection == state.main_collection {
-        let template = if json_mode {
-            format!("# Write new sections as a JSON array, then save and close:\n{}\n",
-                    crate::formats::empty_main_collection_json(field_order).trim_end())
-        } else {
-            format!("# Write new sections below (👉👈 format), then save and close:\n{}",
-                    empty_main_collection_document(field_order))
+        let content = match stdin_content {
+            Some(s) => s,
+            None => {
+                let temp_path = dl_dir.join(format!("_append_{encoded}.txt"));
+                let template = if json_mode {
+                    format!("# Write new sections as a JSON array, then save and close:\n{}\n",
+                            crate::formats::empty_main_collection_json(field_order).trim_end())
+                } else {
+                    format!("# Write new sections below (👉👈 format), then save and close:\n{}",
+                            empty_main_collection_document(field_order))
+                };
+                let _ = std::fs::write(&temp_path, &template);
+                if !open_editor_blocking(editor, &temp_path) { return; }
+                std::fs::read_to_string(&temp_path).unwrap_or_default()
+            }
         };
-        let _ = std::fs::write(&temp_path, &template);
-        if !open_editor_blocking(editor, &temp_path) { return; }
-        let content = std::fs::read_to_string(&temp_path).unwrap_or_default();
         let stripped = strip_comments(&content);
 
         let new_sections: Vec<serde_json::Value> = if json_mode {
@@ -1728,14 +1733,20 @@ pub fn cmd_appenditems(
         println!("appended {n_new} items");
         cmd_push(state, collection, name, false);
     } else {
-        let template = if json_mode {
-            "# Write new values as a JSON array, then save and close:\n[]\n".to_string()
-        } else {
-            "# Enter new comma-separated values, then save and close:\n".to_string()
+        let content = match stdin_content {
+            Some(s) => s,
+            None => {
+                let temp_path = dl_dir.join(format!("_append_{encoded}.txt"));
+                let template = if json_mode {
+                    "# Write new values as a JSON array, then save and close:\n[]\n".to_string()
+                } else {
+                    "# Enter new comma-separated values, then save and close:\n".to_string()
+                };
+                let _ = std::fs::write(&temp_path, &template);
+                if !open_editor_blocking(editor, &temp_path) { return; }
+                std::fs::read_to_string(&temp_path).unwrap_or_default()
+            }
         };
-        let _ = std::fs::write(&temp_path, &template);
-        if !open_editor_blocking(editor, &temp_path) { return; }
-        let content = std::fs::read_to_string(&temp_path).unwrap_or_default();
         let stripped = strip_comments(&content);
 
         let new_values: Vec<String> = if json_mode {
@@ -1769,18 +1780,24 @@ pub fn cmd_searchitems(
     name: &str,
     editor: &str,
     json_mode: bool,
+    stdin_content: Option<String>,
 ) {
     let filepath = match find_latest(&state.repo_root, &state.main_collection, collection, name) {
         Some(p) => p,
         None => { eprintln!("error: not found: {name}"); return; }
     };
     let field_order = state.field_order.as_deref().unwrap_or(&state.additional_props);
-    let _ = std::fs::create_dir_all(&state.downloads_dir);
-    let query_path = state.downloads_dir
-        .join(format!("_searchquery_{}_{}.txt", collection, name));
-    let _ = std::fs::write(&query_path, query_template(field_order, json_mode, "search"));
-    if !open_editor_blocking(editor, &query_path) { return; }
-    let raw = std::fs::read_to_string(&query_path).unwrap_or_default();
+    let raw = match stdin_content {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::create_dir_all(&state.downloads_dir);
+            let query_path = state.downloads_dir
+                .join(format!("_searchquery_{}_{}.txt", collection, name));
+            let _ = std::fs::write(&query_path, query_template(field_order, json_mode, "search"));
+            if !open_editor_blocking(editor, &query_path) { return; }
+            std::fs::read_to_string(&query_path).unwrap_or_default()
+        }
+    };
     let filter = match resolve_filter(&raw, json_mode) {
         Ok(f)  => f,
         Err(e) => { eprintln!("error: {e}"); return; }
@@ -1810,18 +1827,24 @@ pub fn cmd_removeitems(
     name: &str,
     editor: &str,
     json_mode: bool,
+    stdin_content: Option<String>,
 ) {
     let filepath = match find_latest(&state.repo_root, &state.main_collection, collection, name) {
         Some(p) => p,
         None => { eprintln!("error: not found: {name}"); return; }
     };
     let field_order = state.field_order.as_deref().unwrap_or(&state.additional_props);
-    let _ = std::fs::create_dir_all(&state.downloads_dir);
-    let query_path = state.downloads_dir
-        .join(format!("_removequery_{}_{}.txt", collection, name));
-    let _ = std::fs::write(&query_path, query_template(field_order, json_mode, "remove"));
-    if !open_editor_blocking(editor, &query_path) { return; }
-    let raw = std::fs::read_to_string(&query_path).unwrap_or_default();
+    let raw = match stdin_content {
+        Some(s) => s,
+        None => {
+            let _ = std::fs::create_dir_all(&state.downloads_dir);
+            let query_path = state.downloads_dir
+                .join(format!("_removequery_{}_{}.txt", collection, name));
+            let _ = std::fs::write(&query_path, query_template(field_order, json_mode, "remove"));
+            if !open_editor_blocking(editor, &query_path) { return; }
+            std::fs::read_to_string(&query_path).unwrap_or_default()
+        }
+    };
     let filter = match resolve_filter(&raw, json_mode) {
         Ok(f)  => f,
         Err(e) => { eprintln!("error: {e}"); return; }
