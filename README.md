@@ -112,8 +112,11 @@ It writes `repository.ini`, `additional_properties.json`, and `reference_collect
 | `ls <collection>` | List all entry names in the collection |
 | `add <collection> <name>` | Create a new entry with a blank template |
 | `cat <collection> <name>` | Print the latest version to stdout |
+| `cat <collection> <name> --version=N` | Print a specific version to stdout |
 | `cat <collection> <name> --jtable` | Open the latest version in a read-only JTable window |
+| `cat <collection> <name> --version=N --jtable` | Open a specific version in a read-only JTable window |
 | `cat <collection> <name> --json` | Print the latest version as JSON |
+| `cat <collection> <name> --version=N --json` | Print a specific version as JSON |
 | `get <collection> <name>` | Download the latest version and open it in your editor |
 | `get <collection> <name> --jtable` | Download and open in an editable JTable window |
 | `get <collection> <name> -` | Download; read new content from stdin (for pipelines) |
