@@ -18,7 +18,7 @@ fn usage(state: &RepoState) {
     let mut colls: Vec<&str> = state.collections.iter().map(|s| s.as_str()).collect();
     colls.sort();
     println!(
-        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  cat <collection> <name> [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
+        "commands:\n  cd <path>\n  ls <collection>\n  add <collection> <name>\n  cat <collection> <name> [--jtable] [--json]\n  get <collection> <name> [--jtable] [-]\n  clear <collection> <name> [--jtable]\n  len <collection> <name>\n  push <collection> <name>\n  export <collection> <file.csv|file.json> [--jtable]\n  diff <collection> <name> [--jtable]\n  appenditems <collection> <name> [-] [--json]\n  searchitems <collection> <name> [-] [--json]\n  removeitems <collection> <name> [-] [--json]\n  fullcopy <destination-directory> [--json]\n  mkrepo <json-file> <destination-directory>\n  partialcopy <collection> <name> <destination-directory> [--json]\n  exit\ncollections: {}",
         colls.join(", ")
     );
 }
@@ -81,7 +81,8 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
 
     let needs_collection = matches!(
         cmd,
-        "ls" | "add" | "cat" | "get" | "clear" | "len" | "push" | "export" | "diff" | "partialcopy"
+        "ls" | "add" | "cat" | "get" | "clear" | "len" | "push" | "export" | "diff"
+        | "partialcopy" | "appenditems" | "searchitems" | "removeitems"
     );
 
     let collection = if needs_collection {
@@ -176,6 +177,60 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
             let real_parts: Vec<&str> = parts.iter().filter(|&&p| p != "--jtable").copied().collect();
             if real_parts.len() != 3 { eprintln!("usage: diff <collection> <name> [--jtable]"); None }
             else { cmd_diff(state, collection, real_parts[2], jtable) }
+        }
+        "appenditems" => {
+            let json_mode = parts.contains(&"--json");
+            let stdin_flag = parts.contains(&"-");
+            let real_parts: Vec<&str> = parts.iter()
+                .filter(|&&p| p != "--json" && p != "-").copied().collect();
+            if real_parts.len() != 3 {
+                eprintln!("usage: appenditems <collection> <name> [-] [--json]");
+            } else {
+                let stdin_content = if stdin_flag {
+                    use std::io::Read;
+                    let mut s = String::new();
+                    std::io::stdin().read_to_string(&mut s).ok();
+                    Some(s)
+                } else { None };
+                cmd_appenditems(state, collection, real_parts[2], editor, json_mode, stdin_content);
+            }
+            None
+        }
+        "searchitems" => {
+            let json_mode = parts.contains(&"--json");
+            let stdin_flag = parts.contains(&"-");
+            let real_parts: Vec<&str> = parts.iter()
+                .filter(|&&p| p != "--json" && p != "-").copied().collect();
+            if real_parts.len() != 3 {
+                eprintln!("usage: searchitems <collection> <name> [-] [--json]");
+            } else {
+                let stdin_content = if stdin_flag {
+                    use std::io::Read;
+                    let mut s = String::new();
+                    std::io::stdin().read_to_string(&mut s).ok();
+                    Some(s)
+                } else { None };
+                cmd_searchitems(state, collection, real_parts[2], editor, json_mode, stdin_content);
+            }
+            None
+        }
+        "removeitems" => {
+            let json_mode = parts.contains(&"--json");
+            let stdin_flag = parts.contains(&"-");
+            let real_parts: Vec<&str> = parts.iter()
+                .filter(|&&p| p != "--json" && p != "-").copied().collect();
+            if real_parts.len() != 3 {
+                eprintln!("usage: removeitems <collection> <name> [-] [--json]");
+            } else {
+                let stdin_content = if stdin_flag {
+                    use std::io::Read;
+                    let mut s = String::new();
+                    std::io::stdin().read_to_string(&mut s).ok();
+                    Some(s)
+                } else { None };
+                cmd_removeitems(state, collection, real_parts[2], editor, json_mode, stdin_content);
+            }
+            None
         }
         "fullcopy" => {
             let json_mode = parts.contains(&"--json");

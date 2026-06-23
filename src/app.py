@@ -13,13 +13,17 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from gui import JTable
+from gui import JTable, TextEditorWindow
 
 SCRIPT_DIR = Path(__file__).parent.parent
 
 
 def _launch_jtable(**kwargs):
     threading.Thread(target=lambda: JTable(**kwargs).run(), daemon=True).start()
+
+
+def _launch_text_editor(**kwargs):
+    threading.Thread(target=lambda: TextEditorWindow(**kwargs).run(), daemon=True).start()
 
 
 def load_config():
@@ -731,6 +735,305 @@ def cmd_push(repo_root: Path, collection: str, name: str, downloads_dir: Path,
     print(f"pushed: {name} (version {new_version:04d})")
 
 
+def cmd_appenditems(repo_root: Path, collection: str, name: str,
+                    downloads_dir: Path, additional_props: tuple[str, ...] = (),
+                    mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
+                    field_order: tuple[str, ...] | None = None,
+                    prop_validation_types: dict[str, str] = {},
+                    multiline_props: frozenset[str] = frozenset(),
+                    json_mode: bool = False,
+                    stdin_content: str | None = None):
+    filepath = find_latest_file(repo_root, collection, name)
+    if filepath is None:
+        print(f"error: not found: {name}")
+        return
+
+    if collection == MAIN_COLLECTION:
+        cols = list(field_order) if field_order is not None else list(additional_props)
+        if json_mode:
+            initial_text = _empty_main_collection_json(additional_props, field_order=field_order)
+            fmt_hint = "JSON format — array of section objects"
+        else:
+            initial_text = _empty_main_collection_document(additional_props, field_order=field_order)
+            fmt_hint = "👉👈 text format — one section starting with the separator"
+        hint = (
+            f"Write new sections to append ({fmt_hint}).\n"
+            f"Columns: {', '.join(cols)}\n"
+            "Click 'Append & Push' to add them to the existing entry."
+        )
+
+        def _append_cb(text_content: str, _fp=filepath):
+            if json_mode:
+                try:
+                    raw = json.loads(text_content)
+                    new_sections = raw if isinstance(raw, list) else [raw]
+                except Exception as e:
+                    print(f"error: invalid JSON: {e}", flush=True)
+                    return
+            else:
+                new_sections = _parse_main_collection_sections(
+                    text_content, additional_props,
+                    field_order=field_order, multiline_props=multiline_props)
+            if not new_sections:
+                print("nothing to append", flush=True)
+                return
+            existing = json.loads(gzip.decompress(_fp.read_bytes()).decode())
+            existing_text = _main_collection_sections_to_text(
+                existing, additional_props, field_order=field_order)
+            if _is_initial_state_main_collection(existing_text, additional_props,
+                                                 field_order=field_order,
+                                                 multiline_props=multiline_props):
+                existing = []
+            combined_text = _main_collection_sections_to_text(
+                existing + new_sections, additional_props, field_order=field_order)
+            dl_dir = downloads_dir / collection
+            dl_dir.mkdir(parents=True, exist_ok=True)
+            dest = dl_dir / _fp.name[:-3]  # strip .gz
+            dest.write_text(combined_text, encoding="utf-8")
+            print(f"appended {len(new_sections)} items", flush=True)
+            cmd_push(repo_root, collection, name, downloads_dir,
+                     additional_props, mandatory_ref_props,
+                     field_order=field_order,
+                     prop_validation_types=prop_validation_types,
+                     multiline_props=multiline_props)
+
+        if stdin_content is not None:
+            _append_cb(stdin_content)
+        else:
+            _launch_text_editor(title=f"appenditems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Append & Push", callback=_append_cb)
+    else:
+        if json_mode:
+            initial_text = "[]"
+            fmt_hint = "JSON array of strings"
+        else:
+            initial_text = ""
+            fmt_hint = "comma-separated values"
+        hint = (
+            f"Write new values to append ({fmt_hint}).\n"
+            "Click 'Append & Push' to add them to the existing entry."
+        )
+
+        def _append_cb_ref(text_content: str, _fp=filepath):
+            if json_mode:
+                try:
+                    raw = json.loads(text_content)
+                    if not isinstance(raw, list):
+                        print("error: expected a JSON array", flush=True)
+                        return
+                    new_values = [str(v) for v in raw if v]
+                except Exception as e:
+                    print(f"error: invalid JSON: {e}", flush=True)
+                    return
+            else:
+                new_values = [v.strip() for v in text_content.split(",") if v.strip()]
+            if not new_values:
+                print("nothing to append", flush=True)
+                return
+            existing_raw = _fp.read_text(encoding="utf-8").strip()
+            existing_values = [v.strip() for v in existing_raw.split(",") if v.strip()] if existing_raw else []
+            combined = existing_values + new_values
+            dl_dir = downloads_dir / collection
+            dl_dir.mkdir(parents=True, exist_ok=True)
+            dest = dl_dir / _fp.name
+            dest.write_text(",".join(combined) + "\n", encoding="utf-8")
+            print(f"appended {len(new_values)} items", flush=True)
+            cmd_push(repo_root, collection, name, downloads_dir,
+                     additional_props, mandatory_ref_props,
+                     field_order=field_order,
+                     prop_validation_types=prop_validation_types,
+                     multiline_props=multiline_props)
+
+        if stdin_content is not None:
+            _append_cb_ref(stdin_content)
+        else:
+            _launch_text_editor(title=f"appenditems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Append & Push", callback=_append_cb_ref)
+
+
+def _make_query_editor(collection: str, name: str, cols: list[str],
+                       json_mode: bool, action: str) -> tuple:
+    """Return (initial_text, hint) for a query TextEditorWindow.
+
+    action: 'search' | 'remove'
+    json_mode: True → JSON query {"col": "val"} (values with % use LIKE)
+               False → backtick query `col`='val' and `col2` like 'pat%'
+    """
+    verb = "show matching sections" if action == "search" else "remove matching sections/values"
+    if json_mode:
+        example = json.dumps({c: "" for c in (cols[:2] if cols else ["values"])},
+                             ensure_ascii=False, indent=2)
+        hint = (
+            f"JSON query: keys are column names, values are exact strings\n"
+            f"(values containing % or _ use LIKE matching, e.g. \"prefix%\").\n"
+            f"All key-value pairs are ANDed together.  Empty object matches everything.\n"
+            f"Columns: {', '.join(cols) if cols else 'values'}\n"
+            f"Click '{action.capitalize()}' to {verb}."
+        )
+        return example, hint
+    else:
+        hint = (
+            f"Filter syntax: `column`='value'  |  `column` like 'pattern%'\n"
+            f"Combine with AND / OR.  Empty query matches everything.\n"
+            f"Columns: {', '.join(cols) if cols else 'values'}\n"
+            f"Click '{action.capitalize()}' to {verb}."
+        )
+        return "", hint
+
+
+def _resolve_filter(query_text: str, json_mode: bool):
+    """Parse the query text and return (filter_fn, error_str | None)."""
+    if json_mode:
+        try:
+            obj = json.loads(query_text) if query_text.strip() else {}
+            if not isinstance(obj, dict):
+                return None, "expected a JSON object"
+            return _parse_json_item_filter(obj), None
+        except json.JSONDecodeError as e:
+            return None, f"invalid JSON: {e}"
+    else:
+        try:
+            return _parse_item_filter(query_text), None
+        except ValueError as e:
+            return None, str(e)
+
+
+def cmd_searchitems(repo_root: Path, collection: str, name: str,
+                    additional_props: tuple[str, ...] = (), *,
+                    field_order: tuple[str, ...] | None = None,
+                    multiline_props: frozenset[str] = frozenset(),
+                    json_mode: bool = False,
+                    stdin_content: str | None = None):
+    """--json changes query INPUT to JSON format; results are always JSON."""
+    filepath = find_latest_file(repo_root, collection, name)
+    if filepath is None:
+        print(f"error: not found: {name}")
+        return
+
+    if collection == MAIN_COLLECTION:
+        cols = list(field_order) if field_order is not None else list(additional_props)
+        initial_text, hint = _make_query_editor(collection, name, cols, json_mode, "search")
+
+        def _search_cb(query_text: str, _fp=filepath):
+            filter_fn, err = _resolve_filter(query_text, json_mode)
+            if err:
+                print(f"error: {err}", flush=True)
+                return
+            sections = json.loads(gzip.decompress(_fp.read_bytes()).decode())
+            matched = [s for s in sections if filter_fn(s)]
+            print(json.dumps(matched, ensure_ascii=False, indent=2), flush=True)
+
+        if stdin_content is not None:
+            _search_cb(stdin_content)
+        else:
+            _launch_text_editor(title=f"searchitems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Search", callback=_search_cb)
+    else:
+        initial_text, hint = _make_query_editor(collection, name, [], json_mode, "search")
+
+        def _search_cb_ref(query_text: str, _fp=filepath):
+            filter_fn, err = _resolve_filter(query_text, json_mode)
+            if err:
+                print(f"error: {err}", flush=True)
+                return
+            raw = _fp.read_text(encoding="utf-8").strip()
+            values = [v.strip() for v in raw.split(",") if v.strip()] if raw else []
+            matched = [v for v in values if filter_fn({"values": v})]
+            print(json.dumps(matched, ensure_ascii=False, indent=2), flush=True)
+
+        if stdin_content is not None:
+            _search_cb_ref(stdin_content)
+        else:
+            _launch_text_editor(title=f"searchitems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Search", callback=_search_cb_ref)
+
+
+def cmd_removeitems(repo_root: Path, collection: str, name: str,
+                    downloads_dir: Path, additional_props: tuple[str, ...] = (),
+                    mandatory_ref_props: tuple[tuple[str, str, frozenset[str]], ...] = (), *,
+                    field_order: tuple[str, ...] | None = None,
+                    prop_validation_types: dict[str, str] = {},
+                    multiline_props: frozenset[str] = frozenset(),
+                    json_mode: bool = False,
+                    stdin_content: str | None = None):
+    """--json changes query INPUT to JSON format; output is always 'removed N items'."""
+    filepath = find_latest_file(repo_root, collection, name)
+    if filepath is None:
+        print(f"error: not found: {name}")
+        return
+
+    if collection == MAIN_COLLECTION:
+        cols = list(field_order) if field_order is not None else list(additional_props)
+        initial_text, hint = _make_query_editor(collection, name, cols, json_mode, "remove")
+
+        def _remove_cb(query_text: str, _fp=filepath):
+            filter_fn, err = _resolve_filter(query_text, json_mode)
+            if err:
+                print(f"error: {err}", flush=True)
+                return
+            sections = json.loads(gzip.decompress(_fp.read_bytes()).decode())
+            remaining = [s for s in sections if not filter_fn(s)]
+            n_removed = len(sections) - len(remaining)
+            if n_removed == 0:
+                print("no matching sections — nothing removed", flush=True)
+                return
+            combined_text = _main_collection_sections_to_text(
+                remaining, additional_props, field_order=field_order)
+            dl_dir = downloads_dir / collection
+            dl_dir.mkdir(parents=True, exist_ok=True)
+            dest = dl_dir / _fp.name[:-3]
+            dest.write_text(combined_text, encoding="utf-8")
+            cmd_push(repo_root, collection, name, downloads_dir,
+                     additional_props, mandatory_ref_props,
+                     field_order=field_order,
+                     prop_validation_types=prop_validation_types,
+                     multiline_props=multiline_props)
+            print(f"removed {n_removed} items", flush=True)
+
+        if stdin_content is not None:
+            _remove_cb(stdin_content)
+        else:
+            _launch_text_editor(title=f"removeitems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Remove", callback=_remove_cb)
+    else:
+        initial_text, hint = _make_query_editor(collection, name, [], json_mode, "remove")
+
+        def _remove_cb_ref(query_text: str, _fp=filepath):
+            filter_fn, err = _resolve_filter(query_text, json_mode)
+            if err:
+                print(f"error: {err}", flush=True)
+                return
+            raw = _fp.read_text(encoding="utf-8").strip()
+            values = [v.strip() for v in raw.split(",") if v.strip()] if raw else []
+            remaining = [v for v in values if not filter_fn({"values": v})]
+            n_removed = len(values) - len(remaining)
+            if n_removed == 0:
+                print("no matching values — nothing removed", flush=True)
+                return
+            dl_dir = downloads_dir / collection
+            dl_dir.mkdir(parents=True, exist_ok=True)
+            dest = dl_dir / _fp.name
+            dest.write_text(",".join(remaining) + "\n" if remaining else "", encoding="utf-8")
+            cmd_push(repo_root, collection, name, downloads_dir,
+                     additional_props, mandatory_ref_props,
+                     field_order=field_order,
+                     prop_validation_types=prop_validation_types,
+                     multiline_props=multiline_props)
+            print(f"removed {n_removed} items", flush=True)
+
+        if stdin_content is not None:
+            _remove_cb_ref(stdin_content)
+        else:
+            _launch_text_editor(title=f"removeitems {collection} {name}",
+                                initial_text=initial_text, hint=hint,
+                                submit_label="Remove", callback=_remove_cb_ref)
+
+
 def _parse_main_collection_sections(content: str, additional_props: tuple[str, ...] = (), *,
                              field_order: tuple[str, ...] | None = None,
                              multiline_props: frozenset[str] = frozenset()) -> list[dict]:
@@ -797,6 +1100,119 @@ def _is_initial_state_main_collection(content: str, additional_props: tuple[str,
         all(not s.get(p) for p in extra_to_check)
         for s in sections
     )
+
+
+# ── item filter (used by appenditems / searchitems / removeitems) ─────────────
+
+def _like_pattern_to_re(pattern: str) -> re.Pattern:
+    parts = re.split(r"(%|_)", pattern)
+    return re.compile(
+        "^" + "".join(
+            ".*" if p == "%" else "." if p == "_" else re.escape(p)
+            for p in parts
+        ) + "$",
+        re.IGNORECASE | re.DOTALL,
+    )
+
+
+def _tokenize_item_filter(query: str) -> list:
+    """Tokenize `col`='val' style filter queries."""
+    tokens: list = []
+    i, n = 0, len(query)
+    while i < n:
+        while i < n and query[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        rest = query[i:]
+        m_kw = re.match(r"(and|or)(?=[\s`'\"]|$)", rest, re.IGNORECASE)
+        if m_kw:
+            tokens.append((m_kw.group(1).upper(),))
+            i += m_kw.end()
+            continue
+        m_cond = re.match(
+            r"`([^`]+)`\s*(=|like)\s*(?:'([^']*)'|\"([^\"]*)\")",
+            rest, re.IGNORECASE,
+        )
+        if m_cond:
+            val = m_cond.group(3) if m_cond.group(3) is not None else m_cond.group(4)
+            tokens.append(("COND", m_cond.group(1), m_cond.group(2).lower(), val))
+            i += m_cond.end()
+            continue
+        i += 1
+    return tokens
+
+
+def _item_factor(tokens: list, pos: int):
+    if pos >= len(tokens) or tokens[pos][0] != "COND":
+        return (lambda _: False), pos
+    _, col, op, val = tokens[pos]
+    pos += 1
+    col_lower = col.lower()
+    if op == "=":
+        fn = lambda s, c=col_lower, v=val: s.get(c, "").lower() == v.lower()
+    else:  # like
+        pat = _like_pattern_to_re(val)
+        fn = lambda s, c=col_lower, p=pat: bool(p.match(s.get(c, "")))
+    return fn, pos
+
+
+def _item_and_expr(tokens: list, pos: int):
+    fn, pos = _item_factor(tokens, pos)
+    while pos < len(tokens) and tokens[pos][0] == "AND":
+        pos += 1
+        rf, pos = _item_factor(tokens, pos)
+        lf = fn
+        fn = lambda s, l=lf, r=rf: l(s) and r(s)
+    return fn, pos
+
+
+def _item_or_expr(tokens: list, pos: int):
+    fn, pos = _item_and_expr(tokens, pos)
+    while pos < len(tokens) and tokens[pos][0] == "OR":
+        pos += 1
+        rf, pos = _item_and_expr(tokens, pos)
+        lf = fn
+        fn = lambda s, l=lf, r=rf: l(s) or r(s)
+    return fn, pos
+
+
+def _parse_item_filter(query: str):
+    """Parse `col`='val' and/or `col2` like 'pat%' into (section_dict → bool).
+
+    Empty query matches everything. Raises ValueError on no valid conditions.
+    """
+    q = query.strip()
+    if not q:
+        return lambda _: True
+    tokens = _tokenize_item_filter(q)
+    if not any(t[0] == "COND" for t in tokens):
+        raise ValueError(
+            "no valid conditions found; "
+            "expected syntax: `column`='value' or `column` like 'pattern%'"
+        )
+    fn, _ = _item_or_expr(tokens, 0)
+    return fn
+
+
+def _parse_json_item_filter(query_dict: dict):
+    """Convert {"col": "val", "col2": "pat%"} into an AND filter (section_dict → bool).
+
+    Values containing % or _ use LIKE matching; others use exact case-insensitive match.
+    Empty dict matches everything.
+    """
+    if not query_dict:
+        return lambda _: True
+    fns = []
+    for col, val in query_dict.items():
+        col_lower = col.lower()
+        val_str = str(val)
+        if "%" in val_str or "_" in val_str:
+            pat = _like_pattern_to_re(val_str)
+            fns.append(lambda s, c=col_lower, p=pat: bool(p.match(s.get(c, ""))))
+        else:
+            fns.append(lambda s, c=col_lower, v=val_str: s.get(c, "").lower() == v.lower())
+    return lambda s: all(f(s) for f in fns)
 
 
 def _csv_field(s: str) -> str:
@@ -1510,6 +1926,9 @@ def usage_string() -> str:
         "  clear <collection> <name> [--jtable]\n"
         "  len <collection> <name>\n"
         "  push <collection> <name>\n"
+        "  appenditems <collection> <name> [-] [--json]\n"
+        "  searchitems <collection> <name> [-] [--json]\n"
+        "  removeitems <collection> <name> [-] [--json]\n"
         "  export <collection> <file.csv> [--jtable]\n"
         "  export <collection> <file.json>\n"
         "  diff <collection> <name> [--jtable]\n"
@@ -1533,7 +1952,8 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
     if cmd == "exit":
         return False
 
-    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export", "diff", "partialcopy"):
+    if cmd in ("ls", "add", "cat", "get", "clear", "len", "push", "export", "diff", "partialcopy",
+               "appenditems", "searchitems", "removeitems"):
         if len(parts) < 2:
             print("error: missing collection")
             return True
@@ -1625,6 +2045,49 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
                      additional_props, mandatory_ref_props, field_order=field_order,
                      prop_validation_types=prop_validation_types,
                      multiline_props=multiline_props, json_mode=as_json)
+
+    elif cmd == "appenditems":
+        json_mode = "--json" in parts
+        stdin_flag = "-" in parts
+        ap_parts = [p for p in parts if p not in ("--json", "-")]
+        if len(ap_parts) != 3:
+            print("usage: appenditems <collection> <name> [-] [--json]")
+        else:
+            cmd_appenditems(repo_root, collection, ap_parts[2], downloads_dir,
+                            additional_props, mandatory_ref_props,
+                            field_order=field_order,
+                            prop_validation_types=prop_validation_types,
+                            multiline_props=multiline_props,
+                            json_mode=json_mode,
+                            stdin_content=sys.stdin.read() if stdin_flag else None)
+
+    elif cmd == "searchitems":
+        json_mode = "--json" in parts
+        stdin_flag = "-" in parts
+        si_parts = [p for p in parts if p not in ("--json", "-")]
+        if len(si_parts) != 3:
+            print("usage: searchitems <collection> <name> [-] [--json]")
+        else:
+            cmd_searchitems(repo_root, collection, si_parts[2], additional_props,
+                            field_order=field_order,
+                            multiline_props=multiline_props,
+                            json_mode=json_mode,
+                            stdin_content=sys.stdin.read() if stdin_flag else None)
+
+    elif cmd == "removeitems":
+        json_mode = "--json" in parts
+        stdin_flag = "-" in parts
+        ri_parts = [p for p in parts if p not in ("--json", "-")]
+        if len(ri_parts) != 3:
+            print("usage: removeitems <collection> <name> [-] [--json]")
+        else:
+            cmd_removeitems(repo_root, collection, ri_parts[2], downloads_dir,
+                            additional_props, mandatory_ref_props,
+                            field_order=field_order,
+                            prop_validation_types=prop_validation_types,
+                            multiline_props=multiline_props,
+                            json_mode=json_mode,
+                            stdin_content=sys.stdin.read() if stdin_flag else None)
 
     elif cmd == "export":
         jtable = "--jtable" in parts
