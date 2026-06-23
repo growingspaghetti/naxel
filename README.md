@@ -312,7 +312,7 @@ These three commands operate on individual records within an entry without requi
 
 - `%` matches any sequence of characters; `_` matches any single character (SQL LIKE semantics).
 - `and` binds tighter than `or`.
-- An empty query (no conditions) matches everything.
+- An empty query (no conditions) matches nothing (returns `[]`).
 
 ### Filter query syntax (`--json` mode)
 
@@ -322,7 +322,7 @@ These three commands operate on individual records within an entry without requi
 
 - All key-value pairs are ANDed together.
 - Values containing `%` or `_` are automatically treated as LIKE patterns.
-- An empty object `{}` matches everything.
+- An empty object `{}` matches nothing (returns `[]`).
 
 ### Batch-mode examples
 

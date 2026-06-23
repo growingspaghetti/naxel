@@ -104,7 +104,7 @@ All managed data is organised into **collections**. Collections are entirely def
 | `diff <collection> <name> --jtable` | Same comparison in a colour-coded JTable window (deleted: red, added: green). |
 | `appenditems <collection> <name> [-] [--json]` | Open a text editor with a blank record template; save-and-close appends the new records to the existing entry and pushes. If the entry is in its initial all-blank state the blank template is replaced rather than extended. Default input: main collection uses 👉👈 text; reference collection uses comma-separated values. `--json`: main uses JSON array of section objects; ref uses JSON array of strings. `-`: read from stdin instead of opening an editor. |
 | `searchitems <collection> <name> [-] [--json]` | Open a filter query editor; save-and-close prints matching records as a JSON array to stdout. Output is always JSON. Default query syntax: backtick mode. `--json`: query is a JSON object. `-`: read query from stdin. |
-| `removeitems <collection> <name> [-] [--json]` | Same query editor; save-and-close removes matching records, pushes, and prints "removed N items". An empty query (no conditions) is rejected to prevent accidental wipeout. Same `--json` and `-` semantics. |
+| `removeitems <collection> <name> [-] [--json]` | Same query editor; save-and-close removes matching records, pushes, and prints "removed N items". An empty query matches nothing (prints "no matching … — nothing removed"). Same `--json` and `-` semantics. |
 | `fullcopy <dest-dir>` | Copy the entire repository (all versions) into `<dest-dir>/<repo-name>/`. |
 | `fullcopy <dest-dir> --json` | Snapshot the repository (latest versions only) as a single JSON file at `<dest-dir>/<repo-name>.json`. |
 | `mkrepo <json-file> <dest-dir>` | Reconstruct a repository from a `fullcopy --json` file into `<dest-dir>/<stem>/`. |
@@ -412,7 +412,7 @@ Opens a text editor pre-filled with a blank record template. After saving and cl
 Opens a filter query editor. After saving and closing, the query is applied to the records.
 
 - `searchitems`: prints matching records as a JSON array to stdout (output is always JSON).
-- `removeitems`: deletes matching records, pushes, and prints "removed N items". An empty query (no conditions) is rejected to prevent accidental wipeout.
+- `removeitems`: deletes matching records, pushes, and prints "removed N items". An empty query matches nothing (prints "no matching … — nothing removed").
 
 ### Filter query syntax — default (backtick mode)
 
@@ -430,7 +430,7 @@ Opens a filter query editor. After saving and closing, the query is applied to t
 | `and` | AND (binds tighter than OR) |
 | `or` | OR |
 
-An empty query (no conditions) matches everything in `searchitems`. In `removeitems` an empty query is an error.
+An empty query (no conditions) matches nothing in both `searchitems` (returns `[]`) and `removeitems` (prints "no matching … — nothing removed").
 
 ### Filter query syntax — `--json` (JSON object mode)
 
@@ -440,7 +440,7 @@ An empty query (no conditions) matches everything in `searchitems`. In `removeit
 
 - All key-value pairs are ANDed.
 - Values containing `%` or `_` are treated as LIKE patterns automatically.
-- An empty object `{}` matches everything (`removeitems` treats this as a full-wipe and proceeds — unlike the backtick empty query, it is not rejected).
+- An empty object `{}` matches nothing (same behaviour as an empty backtick query).
 
 ### Querying reference collections
 
