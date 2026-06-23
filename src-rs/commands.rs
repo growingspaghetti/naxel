@@ -1772,6 +1772,10 @@ pub fn process_text_edit_submit(
             }
         }
         "searchitems" => {
+            let s = strip_comments(content);
+            if s.trim().is_empty() || (context.json_mode && s.trim() == "{}") {
+                return Ok("[]".to_string());
+            }
             let filter = resolve_filter(content, context.json_mode)?;
             if is_main {
                 let bytes = std::fs::read(&context.existing_path).unwrap_or_default();
@@ -1791,6 +1795,14 @@ pub fn process_text_edit_submit(
             }
         }
         "removeitems" => {
+            let s = strip_comments(content);
+            if s.trim().is_empty() || (context.json_mode && s.trim() == "{}") {
+                return Ok(if is_main {
+                    "no matching sections — nothing removed".to_string()
+                } else {
+                    "no matching values — nothing removed".to_string()
+                });
+            }
             let filter = resolve_filter(content, context.json_mode)?;
             if is_main {
                 let bytes = std::fs::read(&context.existing_path).unwrap_or_default();
@@ -2010,6 +2022,11 @@ pub fn cmd_searchitems(
     };
 
     // Stdin mode: process and print in parent.
+    let stripped = strip_comments(&raw);
+    if stripped.trim().is_empty() || (json_mode && stripped.trim() == "{}") {
+        println!("[]");
+        return;
+    }
     let filter = match resolve_filter(&raw, json_mode) {
         Ok(f)  => f,
         Err(e) => { eprintln!("error: {e}"); return; }
@@ -2069,6 +2086,15 @@ pub fn cmd_removeitems(
     };
 
     // Stdin mode: process directly in parent.
+    let stripped = strip_comments(&raw);
+    if stripped.trim().is_empty() || (json_mode && stripped.trim() == "{}") {
+        if collection == state.main_collection {
+            println!("no matching sections — nothing removed");
+        } else {
+            println!("no matching values — nothing removed");
+        }
+        return;
+    }
     let filter = match resolve_filter(&raw, json_mode) {
         Ok(f)  => f,
         Err(e) => { eprintln!("error: {e}"); return; }

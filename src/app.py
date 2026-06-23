@@ -926,6 +926,10 @@ def cmd_searchitems(repo_root: Path, collection: str, name: str,
         initial_text, hint = _make_query_editor(collection, name, cols, json_mode, "search")
 
         def _search_cb(query_text: str, _fp=filepath):
+            q = query_text.strip()
+            if not q or (json_mode and q == "{}"):
+                print("[]", flush=True)
+                return
             filter_fn, err = _resolve_filter(query_text, json_mode)
             if err:
                 print(f"error: {err}", flush=True)
@@ -944,6 +948,10 @@ def cmd_searchitems(repo_root: Path, collection: str, name: str,
         initial_text, hint = _make_query_editor(collection, name, [], json_mode, "search")
 
         def _search_cb_ref(query_text: str, _fp=filepath):
+            q = query_text.strip()
+            if not q or (json_mode and q == "{}"):
+                print("[]", flush=True)
+                return
             filter_fn, err = _resolve_filter(query_text, json_mode)
             if err:
                 print(f"error: {err}", flush=True)
@@ -980,6 +988,10 @@ def cmd_removeitems(repo_root: Path, collection: str, name: str,
         initial_text, hint = _make_query_editor(collection, name, cols, json_mode, "remove")
 
         def _remove_cb(query_text: str, _fp=filepath):
+            q = query_text.strip()
+            if not q or (json_mode and q == "{}"):
+                print("no matching sections — nothing removed", flush=True)
+                return
             filter_fn, err = _resolve_filter(query_text, json_mode)
             if err:
                 print(f"error: {err}", flush=True)
@@ -1013,6 +1025,10 @@ def cmd_removeitems(repo_root: Path, collection: str, name: str,
         initial_text, hint = _make_query_editor(collection, name, [], json_mode, "remove")
 
         def _remove_cb_ref(query_text: str, _fp=filepath):
+            q = query_text.strip()
+            if not q or (json_mode and q == "{}"):
+                print("no matching values — nothing removed", flush=True)
+                return
             filter_fn, err = _resolve_filter(query_text, json_mode)
             if err:
                 print(f"error: {err}", flush=True)

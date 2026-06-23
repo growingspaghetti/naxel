@@ -8,6 +8,7 @@ from app import (
     encode_name,
     cmd_ls, cmd_add, cmd_cat, cmd_get, cmd_clear, cmd_push, cmd_export, cmd_len, cmd_diff,
     cmd_fullcopy, cmd_mkrepo, cmd_partialcopy,
+    cmd_searchitems, cmd_removeitems,
     _empty_main_collection_document, _empty_main_collection_json, _text_to_main_collection_json,
 )
 
@@ -1378,3 +1379,62 @@ class TestPartialcopy:
         self._setup_collections(repo)
         cmd_partialcopy(repo, "systems", "sys1", str(tmp_path / "nonexistent"), json_mode=True)
         assert "error" in capsys.readouterr().out
+
+
+class TestSearchitemsRemoveitemsEmptyQuery:
+    SEP = "🏔" * 20
+
+    def _write_main(self, repo, name, sections):
+        enc = encode_name(name)
+        data = gzip.compress(json.dumps(sections).encode())
+        (repo / "systems" / f"{enc}.0000.txt.gz").write_bytes(data)
+
+    def _write_ref(self, repo, collection, name, content):
+        enc = encode_name(name)
+        (repo / collection / f"{enc}.0000.txt").write_text(content)
+
+    def test_searchitems_empty_main_returns_empty_list(self, repo, capsys):
+        self._write_main(repo, "sys1", [{"p1": "a", "p2": "b"}])
+        cmd_searchitems(repo, "systems", "sys1", ("p1", "p2"),
+                        field_order=("p1", "p2"), stdin_content="")
+        assert json.loads(capsys.readouterr().out) == []
+
+    def test_searchitems_whitespace_query_returns_empty_list(self, repo, capsys):
+        self._write_main(repo, "sys1", [{"p1": "a", "p2": "b"}])
+        cmd_searchitems(repo, "systems", "sys1", ("p1", "p2"),
+                        field_order=("p1", "p2"), stdin_content="   \n  ")
+        assert json.loads(capsys.readouterr().out) == []
+
+    def test_searchitems_empty_json_returns_empty_list(self, repo, capsys):
+        self._write_main(repo, "sys1", [{"p1": "a", "p2": "b"}])
+        cmd_searchitems(repo, "systems", "sys1", ("p1", "p2"),
+                        field_order=("p1", "p2"), json_mode=True, stdin_content="{}")
+        assert json.loads(capsys.readouterr().out) == []
+
+    def test_searchitems_empty_ref_returns_empty_list(self, repo, capsys):
+        self._write_ref(repo, "schedules", "sche1", "2024/01/01,2024/06/15")
+        cmd_searchitems(repo, "schedules", "sche1", stdin_content="")
+        assert json.loads(capsys.readouterr().out) == []
+
+    def test_removeitems_empty_main_nothing_removed(self, repo, downloads, capsys):
+        self._write_main(repo, "sys1", [{"p1": "a", "p2": "b"}])
+        cmd_removeitems(repo, "systems", "sys1", downloads, ("p1", "p2"),
+                        field_order=("p1", "p2"), stdin_content="")
+        out = capsys.readouterr().out
+        assert "nothing removed" in out
+        assert "error" not in out
+
+    def test_removeitems_empty_json_nothing_removed(self, repo, downloads, capsys):
+        self._write_main(repo, "sys1", [{"p1": "a", "p2": "b"}])
+        cmd_removeitems(repo, "systems", "sys1", downloads, ("p1", "p2"),
+                        field_order=("p1", "p2"), json_mode=True, stdin_content="{}")
+        out = capsys.readouterr().out
+        assert "nothing removed" in out
+        assert "error" not in out
+
+    def test_removeitems_empty_ref_nothing_removed(self, repo, downloads, capsys):
+        self._write_ref(repo, "schedules", "sche1", "2024/01/01,2024/06/15")
+        cmd_removeitems(repo, "schedules", "sche1", downloads, stdin_content="")
+        out = capsys.readouterr().out
+        assert "nothing removed" in out
+        assert "error" not in out
