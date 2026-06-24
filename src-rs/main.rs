@@ -50,7 +50,16 @@ fn do_cd(
     Some(state)
 }
 
-fn spawn_table(td: TableData) {
+type SharedPrinter = std::sync::Arc<std::sync::Mutex<Box<dyn rustyline::ExternalPrinter + Send>>>;
+
+/// Spawns a table subprocess.  In REPL mode the subprocess's stdout is piped back here and
+/// displayed via ExternalPrinter so rustyline's terminal state is never corrupted.
+/// In batch mode (printer == None) stdout is inherited as before.
+fn spawn_table(
+    td: TableData,
+    printer: Option<SharedPrinter>,
+    pending_history: Option<std::sync::Arc<std::sync::Mutex<Vec<String>>>>,
+) {
     let exe = std::env::current_exe()
         .unwrap_or_else(|_| std::path::PathBuf::from("naxel"));
     let json = match serde_json::to_string(&td) {
@@ -59,9 +68,11 @@ fn spawn_table(td: TableData) {
     };
     use std::io::Write;
     use std::process::{Command, Stdio};
+    let pipe_stdout = printer.is_some();
     let mut child = match Command::new(&exe)
         .arg("--table")
         .stdin(Stdio::piped())
+        .stdout(if pipe_stdout { Stdio::piped() } else { Stdio::inherit() })
         .spawn()
     {
         Ok(c) => c,
@@ -70,7 +81,29 @@ fn spawn_table(td: TableData) {
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(json.as_bytes());
     }
-    // Fire-and-forget: reap in background thread to avoid zombies
+    // Relay thread: reads subprocess stdout and displays via ExternalPrinter so rustyline
+    // redraws the prompt correctly after each output.
+    // Lines prefixed with '\x01' are echo markers: "\x01{repo_name}\x02{cmd_str}".
+    if let (Some(printer), Some(pending), Some(child_stdout)) =
+        (printer, pending_history, child.stdout.take())
+    {
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(child_stdout);
+            for line in reader.lines().flatten() {
+                if let Some(rest) = line.strip_prefix('\x01') {
+                    if let Some((repo_name, cmd_str)) = rest.split_once('\x02') {
+                        let _ = printer.lock().unwrap()
+                            .print(format!("{repo_name} > {cmd_str}\n"));
+                        pending.lock().unwrap().push(cmd_str.to_string());
+                    }
+                } else if !line.is_empty() {
+                    let _ = printer.lock().unwrap().print(format!("{line}\n"));
+                }
+            }
+        });
+    }
+    // Fire-and-forget: reap in background thread to avoid zombies.
     std::thread::spawn(move || { let _ = child.wait(); });
 }
 
@@ -361,7 +394,7 @@ fn main() {
             }
             match dispatch(&parts, &state, &editor) {
                 None => break,
-                Some(Some(td)) => spawn_table(td),
+                Some(Some(td)) => spawn_table(td, None, None),
                 Some(None) => {}
             }
         }
@@ -377,7 +410,21 @@ fn main() {
 
     let mut rl = rustyline::DefaultEditor::new().expect("readline init");
 
+    // ExternalPrinter lets relay threads (one per table subprocess) display output
+    // via rustyline's own mechanism — rustyline clears the prompt, prints the text,
+    // redraws the prompt — keeping its terminal state consistent at all times.
+    let shared_printer: SharedPrinter = std::sync::Arc::new(std::sync::Mutex::new(
+        Box::new(rl.create_external_printer().expect("external printer")),
+    ));
+    let pending_history = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+
     loop {
+        // Drain history entries queued by relay threads (from nx button clicks).
+        let entries = std::mem::take(&mut *pending_history.lock().unwrap());
+        for entry in entries {
+            let _ = rl.add_history_entry(&entry);
+        }
+
         let prompt = format!("{} > ", state.repo_root.file_name().unwrap_or_default().to_string_lossy());
         let line = match rl.readline(&prompt) {
             Ok(l) => l,
@@ -407,7 +454,11 @@ fn main() {
 
         match dispatch(&parts, &state, &editor) {
             None => break,
-            Some(Some(td)) => spawn_table(td),
+            Some(Some(td)) => spawn_table(
+                td,
+                Some(std::sync::Arc::clone(&shared_printer)),
+                Some(std::sync::Arc::clone(&pending_history)),
+            ),
             Some(None) => {}
         }
     }

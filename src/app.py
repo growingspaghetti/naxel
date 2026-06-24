@@ -6,6 +6,7 @@ import json
 import os
 import re
 from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout as _patch_stdout
 import shutil
 import subprocess
 import sys
@@ -2254,6 +2255,7 @@ def dispatch(parts: list[str], repo_root: Path, downloads_dir: Path,
             get_names_fn=lambda col: _get_collection_names(repo_root, col),
             dispatch_fn=_dispatch_fn,
             history_fn=history_fn,
+            repo_name=repo_root.name,
         )
         schedule_on_gui(lambda: commander.run(master=get_gui_root()))
 
@@ -2332,7 +2334,7 @@ def main():
                 break
         return
 
-    print(f"repo-manipulator  repository={state.repo_root}")
+    print(f"naxel repository={state.repo_root}")
     sync_cache(state.repo_root, state.cache_dir)
     if state.intro_message:
         print(state.intro_message)
@@ -2341,7 +2343,8 @@ def main():
     session: PromptSession = PromptSession()
     while True:
         try:
-            line = session.prompt(f"{state.repo_root.name} > ").strip()
+            with _patch_stdout():
+                line = session.prompt(f"{state.repo_root.name} > ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
