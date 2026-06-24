@@ -2334,7 +2334,7 @@ def main():
                 break
         return
 
-    print(f"repo-manipulator  repository={state.repo_root}")
+    print(f"naxel repository={state.repo_root}")
     sync_cache(state.repo_root, state.cache_dir)
     if state.intro_message:
         print(state.intro_message)
