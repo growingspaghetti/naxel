@@ -94,13 +94,15 @@ fn run_nx_cmd(
     } else {
         format!("{cmd} {collection} {name}")
     };
-    // Write "{repo_name}\t{cmd_str}" for the REPL process to display via ExternalPrinter.
+    // Write an echo marker to stdout (piped to the REPL relay thread).
+    // Format: "\x01{repo_name}\x02{cmd_str}\n"
+    // The relay thread displays "{repo_name} > {cmd_str}" via ExternalPrinter and
+    // adds cmd_str to readline history.  Writing the marker before cmd execution
+    // ensures the echo appears before any cmd output (saved:, content, etc.).
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true).append(true).open(&nx_info.history_file)
-    {
-        let _ = writeln!(f, "{repo_name}\t{cmd_str}");
-    }
+    let mut stdout = std::io::stdout();
+    let _ = write!(stdout, "\x01{repo_name}\x02{cmd_str}\n");
+    let _ = stdout.flush();
 
     let mini_state = nx_info_to_state(&nx_info, &collection);
 
@@ -110,6 +112,8 @@ fn run_nx_cmd(
         "diff" => crate::commands::cmd_diff(&mini_state, &collection, &name, jtable),
         _ => return Err(format!("unknown nx sub-command: {cmd}")),
     };
+    // Flush all cmd output through the pipe so the relay thread receives it promptly.
+    let _ = std::io::stdout().flush();
 
     if let Some(td) = td {
         spawn_nx_table(td);

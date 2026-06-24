@@ -38,8 +38,6 @@ pub struct NxInfo {
     pub collection_type: HashMap<String, String>,
     pub prop_validation_types: HashMap<String, String>,
     pub editor: String,
-    /// Temp file the subprocess appends dispatched commands to; REPL polls this for history.
-    pub history_file: PathBuf,
 }
 
 /// Serializable description of what the table window should display.
