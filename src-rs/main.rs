@@ -379,15 +379,38 @@ fn main() {
 
     let mut rl = rustyline::DefaultEditor::new().expect("readline init");
 
-    loop {
-        // Pick up any commands dispatched from nx windows since the last iteration.
-        if let Ok(content) = std::fs::read_to_string(&nx_history_file) {
-            if !content.is_empty() {
-                for entry in content.lines().filter(|l| !l.is_empty()) {
-                    let _ = rl.add_history_entry(entry);
+    // Background thread: polls the nx history file, displays dispatched commands via
+    // ExternalPrinter (which safely clears/redraws the readline prompt), and queues
+    // the cmd_str for history injection on the main thread.
+    let pending_history = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    {
+        use rustyline::ExternalPrinter as _;
+        let mut printer = rl.create_external_printer().expect("external printer");
+        let pending = std::sync::Arc::clone(&pending_history);
+        let hfile = nx_history_file.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+                let content = match std::fs::read_to_string(&hfile) {
+                    Ok(c) if !c.is_empty() => c,
+                    _ => continue,
+                };
+                let _ = std::fs::write(&hfile, "");
+                for line in content.lines().filter(|l| !l.is_empty()) {
+                    if let Some((repo_name, cmd_str)) = line.split_once('\t') {
+                        let _ = printer.print(format!("{repo_name} > {cmd_str}\n"));
+                        pending.lock().unwrap().push(cmd_str.to_string());
+                    }
                 }
-                let _ = std::fs::write(&nx_history_file, "");
             }
+        });
+    }
+
+    loop {
+        // Drain entries queued by the background thread into readline history.
+        let entries = std::mem::take(&mut *pending_history.lock().unwrap());
+        for entry in entries {
+            let _ = rl.add_history_entry(&entry);
         }
 
         let prompt = format!("{} > ", state.repo_root.file_name().unwrap_or_default().to_string_lossy());

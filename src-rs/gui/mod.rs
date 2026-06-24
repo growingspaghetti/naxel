@@ -94,12 +94,12 @@ fn run_nx_cmd(
     } else {
         format!("{cmd} {collection} {name}")
     };
-    println!("\r{repo_name} > {cmd_str}");
+    // Write "{repo_name}\t{cmd_str}" for the REPL process to display via ExternalPrinter.
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true).append(true).open(&nx_info.history_file)
     {
-        let _ = writeln!(f, "{cmd_str}");
+        let _ = writeln!(f, "{repo_name}\t{cmd_str}");
     }
 
     let mini_state = nx_info_to_state(&nx_info, &collection);
