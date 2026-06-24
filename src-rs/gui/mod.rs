@@ -88,12 +88,13 @@ fn run_nx_cmd(
         }
     };
 
+    let repo_name = nx_info.repo_root.file_name().unwrap_or_default().to_string_lossy();
     let cmd_str = if jtable {
         format!("{cmd} {collection} {name} --jtable")
     } else {
         format!("{cmd} {collection} {name}")
     };
-    println!("{cmd_str}");
+    println!("\r{repo_name} > {cmd_str}");
 
     let mini_state = nx_info_to_state(&nx_info, &collection);
 

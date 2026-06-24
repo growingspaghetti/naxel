@@ -813,11 +813,12 @@ class TextEditorWindow:
 class NxCommander:
     """Collection/name navigator with cat · get · diff buttons (with and without --jtable)."""
 
-    def __init__(self, collections: list[str], get_names_fn, dispatch_fn, history_fn=None):
+    def __init__(self, collections: list[str], get_names_fn, dispatch_fn, history_fn=None, repo_name: str = ""):
         self._collections = collections
         self._get_names_fn = get_names_fn
         self._dispatch_fn = dispatch_fn
         self._history_fn = history_fn
+        self._repo_name = repo_name
 
     def run(self, master: "tk.Tk | None" = None):
         own_root = master is None
@@ -832,6 +833,11 @@ class NxCommander:
                              values=self._collections, state="readonly")
         combo.pack(fill=tk.X)
 
+        filter_frame = ttk.Frame(root, padding=(4, 0, 4, 0))
+        filter_frame.pack(fill=tk.X)
+        filter_var = tk.StringVar()
+        ttk.Entry(filter_frame, textvariable=filter_var).pack(fill=tk.X)
+
         mid = ttk.Frame(root, padding=4)
         mid.pack(fill=tk.BOTH, expand=True)
         listbox = tk.Listbox(mid, selectmode=tk.SINGLE, activestyle="none")
@@ -840,14 +846,23 @@ class NxCommander:
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         listbox.pack(fill=tk.BOTH, expand=True)
 
-        def refresh_list(*_):
-            col = col_var.get()
+        _all_names: list[str] = []
+
+        def apply_filter(*_):
+            q = filter_var.get().lower()
             listbox.delete(0, tk.END)
-            if col:
-                for name in self._get_names_fn(col):
-                    listbox.insert(tk.END, name)
+            for name in (_all_names if not q else [n for n in _all_names if q in n.lower()]):
+                listbox.insert(tk.END, name)
+
+        def refresh_list(*_):
+            nonlocal _all_names
+            col = col_var.get()
+            _all_names = list(self._get_names_fn(col)) if col else []
+            filter_var.set("")
+            apply_filter()
 
         col_var.trace_add("write", refresh_list)
+        filter_var.trace_add("write", apply_filter)
 
         def run_cmd(cmd, jtable):
             col = col_var.get()
@@ -859,7 +874,7 @@ class NxCommander:
             if jtable:
                 parts.append("--jtable")
             cmd_str = " ".join(parts)
-            print(cmd_str, flush=True)
+            print(f"{self._repo_name} > {cmd_str}" if self._repo_name else cmd_str, flush=True)
             if self._history_fn:
                 self._history_fn(cmd_str)
             threading.Thread(target=lambda: self._dispatch_fn(parts), daemon=True).start()
