@@ -95,6 +95,12 @@ fn run_nx_cmd(
         format!("{cmd} {collection} {name}")
     };
     println!("\r{repo_name} > {cmd_str}");
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true).append(true).open(&nx_info.history_file)
+    {
+        let _ = writeln!(f, "{cmd_str}");
+    }
 
     let mini_state = nx_info_to_state(&nx_info, &collection);
 

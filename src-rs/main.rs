@@ -74,7 +74,7 @@ fn spawn_table(td: TableData) {
     std::thread::spawn(move || { let _ = child.wait(); });
 }
 
-fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<TableData>> {
+fn dispatch(parts: &[&str], state: &RepoState, editor: &str, nx_history_file: &std::path::Path) -> Option<Option<TableData>> {
     let cmd = parts[0];
 
     if cmd == "exit" { return None; }
@@ -268,7 +268,7 @@ fn dispatch(parts: &[&str], state: &RepoState, editor: &str) -> Option<Option<Ta
         }
         "nx" => {
             if parts.len() != 1 { eprintln!("usage: nx"); None }
-            else { cmd_nx(state, editor) }
+            else { cmd_nx(state, editor, nx_history_file) }
         }
         _ => {
             eprintln!("unknown command: {cmd:?}");
@@ -337,6 +337,8 @@ fn main() {
     let downloads_base = project_dir.join("downloads");
     let cache_base = project_dir.join("cache");
     let editor = cfg.editor.clone();
+    let nx_history_file = std::env::temp_dir()
+        .join(format!("naxel-nx-{}.hist", std::process::id()));
 
     let mut state = initialize_repo(&cfg.repo_root, &downloads_base, &cache_base);
 
@@ -359,7 +361,7 @@ fn main() {
                 }
                 continue;
             }
-            match dispatch(&parts, &state, &editor) {
+            match dispatch(&parts, &state, &editor, &nx_history_file) {
                 None => break,
                 Some(Some(td)) => spawn_table(td),
                 Some(None) => {}
@@ -378,6 +380,16 @@ fn main() {
     let mut rl = rustyline::DefaultEditor::new().expect("readline init");
 
     loop {
+        // Pick up any commands dispatched from nx windows since the last iteration.
+        if let Ok(content) = std::fs::read_to_string(&nx_history_file) {
+            if !content.is_empty() {
+                for entry in content.lines().filter(|l| !l.is_empty()) {
+                    let _ = rl.add_history_entry(entry);
+                }
+                let _ = std::fs::write(&nx_history_file, "");
+            }
+        }
+
         let prompt = format!("{} > ", state.repo_root.file_name().unwrap_or_default().to_string_lossy());
         let line = match rl.readline(&prompt) {
             Ok(l) => l,
@@ -405,7 +417,7 @@ fn main() {
             continue;
         }
 
-        match dispatch(&parts, &state, &editor) {
+        match dispatch(&parts, &state, &editor, &nx_history_file) {
             None => break,
             Some(Some(td)) => spawn_table(td),
             Some(None) => {}
